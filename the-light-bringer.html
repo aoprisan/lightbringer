@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>The Light-Bringer</title>
+<style>
+  :root {
+    --night: #0b0d1a;
+    --night-2: #11142a;
+    --ink: #c9c4d8;
+    --gold: #e8b34b;
+    --gold-bright: #ffd87a;
+    --cold: #9fc4e8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--night); color: var(--ink); overflow: hidden;
+    font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 14px 18px 10px;
+    background: linear-gradient(var(--night) 55%, transparent);
+    pointer-events: none;
+  }
+  h1 {
+    font-size: 13px; font-weight: 400; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold);
+  }
+  .stats { display: flex; gap: 14px; font-size: 12px; letter-spacing: 0.08em; opacity: 0.85; }
+  #flame { color: var(--gold-bright); letter-spacing: 0.18em; }
+
+  #citywrap { position: absolute; inset: 0; }
+  svg { width: 100%; height: 100%; touch-action: pan-x pan-y; }
+
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
+    display: flex; gap: 10px; justify-content: center;
+    padding: 12px 18px calc(16px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, var(--night) 60%);
+  }
+  button {
+    font-family: inherit; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 12px 20px; border-radius: 2px; cursor: pointer;
+    background: var(--night-2); color: var(--ink); border: 1px solid #2a2f4a;
+  }
+  button.kindle { border-color: var(--gold); color: var(--gold); }
+  button.awaken { border-color: var(--gold-bright); color: var(--gold-bright);
+    box-shadow: 0 0 14px rgba(255, 216, 122, 0.25); }
+  button:active { transform: translateY(1px); }
+
+  #overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 32px; text-align: center;
+    background: rgba(11, 13, 26, 0.92); backdrop-filter: blur(3px);
+  }
+  #overlay.hidden { display: none; }
+  #ov-title { font-size: 22px; font-weight: 400; letter-spacing: 0.12em; color: var(--gold); }
+  #ov-body { max-width: 420px; line-height: 1.6; font-size: 15px; }
+  #ov-btn { border-color: var(--gold); color: var(--gold); }
+
+  #help {
+    position: fixed; bottom: 78px; left: 0; right: 0; z-index: 4;
+    text-align: center; font-size: 11.5px; letter-spacing: 0.06em;
+    opacity: 0.55; font-style: italic; pointer-events: none;
+    padding: 0 24px;
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+  <header>
+    <h1>The Light‑Bringer</h1>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span></div>
+  </header>
+
+  <div id="citywrap">
+    <svg id="city" viewBox="0 0 1000 1400" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div id="help">Tap to kindle. Awaken a dwelling (3✦) and it carries the light after you. Cold diamonds snuff what burns brightest. Unbanked light dies at dawn.</div>
+
+  <footer>
+    <button id="mode" class="kindle">Kindle (1✦)</button>
+    <button id="endnight">End the night</button>
+  </footer>
+
+  <div id="overlay" class="hidden">
+    <div id="ov-title"></div>
+    <div id="ov-body"></div>
+    <button id="ov-btn">Carry on</button>
+  </div>
+
+<script>(()=>{var v={conduit:.5,dwelling:.18,shrine:.28,keeper:0};function N(){let a=[],i=0;for(;a.length<110&&i++<2e4;){let o=60+Math.random()*880,l=60+Math.random()*1280;a.every(r=>(r.x-o)**2+(r.y-l)**2>78**2)&&a.push({id:a.length,x:o,y:l,kind:"dwelling",state:"dark",brightness:0,revealed:!1,heat:0})}let n=[...a].sort(()=>Math.random()-.5);n.slice(0,Math.floor(a.length*.18)).forEach(o=>o.kind="conduit"),n.slice(-5).forEach(o=>o.kind="shrine");let t=[];for(let o of n)if(o.kind==="dwelling"&&t.every(l=>(l.x-o.x)**2+(l.y-o.y)**2>380**2)&&(o.kind="keeper",t.push(o),t.length>=6))break;let e=[],d=new Set;for(let o of a){let l=a.filter(r=>r.id!==o.id).sort((r,c)=>(r.x-o.x)**2+(r.y-o.y)**2-((c.x-o.x)**2+(c.y-o.y)**2)).slice(0,3);for(let r of l){let c=o.id<r.id?`${o.id}-${r.id}`:`${r.id}-${o.id}`;if(d.has(c))continue;d.add(c);let b=Math.min(v[o.kind]+v[r.kind],.6)+.08;e.push({a:o.id,b:r.id,conductivity:b})}}let s=new Map;for(let o of e)s.has(o.a)||s.set(o.a,[]),s.has(o.b)||s.set(o.b,[]),s.get(o.a).push(o.b),s.get(o.b).push(o.a);return{nodes:a,edges:e,adj:s}}function M(a,i,n){return a.edges.find(t=>t.a===i&&t.b===n||t.a===n&&t.b===i)}function y(a,i,n){let t=a.nodes[i];if(t.revealed=!0,!(n<=0))for(let e of a.adj.get(i)??[])y(a,e,n-1)}function x(a,i){let n=a.nodes[i];return n.state!=="dark"||n.kind==="keeper"?!1:(n.state="lit",n.brightness=1,y(a,i,2),!0)}function T(a){let i=[];for(let n of a.nodes)if(!(n.state!=="lit"&&n.state!=="awakened")){for(let t of a.adj.get(n.id)??[]){let e=a.nodes[t];if(e.state!=="dark"||e.kind==="keeper")continue;let d=M(a,n.id,t);if(!d)continue;let s=d.conductivity*n.brightness*(n.state==="awakened"?1.25:1);Math.random()<s*.45&&i.push(t)}n.state==="lit"&&(n.brightness=Math.max(.35,n.brightness-.03))}for(let n of i)x(a,n)}function I(a){if(a.tick%5===0)for(let i of a.nodes){if(i.kind!=="keeper")continue;let n=null;for(let e of a.nodes)e.state!=="lit"&&e.state!=="awakened"||(e.x-i.x)**2+(e.y-i.y)**2>230**2||(!n||e.brightness>n.brightness)&&(n=e);if(!n)continue;n.heat+=1;let t=n.state==="awakened"?2:1;n.heat>=t&&(n.state="snuffed",n.brightness=0,n.revealed=!0)}}function p(a){let i=0,n=0,t=0;for(let e of a.nodes)e.kind!=="keeper"&&(t++,(e.state==="lit"||e.state==="awakened")&&i++,e.state==="awakened"&&n++);return{lit:i,total:t,awakened:n}}function _(a){let i=new Set,n=a.nodes.filter(e=>e.state==="awakened").map(e=>e.id);for(n.forEach(e=>i.add(e));n.length;){let e=n.pop();for(let d of a.adj.get(e)??[]){let s=a.nodes[d];(s.state==="lit"||s.state==="awakened")&&!i.has(d)&&(i.add(d),n.push(d))}}let t=0;for(let e of a.nodes)e.state==="lit"&&!i.has(e.id)?(e.state="dark",e.brightness=0,t++):e.state==="lit"&&(e.brightness=.8),e.heat=0;return{survived:i.size,faded:t}}var B="http://www.w3.org/2000/svg";function u(a,i){let n=document.createElementNS(B,a);for(let[t,e]of Object.entries(i))n.setAttribute(t,String(e));return n}function G(a,i,n){i.innerHTML="";let t=u("defs",{});t.innerHTML=`
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="halo">
+      <stop offset="0%" stop-color="#e8b34b" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#e8b34b" stop-opacity="0"/>
+    </radialGradient>`,i.appendChild(t);for(let e of a.edges){let d=a.nodes[e.a],s=a.nodes[e.b],o=(d.state==="lit"||d.state==="awakened")&&(s.state==="lit"||s.state==="awakened"),l=d.revealed&&s.revealed;i.appendChild(u("line",{x1:d.x,y1:d.y,x2:s.x,y2:s.y,stroke:o?"#e8b34b":"#2a2f4a","stroke-opacity":o?.7:l?.5:.14,"stroke-width":o?2:1}))}for(let e of a.nodes){let d=u("g",{style:"cursor:pointer"}),s=e.state==="lit"||e.state==="awakened";s&&d.appendChild(u("circle",{cx:e.x,cy:e.y,r:46*e.brightness+14,fill:"url(#halo)"}));let o="#3a4060",l=7,r=e.revealed?.9:.22;if(e.kind==="keeper")o="#9fc4e8",l=9,r=e.revealed?.95:.1,d.appendChild(u("rect",{x:e.x-l,y:e.y-l,width:l*2,height:l*2,fill:o,opacity:r,transform:`rotate(45 ${e.x} ${e.y})`}));else if(e.state==="snuffed")o="#12131f",d.appendChild(u("circle",{cx:e.x,cy:e.y,r:11,fill:o,stroke:"#46527a","stroke-width":1.5,opacity:.95}));else{s?(o=e.state==="awakened"?"#ffd87a":"#e8b34b",l=e.state==="awakened"?10:8,r=1):e.kind==="conduit"?o=e.revealed?"#5a5f86":"#3a4060":e.kind==="shrine"&&(o=e.revealed?"#8a7aa8":"#3a4060",r=Math.max(r,.35));let c=u("circle",{cx:e.x,cy:e.y,r:l,fill:o,opacity:r});s&&c.setAttribute("filter","url(#glow)"),d.appendChild(c),e.state==="awakened"&&d.appendChild(u("circle",{cx:e.x,cy:e.y,r:15,fill:"none",stroke:"#ffd87a","stroke-width":1.4,opacity:.85}))}d.addEventListener("pointerdown",c=>{c.preventDefault(),n(e.id)}),i.appendChild(d)}}function K(){let{nodes:a,edges:i,adj:n}=N(),t={nodes:a,edges:i,adj:n,night:1,maxFlame:9,flame:9,mode:"kindle",phase:"night",tick:0};for(let f of t.nodes)f.kind==="shrine"&&y(t,f.id,1);let e=document.getElementById("city"),d=document.getElementById("flame"),s=document.getElementById("night"),o=document.getElementById("litpct"),l=document.getElementById("mode"),r=document.getElementById("endnight"),c=document.getElementById("overlay"),b=document.getElementById("ov-title"),E=document.getElementById("ov-body"),g=document.getElementById("ov-btn");function w(){d.textContent="\u2726".repeat(t.flame)+"\xB7".repeat(Math.max(0,t.maxFlame-t.flame)),s.textContent=`Night ${t.night}`;let f=p(t);o.textContent=`${Math.round(f.lit/f.total*100)}% lit`,l.textContent=t.mode==="kindle"?"Kindle (1\u2726)":"Awaken (3\u2726)",l.className=t.mode}function k(){G(t,e,S),w()}function S(f){if(t.phase!=="night")return;let m=t.nodes[f];if(t.mode==="kindle"){if(t.flame<1)return;x(t,f)&&(t.flame-=1)}else{if(t.flame<3)return;m.kind==="dwelling"&&(m.state==="dark"||m.state==="lit")&&(m.state="awakened",m.brightness=1,y(t,f,2),t.flame-=3)}k()}l.addEventListener("click",()=>{t.mode=t.mode==="kindle"?"awaken":"kindle",w()});function C(){t.phase="dawn";let f=p(t),{faded:m}=_(t),h=p(t);t.maxFlame-=1,t.maxFlame<=0?(t.phase="end",b.textContent="The carrier is spent",E.textContent=h.lit>0?`Your flame is gone, but ${h.lit} lights still burn without you \u2014 ${Math.round(h.lit/h.total*100)}% of the city. That is the victory.`:"Your flame is gone, and the city is dark. Nothing you lit outlived you.",g.textContent="Begin again",g.onclick=()=>location.reload()):(b.textContent=`Dawn, after night ${t.night}`,E.textContent=`${m} unbanked lights faded with the dark. ${h.lit} survive, held by ${h.awakened} awakened souls. Your flame burns lower: ${t.maxFlame}\u2726 remain to you.`,g.textContent="Carry on",g.onclick=()=>{t.night+=1,t.flame=t.maxFlame,t.phase="night",c.classList.add("hidden"),k()}),c.classList.remove("hidden"),k()}r.addEventListener("click",C),setInterval(()=>{t.phase==="night"&&(t.tick+=1,T(t),I(t),k())},650),k()}K();})();
+</script>
+</body>
+</html>
