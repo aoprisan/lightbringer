@@ -31,6 +31,7 @@ interface CityNode {
   heat: number; // Keeper attention accrued here
   veil: number; // thickening dark left by snuffing
   decoy: number; // breaths a false light still burns here (0 = none); never saved
+  nights: number; // dawns this soul has held as awakened; HEARTH_NIGHTS settles a hearth
   district: number;
 }
 
@@ -89,6 +90,8 @@ const KEEPER_LEASH = 340;          // how far a Keeper strays from its post
 const KEEPER_SNUFF_REACH = 80;     // a Keeper must close to this range to snuff
 const AWAKEN_KINDLE_EVERY = 4;     // ticks between an awakened soul's own kindling
 const DECOY_TICKS = 10;            // breaths a false light burns before it fades
+const HEARTH_NIGHTS = 3;           // dawns an awakened soul must hold to settle into a hearth
+const HEARTH_REFUND = 1;           // flame each hearth returns to the carrier at dawn
 const MAX_KEEPERS = 12;            // cap on Veil reinforcements
 const VEIL_REINFORCE_AT = 3.2;     // local veil weight that thickens into a new Keeper
 
@@ -108,7 +111,7 @@ const COND: Record<NodeKind, number> = {
   keeper: 0.0,
 };
 
-const SAVE_KEY = "lightbringer.save.v3";
+const SAVE_KEY = "lightbringer.save.v4";
 
 // ---------- Districts ----------
 // Five quarters, found by nearest fixed anchor so clusters look organic.
@@ -233,6 +236,7 @@ function makeNode(id: number, x: number, y: number, kind: NodeKind): CityNode {
     heat: 0,             // Keeper attention accrued here
     veil: 0,             // thickening dark left by snuffing
     decoy: 0,            // breaths a false light still burns here (0 = none)
+    nights: 0,           // dawns held as an awakened soul
     district: districtOf(x, y),
   };
 }
@@ -524,6 +528,7 @@ function snuff(g: GameState, n: CityNode): void {
   n.brightness = 0;
   n.revealed = true;
   n.heat = 0;
+  n.nights = 0; // a snuffed soul's hearth-age dies with it
   // Snuffed ground does not return to neutral dark — it thickens. A martyred
   // soul scars hardest, and that scar is what eventually breeds a new Keeper.
   n.veil += wasAwakened ? 2 : 1.2;
@@ -554,17 +559,25 @@ function reinforceVeil(g: GameState): void {
   g.veilThickened = true;
 }
 
-interface LitStats { lit: number; total: number; awakened: number; }
+// A hearth is an awakened soul that has held through enough dawns to settle —
+// a home that keeps the flame. It behaves as any awakened soul for spread,
+// keepers, and dawn; it merely also returns flame to the carrier each morning.
+function isHearth(n: CityNode): boolean {
+  return n.state === "awakened" && n.nights >= HEARTH_NIGHTS;
+}
+
+interface LitStats { lit: number; total: number; awakened: number; hearths: number; }
 
 function litStats(g: GameState): LitStats {
-  let lit = 0, awakened = 0, total = 0;
+  let lit = 0, awakened = 0, hearths = 0, total = 0;
   for (const n of g.nodes) {
     if (n.kind === "keeper") continue;
     total++;
     if (n.state === "lit" || n.state === "awakened") lit++;
     if (n.state === "awakened") awakened++;
+    if (isHearth(n)) hearths++;
   }
-  return { lit, total, awakened };
+  return { lit, total, awakened, hearths };
 }
 
 interface DistrictStat { name: string; lit: number; total: number; }
@@ -602,6 +615,9 @@ function applyDawn(g: GameState): { faded: number } {
     } else if (n.state === "lit") {
       n.brightness = 0.8;
     }
+    // Awakened souls always survive the dawn (they seed the flood-fill); each
+    // they hold through ages them one night nearer to becoming a hearth.
+    if (n.state === "awakened") n.nights += 1;
     n.heat = 0;
   }
   return { faded };
@@ -619,13 +635,13 @@ interface SaveData {
   shownFrescoes: number[];
   savedAt: number;
   weather: [WeatherKind, number, number];
-  nodes: [number, number, NodeKind, NodeState, number, number, number, number, number, number][];
+  nodes: [number, number, NodeKind, NodeState, number, number, number, number, number, number, number][];
 }
 
 function saveGame(g: GameState): void {
   try {
     const data: SaveData = {
-      v: 3,
+      v: 4,
       night: g.night, maxFlame: g.maxFlame, flame: g.flame,
       tick: g.tick, phase: g.phase,
       shownFrescoes: g.shownFrescoes,
@@ -635,7 +651,7 @@ function saveGame(g: GameState): void {
         n.x | 0, n.y | 0, n.kind, n.state,
         Math.round(n.brightness * 100), n.revealed ? 1 : 0,
         n.heat, Math.round(n.veil * 10),
-        n.px | 0, n.py | 0,
+        n.px | 0, n.py | 0, n.nights,
       ]),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -649,7 +665,7 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     if (!raw) return null;
     data = JSON.parse(raw) as SaveData;
   } catch (_) { return null; }
-  if (!data || data.v !== 3 || !Array.isArray(data.nodes)) return null;
+  if (!data || data.v !== 4 || !Array.isArray(data.nodes)) return null;
 
   const nodes = data.nodes.map((r, id) => {
     const n = makeNode(id, r[0], r[1], r[2]);
@@ -660,6 +676,7 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     n.veil = r[7] / 10;
     n.px = typeof r[8] === "number" ? r[8] : n.x;
     n.py = typeof r[9] === "number" ? r[9] : n.y;
+    n.nights = typeof r[10] === "number" ? r[10] : 0;
     return n;
   });
   const { edges, adj } = finalizeCity(nodes);
@@ -1012,6 +1029,15 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
           cx: n.x, cy: n.y, r: 19, fill: "none",
           stroke: "#ffd87a", "stroke-width": 0.6, opacity: 0.4,
         }));
+        // A settled hearth reads richer: a bright outer band and a warm core,
+        // marking the soul that has held long enough to feed the carrier.
+        if (isHearth(n)) {
+          grp.appendChild(el("circle", {
+            cx: n.x, cy: n.y, r: 24, fill: "none",
+            stroke: "#ffe9b0", "stroke-width": 1.6, opacity: 0.7,
+          }));
+          grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 3, fill: "#fff6da", opacity: 0.95 }));
+        }
       }
     }
 
@@ -1330,6 +1356,9 @@ function start(): void {
     `<h3>Dawn</h3>` +
     `<p>At dawn, only light still connected to an awakened soul survives; every unbanked light fades back into the dark. Then <em>the carrier burns</em> — each dawn your greatest flame falls by one. You will not finish the city.</p>` +
 
+    `<h3>Hearths</h3>` +
+    `<p>A soul that holds awakened through <em>${HEARTH_NIGHTS} dawns</em> settles into a <em>hearth</em> — a home that keeps the flame. Each hearth returns <em>+${HEARTH_REFUND}✦</em> to you at dawn. The carrier still burns, so the end still comes; hearths only make the nights you have left burn brighter. Protect your oldest souls — bait the Keepers off them with decoys — and they become your warmth.</p>` +
+
     `<h3>The only victory</h3>` +
     `<p>When your flame is finally spent, what the awakened souls still hold is everything that outlived you. Bank light in souls, set where the Keepers cannot reach, and carry as much of the city into the morning as you can.</p>` +
 
@@ -1387,22 +1416,32 @@ function start(): void {
       showOverlay(
         "The carrier is spent",
         after.lit > 0
-          ? `Your flame is gone. But ${after.lit} lights still burn without you — ${pct}% of the city, held by ${after.awakened} awakened souls.<br><br>That is the only victory there was.<br><br><em>Ora pro nobis, Lucifer.</em>`
+          ? `Your flame is gone. But ${after.lit} lights still burn without you — ${pct}% of the city, held by ${after.awakened} awakened souls${after.hearths > 0 ? `, ${after.hearths} of them settled hearths that will keep the flame` : ``}.<br><br>That is the only victory there was.<br><br><em>Ora pro nobis, Lucifer.</em>`
           : `Your flame is gone, and the city is dark. Nothing you lit outlived you.<br><br><em>Begin again. The morning is patient.</em>`,
         "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
       );
       return;
     }
 
+    // Hearths — souls that have held HEARTH_NIGHTS dawns — return a little flame
+    // to the carrier, the only warmth the dimming hand gets back. The carrier
+    // still burns, so the run still ends; hearths only make the nights you have
+    // left burn brighter.
+    const refund = after.hearths * HEARTH_REFUND;
+    const nightFlame = g.maxFlame + refund;
+
     saveGame(g);
     showOverlay(
       `Dawn, after night ${g.night}`,
       `${faded} unbanked lights faded with the dark. ${after.lit} survive, held by ${after.awakened} awakened souls.<br><br>` +
       `<span class="districts">${districtLine(g)}</span><br>` +
-      `Your flame burns lower: ${g.maxFlame}✦ remain to you.`,
+      `Your flame burns lower: ${g.maxFlame}✦ remain to you.` +
+      (after.hearths > 0
+        ? `<br>${after.hearths} ${after.hearths === 1 ? "hearth keeps" : "hearths keep"} the flame, returning +${refund}✦ for the night to come.`
+        : ``),
       "Carry on", () => {
         g.night += 1;
-        g.flame = g.maxFlame;
+        g.flame = nightFlame; // maxFlame, warmed by what the hearths return
         g.weather = rollWeather(g.night); // a new sky for the new night
         g.phase = "night";
         overlay.classList.add("hidden");
@@ -1490,7 +1529,7 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
   testGlobal.__lb = {
     generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
-    stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, applyDawn,
+    stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, isHearth, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
   };
 } else {
