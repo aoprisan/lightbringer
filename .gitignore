@@ -1,0 +1,4 @@
+node_modules/
+
+# Build output — app.js is compiled from app.ts by `npm run build` (and in CI).
+/app.js

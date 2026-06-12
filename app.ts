@@ -5,7 +5,59 @@
 // gets heavier. The carrier burns: each night your flame is smaller. You will
 // not finish the city. The question is whether what you lit outlives you.
 //
-// This module is plain ES — no build step — so GitHub Pages can serve it as-is.
+// Authored in TypeScript; tsc compiles this to app.js, which is what ships.
+
+// ---------- Types ----------
+
+type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
+type NodeState = "dark" | "lit" | "awakened" | "snuffed";
+type Phase = "intro" | "night" | "dawn" | "end";
+type Mode = "kindle" | "awaken";
+
+interface CityNode {
+  id: number;
+  x: number;
+  y: number;
+  kind: NodeKind;
+  state: NodeState;
+  brightness: number; // 0..1
+  revealed: boolean;
+  heat: number; // Keeper attention accrued here
+  veil: number; // thickening dark left by snuffing
+  district: number;
+}
+
+interface Edge {
+  a: number;
+  b: number;
+  conductivity: number;
+}
+
+interface City {
+  nodes: CityNode[];
+  edges: Edge[];
+  adj: Map<number, number[]>;
+}
+
+interface GameState extends City {
+  night: number;
+  maxFlame: number;
+  flame: number;
+  mode: Mode;
+  phase: Phase;
+  tick: number;
+  shownFrescoes: number[];
+  pendingFresco: string | null;
+  lastSnuffDistrict: number;
+  veilThickened: boolean;
+  lostSoul: boolean; // an awakened soul was snuffed since the last draw
+}
+
+interface District {
+  name: string;
+  x: number;
+  y: number;
+}
 
 // ---------- Tuning ----------
 
@@ -28,7 +80,7 @@ const VEIL_REINFORCE_AT = 3.2;     // local veil weight that thickens into a new
 
 const IDLE_CAP_TICKS = 600;        // most "while you were away" ticks we simulate
 
-const COND = {
+const COND: Record<NodeKind, number> = {
   conduit: 0.5,   // oil, paper, rumor — carries light fast
   press: 0.66,    // a printing press: word made many
   dwelling: 0.18,
@@ -40,7 +92,7 @@ const SAVE_KEY = "lightbringer.save.v2";
 
 // ---------- Districts ----------
 // Five quarters, found by nearest fixed anchor so clusters look organic.
-const DISTRICTS = [
+const DISTRICTS: District[] = [
   { name: "The Lower Nave", x: 300, y: 230 },
   { name: "Ashfold", x: 720, y: 360 },
   { name: "The Glassworks", x: 250, y: 720 },
@@ -48,7 +100,7 @@ const DISTRICTS = [
   { name: "The Drowned Quarter", x: 500, y: 1180 },
 ];
 
-function districtOf(x, y) {
+function districtOf(x: number, y: number): number {
   let best = 0;
   let bd = Infinity;
   for (let i = 0; i < DISTRICTS.length; i++) {
@@ -59,7 +111,7 @@ function districtOf(x, y) {
 }
 
 // Frescoes hidden under the whitewash — revealed as the city lights.
-const FRESCOES = [
+const FRESCOES: string[] = [
   "Beneath the whitewash: a sun, and under it, our faces.",
   "They named the dimness 'mercy' so we would thank them for it.",
   "Ora pro nobis, Lucifer — pray for us who were taught to fear the morning.",
@@ -76,8 +128,8 @@ const FRESCOES = [
 
 // ---------- City generation ----------
 
-function generateCity() {
-  const nodes = [];
+function generateCity(): City {
+  const nodes: CityNode[] = [];
   let guard = 0;
   while (nodes.length < NODE_COUNT && guard++ < 20000) {
     const x = 60 + Math.random() * (W - 120);
@@ -94,7 +146,7 @@ function generateCity() {
     .forEach((n) => (n.kind = "press"));
   shuffled.slice(-5).forEach((n) => (n.kind = "shrine"));
 
-  const keepers = [];
+  const keepers: CityNode[] = [];
   for (const n of shuffled) {
     if (n.kind !== "dwelling") continue;
     if (keepers.every((k) => (k.x - n.x) ** 2 + (k.y - n.y) ** 2 > 360 ** 2)) {
@@ -107,7 +159,7 @@ function generateCity() {
   return finalizeCity(nodes);
 }
 
-function makeNode(id, x, y, kind) {
+function makeNode(id: number, x: number, y: number, kind: NodeKind): CityNode {
   return {
     id, x, y, kind,
     state: "dark",       // dark | lit | awakened | snuffed
@@ -121,9 +173,9 @@ function makeNode(id, x, y, kind) {
 
 // Build edges (streets, conduits, lines of rumor) + adjacency from node geometry.
 // Deterministic from positions/kinds, so we can rebuild it after loading a save.
-function finalizeCity(nodes) {
-  const edges = [];
-  const seen = new Set();
+function finalizeCity(nodes: CityNode[]): City {
+  const edges: Edge[] = [];
+  const seen = new Set<string>();
   for (const n of nodes) {
     const near = nodes
       .filter((m) => m.id !== n.id)
@@ -138,23 +190,23 @@ function finalizeCity(nodes) {
       edges.push({ a: n.id, b: m.id, conductivity: cond });
     }
   }
-  const adj = new Map();
+  const adj = new Map<number, number[]>();
   for (const e of edges) {
     if (!adj.has(e.a)) adj.set(e.a, []);
     if (!adj.has(e.b)) adj.set(e.b, []);
-    adj.get(e.a).push(e.b);
-    adj.get(e.b).push(e.a);
+    adj.get(e.a)!.push(e.b);
+    adj.get(e.b)!.push(e.a);
   }
   return { nodes, edges, adj };
 }
 
 // ---------- Simulation ----------
 
-function edgeBetween(g, a, b) {
+function edgeBetween(g: GameState, a: number, b: number): Edge | undefined {
   return g.edges.find((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a));
 }
 
-function reveal(g, id, depth) {
+function reveal(g: GameState, id: number, depth: number): void {
   const n = g.nodes[id];
   if (!n.revealed) {
     n.revealed = true;
@@ -165,7 +217,7 @@ function reveal(g, id, depth) {
 }
 
 // Lighting a node may uncover a fresco the Keepers painted over.
-function maybeFresco(g, n) {
+function maybeFresco(g: GameState, n: CityNode): void {
   if (g.shownFrescoes.length >= FRESCOES.length) return;
   // presses and shrines always carry text; dwellings rarely.
   const chance = n.kind === "press" || n.kind === "shrine" ? 1 : 0.06;
@@ -179,7 +231,7 @@ function maybeFresco(g, n) {
   g.pendingFresco = FRESCOES[idx];
 }
 
-function kindle(g, id) {
+function kindle(g: GameState, id: number): boolean {
   const n = g.nodes[id];
   if (n.state !== "dark" || n.kind === "keeper") return false;
   n.state = "lit";
@@ -189,11 +241,11 @@ function kindle(g, id) {
   return true;
 }
 
-function revealDistrict(g, d) {
+function revealDistrict(g: GameState, d: number): void {
   for (const n of g.nodes) if (n.district === d) n.revealed = true;
 }
 
-function awaken(g, id) {
+function awaken(g: GameState, id: number): boolean {
   const n = g.nodes[id];
   if (n.kind !== "dwelling") return false;
   if (n.state !== "dark" && n.state !== "lit") return false;
@@ -203,8 +255,8 @@ function awaken(g, id) {
   return true;
 }
 
-function stepSpread(g) {
-  const toLight = [];
+function stepSpread(g: GameState): void {
+  const toLight: number[] = [];
   for (const n of g.nodes) {
     if (n.state !== "lit" && n.state !== "awakened") continue;
     for (const mId of g.adj.get(n.id) ?? []) {
@@ -224,11 +276,11 @@ function stepSpread(g) {
 
 // Awakened souls are autonomous light sources: while you are away they kindle
 // on their own. This is the idle layer — and the light-bringer's whole victory.
-function stepAwakened(g) {
+function stepAwakened(g: GameState): void {
   if (g.tick % AWAKEN_KINDLE_EVERY !== 0) return;
   for (const n of g.nodes) {
     if (n.state !== "awakened") continue;
-    let best = null;
+    let best: number | null = null;
     let bestScore = -Infinity;
     for (const mId of g.adj.get(n.id) ?? []) {
       const m = g.nodes[mId];
@@ -242,47 +294,62 @@ function stepAwakened(g) {
   }
 }
 
-function stepKeepers(g) {
+// A Keeper's reach widens with the snuffed dark around it — the Veil patrols
+// its own scars. Kept as a pure helper so render() can draw the very ring the
+// simulation enforces; the two must never drift apart.
+function keeperRadius(g: GameState, k: CityNode): number {
+  let localVeil = 0;
+  for (const n of g.nodes) {
+    const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
+    if (d2 <= (KEEPER_RADIUS * 1.4) ** 2) localVeil += n.veil;
+  }
+  return KEEPER_RADIUS * (1 + Math.min(0.6, localVeil * 0.05));
+}
+
+function stepKeepers(g: GameState): void {
   if (g.tick % KEEPER_SNUFF_EVERY !== 0) return;
   for (const k of g.nodes) {
     if (k.kind !== "keeper") continue;
-    // Snuffed dark nearby widens a Keeper's reach — the Veil patrols its scars.
-    let localVeil = 0;
-    let target = null;
-    for (const n of g.nodes) {
-      const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
-      if (d2 <= (KEEPER_RADIUS * 1.4) ** 2) localVeil += n.veil;
-    }
-    const radius2 = (KEEPER_RADIUS * (1 + Math.min(0.6, localVeil * 0.05))) ** 2;
+    const radius2 = keeperRadius(g, k) ** 2;
+    // A Keeper hunts beacons first: an awakened soul outranks any lit ground in
+    // reach, however bright — banking a flame paints a target. Within a tier,
+    // the brightest light draws the eye.
+    let target: CityNode | null = null;
+    let targetAwake = false;
     for (const n of g.nodes) {
       if (n.state !== "lit" && n.state !== "awakened") continue;
       if ((n.x - k.x) ** 2 + (n.y - k.y) ** 2 > radius2) continue;
-      if (!target || n.brightness > target.brightness) target = n;
+      const awake = n.state === "awakened";
+      if (!target ||
+          (awake && !targetAwake) ||
+          (awake === targetAwake && n.brightness > target.brightness)) {
+        target = n;
+        targetAwake = awake;
+      }
     }
-    if (!target) continue;
-    target.heat += 1;
-    const threshold = target.state === "awakened" ? 2 : 1; // banked souls resist longer
-    if (target.heat >= threshold) snuff(g, target);
+    if (target) snuff(g, target);
   }
   reinforceVeil(g);
 }
 
-function snuff(g, n) {
+function snuff(g: GameState, n: CityNode): void {
   const wasAwakened = n.state === "awakened";
   n.state = "snuffed";
   n.brightness = 0;
   n.revealed = true;
   n.heat = 0;
-  // Snuffed ground does not return to neutral dark — it thickens.
+  // Snuffed ground does not return to neutral dark — it thickens. A martyred
+  // soul scars hardest, and that scar is what eventually breeds a new Keeper.
   n.veil += wasAwakened ? 2 : 1.2;
   for (const mId of g.adj.get(n.id) ?? []) g.nodes[mId].veil += 0.5;
   g.lastSnuffDistrict = n.district;
+  if (wasAwakened) g.lostSoul = true;
 }
 
 // Heavily-snuffed ground thickens into a new Keeper post: more patrolled.
-function reinforceVeil(g) {
+function reinforceVeil(g: GameState): void {
   if (g.nodes.filter((n) => n.kind === "keeper").length >= MAX_KEEPERS) return;
-  let worst = null;
+  let worst: CityNode | null = null;
   for (const n of g.nodes) {
     if (n.state !== "snuffed") continue;
     if (n.veil < VEIL_REINFORCE_AT) continue;
@@ -299,7 +366,9 @@ function reinforceVeil(g) {
   g.veilThickened = true;
 }
 
-function litStats(g) {
+interface LitStats { lit: number; total: number; awakened: number; }
+
+function litStats(g: GameState): LitStats {
   let lit = 0, awakened = 0, total = 0;
   for (const n of g.nodes) {
     if (n.kind === "keeper") continue;
@@ -310,8 +379,10 @@ function litStats(g) {
   return { lit, total, awakened };
 }
 
-function districtStats(g) {
-  const out = DISTRICTS.map((d) => ({ name: d.name, lit: 0, total: 0 }));
+interface DistrictStat { name: string; lit: number; total: number; }
+
+function districtStats(g: GameState): DistrictStat[] {
+  const out: DistrictStat[] = DISTRICTS.map((d) => ({ name: d.name, lit: 0, total: 0 }));
   for (const n of g.nodes) {
     if (n.kind === "keeper") continue;
     out[n.district].total++;
@@ -321,12 +392,12 @@ function districtStats(g) {
 }
 
 // At dawn only light connected to an awakened soul survives; the rest fades.
-function applyDawn(g) {
-  const keep = new Set();
+function applyDawn(g: GameState): { faded: number } {
+  const keep = new Set<number>();
   const queue = g.nodes.filter((n) => n.state === "awakened").map((n) => n.id);
   queue.forEach((id) => keep.add(id));
   while (queue.length) {
-    const id = queue.pop();
+    const id = queue.pop()!;
     for (const m of g.adj.get(id) ?? []) {
       const node = g.nodes[m];
       if ((node.state === "lit" || node.state === "awakened") && !keep.has(m)) {
@@ -349,9 +420,21 @@ function applyDawn(g) {
 
 // ---------- Persistence ----------
 
-function saveGame(g) {
+interface SaveData {
+  v: number;
+  night: number;
+  maxFlame: number;
+  flame: number;
+  tick: number;
+  phase: Phase;
+  shownFrescoes: number[];
+  savedAt: number;
+  nodes: [number, number, NodeKind, NodeState, number, number, number, number][];
+}
+
+function saveGame(g: GameState): void {
   try {
-    const data = {
+    const data: SaveData = {
       v: 2,
       night: g.night, maxFlame: g.maxFlame, flame: g.flame,
       tick: g.tick, phase: g.phase,
@@ -367,12 +450,12 @@ function saveGame(g) {
   } catch (_) { /* storage may be unavailable; play on */ }
 }
 
-function loadGame() {
-  let data;
+function loadGame(): { g: GameState; savedAt: number } | null {
+  let data: SaveData;
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    data = JSON.parse(raw);
+    data = JSON.parse(raw) as SaveData;
   } catch (_) { return null; }
   if (!data || data.v !== 2 || !Array.isArray(data.nodes)) return null;
 
@@ -386,32 +469,33 @@ function loadGame() {
     return n;
   });
   const { edges, adj } = finalizeCity(nodes);
-  const g = {
+  const g: GameState = {
     nodes, edges, adj,
     night: data.night, maxFlame: data.maxFlame, flame: data.flame,
     mode: "kindle", phase: data.phase === "end" ? "end" : "night",
     tick: data.tick || 0,
     shownFrescoes: Array.isArray(data.shownFrescoes) ? data.shownFrescoes : [],
     pendingFresco: null, lastSnuffDistrict: -1, veilThickened: false,
+    lostSoul: false,
   };
   return { g, savedAt: data.savedAt || Date.now() };
 }
 
-function freshGame() {
+function freshGame(): GameState {
   const { nodes, edges, adj } = generateCity();
-  const g = {
+  const g: GameState = {
     nodes, edges, adj,
     night: 1, maxFlame: START_FLAME, flame: START_FLAME,
     mode: "kindle", phase: "night", tick: 0,
     shownFrescoes: [], pendingFresco: null,
-    lastSnuffDistrict: -1, veilThickened: false,
+    lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
   };
   for (const n of g.nodes) if (n.kind === "shrine") reveal(g, n.id, 1);
   return g;
 }
 
 // Run the city forward unattended (used for "while you were away").
-function simulateTicks(g, count) {
+function simulateTicks(g: GameState, count: number): void {
   for (let i = 0; i < count; i++) {
     g.tick += 1;
     stepSpread(g);
@@ -424,13 +508,18 @@ function simulateTicks(g, count) {
 
 const svgNS = "http://www.w3.org/2000/svg";
 
-function el(tag, attrs) {
+function el<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string | number>,
+): SVGElementTagNameMap[K] {
   const e = document.createElementNS(svgNS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
   return e;
 }
 
-function render(g, svg, onTap, dawnMode) {
+type TapHandler = (id: number) => void;
+
+function render(g: GameState, svg: SVGSVGElement, onTap: TapHandler, dawnMode?: boolean): void {
   svg.innerHTML = "";
 
   const defs = el("defs", {});
@@ -451,6 +540,24 @@ function render(g, svg, onTap, dawnMode) {
       svg.appendChild(el("circle", {
         cx: n.x, cy: n.y, r: 14 + Math.min(26, n.veil * 7),
         fill: "#05060d", opacity: Math.min(0.7, 0.18 + n.veil * 0.12),
+      }));
+    }
+  }
+
+  // Keeper reach — for every Keeper the light has uncovered, draw the patrol
+  // ring it actually snuffs within, so its threat is something you place
+  // around rather than a surprise. The ring swells as nearby veil thickens
+  // (keeperRadius is the same one stepKeepers enforces).
+  if (!dawnMode) {
+    for (const k of g.nodes) {
+      if (k.kind !== "keeper" || !k.revealed) continue;
+      const rad = keeperRadius(g, k);
+      svg.appendChild(el("circle", {
+        cx: k.x, cy: k.y, r: rad, fill: "#9fc4e8", "fill-opacity": 0.04,
+      }));
+      svg.appendChild(el("circle", {
+        cx: k.x, cy: k.y, r: rad, fill: "none", stroke: "#9fc4e8",
+        "stroke-opacity": 0.22, "stroke-width": 1, "stroke-dasharray": "3 8",
       }));
     }
   }
@@ -532,10 +639,14 @@ function render(g, svg, onTap, dawnMode) {
 
 // ---------- Game shell ----------
 
-function byId(id) { return document.getElementById(id); }
+function byId(id: string): HTMLElement {
+  const e = document.getElementById(id);
+  if (!e) throw new Error(`missing element #${id}`);
+  return e;
+}
 
-function start() {
-  const svg = byId("city");
+function start(): void {
+  const svg = byId("city") as unknown as SVGSVGElement;
   const flameEl = byId("flame");
   const nightEl = byId("night");
   const litEl = byId("litpct");
@@ -549,16 +660,17 @@ function start() {
   const toast = byId("toast");
 
   const loaded = loadGame();
-  let g = loaded ? loaded.g : freshGame();
+  let g: GameState = loaded ? loaded.g : freshGame();
 
-  function showToast(text) {
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  function showToast(text: string): void {
     toast.textContent = text;
     toast.classList.add("show");
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => toast.classList.remove("show"), 5200);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 5200);
   }
 
-  function hud() {
+  function hud(): void {
     flameEl.textContent = "✦".repeat(Math.max(0, g.flame)) +
       "·".repeat(Math.max(0, g.maxFlame - g.flame));
     nightEl.textContent = `Night ${g.night}`;
@@ -568,10 +680,14 @@ function start() {
     modeBtn.className = g.mode;
   }
 
-  function draw(dawnMode) {
+  function draw(dawnMode?: boolean): void {
     render(g, svg, onTap, dawnMode);
     hud();
     if (g.pendingFresco) { showToast(g.pendingFresco); g.pendingFresco = null; }
+    if (g.lostSoul) {
+      g.lostSoul = false;
+      showToast("A soul you woke is snuffed; the Veil closes where they stood.");
+    }
     if (g.veilThickened) {
       g.veilThickened = false;
       const d = g.lastSnuffDistrict >= 0 ? DISTRICTS[g.lastSnuffDistrict].name : "the city";
@@ -579,7 +695,7 @@ function start() {
     }
   }
 
-  function onTap(id) {
+  function onTap(id: number): void {
     if (g.phase !== "night") return;
     const n = g.nodes[id];
     if (g.mode === "kindle") {
@@ -599,7 +715,14 @@ function start() {
     hud();
   });
 
-  function showOverlay(title, body, btnText, onBtn, btn2Text, onBtn2) {
+  function showOverlay(
+    title: string,
+    body: string,
+    btnText: string,
+    onBtn: () => void,
+    btn2Text?: string,
+    onBtn2?: () => void,
+  ): void {
     overlayTitle.textContent = title;
     overlayBody.innerHTML = body;
     overlayBtn.textContent = btnText;
@@ -607,20 +730,20 @@ function start() {
     if (btn2Text) {
       overlayBtn2.style.display = "";
       overlayBtn2.textContent = btn2Text;
-      overlayBtn2.onclick = onBtn2;
+      overlayBtn2.onclick = onBtn2 ?? null;
     } else {
       overlayBtn2.style.display = "none";
     }
     overlay.classList.remove("hidden");
   }
 
-  function districtLine(g) {
+  function districtLine(g: GameState): string {
     return districtStats(g)
       .map((d) => `${d.name} — ${d.total ? Math.round((d.lit / d.total) * 100) : 0}%`)
       .join("<br>");
   }
 
-  function dawn() {
+  function dawn(): void {
     g.phase = "dawn";
     const { faded } = applyDawn(g);
     const after = litStats(g);
@@ -678,7 +801,7 @@ function start() {
       "The Light-Bringer",
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle. Awaken a dwelling and it carries the light while you are away. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
+      `<em>Tap to kindle. The cold rings are the Keepers' reach. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
       "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); }
     );
     draw();
@@ -722,11 +845,15 @@ if ("serviceWorker" in navigator) {
 }
 
 // Test hook (no effect in the browser): lets a headless harness exercise the sim.
-if (typeof globalThis !== "undefined" && globalThis.__LB_TEST__) {
-  globalThis.__lb = {
+const testGlobal = globalThis as unknown as {
+  __LB_TEST__?: boolean;
+  __lb?: Record<string, unknown>;
+};
+if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
+  testGlobal.__lb = {
     generateCity, freshGame, simulateTicks, stepSpread, stepAwakened,
-    stepKeepers, kindle, awaken, snuff, litStats, applyDawn, districtStats,
-    saveGame, loadGame, DISTRICTS,
+    stepKeepers, keeperRadius, kindle, awaken, snuff, litStats, applyDawn,
+    districtStats, saveGame, loadGame, DISTRICTS,
   };
 } else {
   start();

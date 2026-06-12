@@ -1,0 +1,17 @@
+{
+  "name": "lightbringer",
+  "version": "1.0.0",
+  "description": "The Light-Bringer — a contemplative inversion game shipped as an offline-capable PWA.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node tools/smoke-test.mjs",
+    "icons": "node tools/gen-icons.mjs",
+    "start": "tsc && python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}
