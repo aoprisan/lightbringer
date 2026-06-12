@@ -139,5 +139,30 @@ const tenBefore = g6.tick;
 lb.simulateTicks(g6, 10);
 ok(g6.tick === tenBefore + 10, "simulateTicks runs ten breaths of stepCity");
 
+// 12. Decoys: a false light, transient and scar-free, that bends the watch.
+const gd = lb.freshGame();
+const darkDwell = gd.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+ok(lb.placeDecoy(gd, darkDwell.id) && darkDwell.decoy > 0, "placeDecoy lays a false light on dark ground");
+ok(!lb.placeDecoy(gd, darkDwell.id), "cannot stack a second decoy on the same ground");
+ok(!lb.placeDecoy(gd, gd.nodes.find((n) => n.kind === "keeper").id), "cannot lay a decoy on a Keeper");
+const toLight = gd.nodes.find((n) => n.kind === "dwelling" && n.state === "dark" && n.id !== darkDwell.id);
+lb.kindle(gd, toLight.id);
+ok(!lb.placeDecoy(gd, toLight.id), "cannot lay a decoy on a real light");
+
+// A Keeper breaks for a reachable decoy and searches it, leaving no scar.
+const gk = lb.freshGame();
+const keep = gk.nodes.find((n) => n.kind === "keeper");
+let near = null, nd = Infinity; // the dark ground nearest this Keeper's post — within its sight
+for (const n of gk.nodes) {
+  if (n.kind === "keeper" || n.state !== "dark") continue;
+  const d2 = (n.x - keep.x) ** 2 + (n.y - keep.y) ** 2;
+  if (d2 < nd) { nd = d2; near = n; }
+}
+lb.placeDecoy(gk, near.id);
+for (let i = 0; i < 40 && near.decoy > 0; i++) lb.stepCity(gk);
+ok(near.decoy === 0, "a Keeper reaches and spends the false light");
+ok(near.veil === 0, "the searched decoy leaves no scar in the Veil");
+ok(gk.decoySpent, "spending a decoy raises the decoySpent flag");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
