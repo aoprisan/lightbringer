@@ -726,12 +726,17 @@ function start(): void {
   const litEl = byId("litpct");
   const modeBtn = byId("mode");
   const endBtn = byId("endnight");
+  const resetBtn = byId("reset");
   const overlay = byId("overlay");
   const overlayTitle = byId("ov-title");
   const overlayBody = byId("ov-body");
   const overlayBtn = byId("ov-btn");
   const overlayBtn2 = byId("ov-btn2");
   const toast = byId("toast");
+  const rules = byId("rules");
+  const rulesBody = byId("rules-body");
+  const rulesBtn = byId("rules-btn");
+  const rulesClose = byId("rules-close");
   const fresco = byId("fresco");
   const frescoImg = byId("fresco-img") as HTMLImageElement;
   const frescoCap = byId("fresco-cap");
@@ -808,6 +813,52 @@ function start(): void {
     hud();
   });
 
+  // ----- Rules: the illuminated page, built from the tuning constants so it
+  // never drifts from the actual economy. Opened from the header, read, closed. -----
+  rulesBody.innerHTML =
+    `<p class="lede">A contemplative inversion. Carry a stolen flame through a city taught that light burns.</p>` +
+
+    `<h3>The premise</h3>` +
+    `<p>The Keepers maintain the <em>Veil</em> — a sanctioned dimness in which people live safe, obedient, half&#8209;asleep. You carry a stolen flame. Every place you kindle becomes <em>visible</em>, and visibility is the one thing the Veil cannot survive.</p>` +
+
+    `<h3>Reading the board</h3>` +
+    `<dl>` +
+    `<dt><span class="swatch" style="background:var(--gold-bright)"></span>✦ Flame</dt>` +
+    `<dd>Your fuel, and it is finite. You begin a night with ${START_FLAME}✦ and spend it to kindle and to awaken.</dd>` +
+    `<dt>Kindle — ${KINDLE_COST}✦</dt>` +
+    `<dd>Light a place. From there light spreads on its own along conduits and printing presses — the swift carriers of word and fire.</dd>` +
+    `<dt>Awaken — ${AWAKEN_COST}✦</dt>` +
+    `<dd>Wake a <em>dwelling</em> into a living soul. Awakened souls kindle by themselves, even while you are away, and they alone carry light through the dawn. Only a dwelling — a person — can be awakened.</dd>` +
+    `<dt><span class="swatch ring"></span>The cold rings</dt>` +
+    `<dd>A Keeper's reach. Anything lit within it is a target — and a Keeper hunts an awakened soul before any plainer light. Awaken <em>outside</em> the rings.</dd>` +
+    `</dl>` +
+
+    `<h3>How a night runs</h3>` +
+    `<ul>` +
+    `<li>Tap to act; the footer button toggles between <em>kindle</em> and <em>awaken</em>.</li>` +
+    `<li>Each tick, light spreads outward and your awakened souls kindle around themselves.</li>` +
+    `<li>Keepers snuff light within reach. <em>Snuffing is irreversible</em> — snuffed ground scars over, damps any attempt to relight it, and once the scar thickens enough it breeds a <em>new Keeper</em>.</li>` +
+    `<li>End the night whenever your flame runs low.</li>` +
+    `</ul>` +
+
+    `<h3>Dawn</h3>` +
+    `<p>At dawn, only light still connected to an awakened soul survives; every unbanked light fades back into the dark. Then <em>the carrier burns</em> — each dawn your greatest flame falls by one. You will not finish the city.</p>` +
+
+    `<h3>The only victory</h3>` +
+    `<p>When your flame is finally spent, what the awakened souls still hold is everything that outlived you. Bank light in souls, set where the Keepers cannot reach, and carry as much of the city into the morning as you can.</p>` +
+
+    `<h3>The five quarters</h3>` +
+    `<p class="districts2">${DISTRICTS.map((d) => d.name).join("<br>")}</p>` +
+
+    `<p class="seal">Ora pro nobis, Lucifer.</p>`;
+
+  function openRules(): void { rules.classList.add("show"); }
+  function closeRules(): void { rules.classList.remove("show"); }
+  rulesBtn.addEventListener("click", openRules);
+  rulesClose.addEventListener("click", closeRules);
+  // Tap the surrounding dark (not the page) to close.
+  rules.addEventListener("click", (ev) => { if (ev.target === rules) closeRules(); });
+
   function showOverlay(
     title: string,
     body: string,
@@ -875,6 +926,18 @@ function start(): void {
   }
 
   endBtn.addEventListener("click", dawn);
+
+  // Start over from the beginning — irreversible, so confirm first.
+  resetBtn.addEventListener("click", () => {
+    showOverlay(
+      "Begin again?",
+      "This forgets the whole city — every awakened soul, every scar in the Veil, every night you have carried. The flame is handed back, full, to a stranger.",
+      "Begin again",
+      () => { localStorage.removeItem(SAVE_KEY); location.reload(); },
+      "Keep carrying",
+      () => { overlay.classList.add("hidden"); },
+    );
+  });
 
   // Live tick
   setInterval(() => {

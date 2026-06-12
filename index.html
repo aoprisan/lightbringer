@@ -74,7 +74,7 @@
   .inkveil {
     position: fixed; inset: 0; z-index: 2; pointer-events: none;
     background: url("./art/texture-ink.jpg") center/cover;
-    opacity: 0.14; mix-blend-mode: soft-light;
+    opacity: 0.32; mix-blend-mode: overlay;
   }
 
   header {
@@ -157,17 +157,95 @@
     text-shadow: 0 0 10px rgba(255,216,122,0.5);
     box-shadow: inset 0 0 16px rgba(255,216,122,0.16), 0 0 22px rgba(255,216,122,0.3); }
   button:active { transform: translateY(1px); }
+  /* Subtle "Begin again" reset, tucked in the header beside the stats. */
+  #reset {
+    pointer-events: auto;
+    font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
+    border-color: transparent; background: none; box-shadow: none;
+    color: var(--ink-dim); opacity: 0.5; transition: opacity .2s ease, color .2s ease;
+  }
+  #reset:hover { opacity: 1; color: var(--gold); }
+  /* "Rules" — same quiet header treatment as the reset link. */
+  #rules-btn {
+    pointer-events: auto;
+    font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
+    border-color: transparent; background: none; box-shadow: none;
+    color: var(--ink-dim); opacity: 0.5; transition: opacity .2s ease, color .2s ease;
+  }
+  #rules-btn:hover { opacity: 1; color: var(--gold); }
+
+  /* The rule of the game, read as an illuminated page you can open by hand. */
+  #rules {
+    position: fixed; inset: 0; z-index: 11;
+    display: flex; align-items: center; justify-content: center; padding: 26px;
+    background: radial-gradient(ellipse at center, rgba(4,5,12,0.82), rgba(4,5,12,0.94));
+    opacity: 0; pointer-events: none; transition: opacity .5s ease;
+  }
+  #rules.show { opacity: 1; pointer-events: auto; }
+  #rules-panel {
+    position: relative; max-width: 560px; width: 100%; max-height: 86vh; overflow-y: auto;
+    margin: auto; padding: 36px 30px;
+    background: linear-gradient(180deg, rgba(17,20,42,0.72), rgba(8,10,20,0.72));
+    border: 1px solid rgba(232,179,75,0.28);
+    box-shadow: 0 0 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(232,179,75,0.04);
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Aged vellum grain, washed faint under the page — matches the intro panel. */
+  #rules-panel::after {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background: url("./art/texture-vellum.jpg") center/cover;
+    opacity: 0.18; mix-blend-mode: overlay;
+  }
+  #rules-panel > * { position: relative; z-index: 1; }
+  #rules-close {
+    position: absolute; top: 10px; right: 10px; z-index: 2;
+    border: none; background: none; box-shadow: none; padding: 6px 10px;
+    font-size: 15px; letter-spacing: 0; line-height: 1;
+    color: var(--ink-dim); opacity: 0.6;
+  }
+  #rules-close:hover { opacity: 1; color: var(--gold); }
+  #rules-title {
+    font-size: 20px; font-weight: 400; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--gold); text-shadow: 0 0 18px rgba(232,179,75,0.35);
+    text-align: center; margin-bottom: 4px;
+  }
+  #rules-body { font-size: 15px; line-height: 1.66; color: var(--ink); }
+  #rules-body .lede { font-style: italic; color: var(--ink-dim); text-align: center; margin: 2px 0 4px; }
+  #rules-body h3 {
+    font-size: 11.5px; font-weight: 400; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold); opacity: 0.85; margin: 26px 0 9px;
+  }
+  #rules-body p { margin: 0 0 12px; }
+  #rules-body em { color: var(--gold-bright); font-style: italic; }
+  #rules-body dl { margin: 0; }
+  #rules-body dt { margin-top: 13px; color: var(--gold-bright); letter-spacing: 0.03em; font-size: 14.5px; }
+  #rules-body dd { margin: 2px 0 0; color: var(--ink); font-size: 14px; line-height: 1.55; }
+  #rules-body ul { margin: 0 0 12px; padding-left: 1.1em; }
+  #rules-body li { margin: 0 0 8px; }
+  #rules-body .swatch {
+    display: inline-block; width: 0.78em; height: 0.78em; border-radius: 50%;
+    vertical-align: baseline; margin-right: 3px;
+    box-shadow: 0 0 7px rgba(255,216,122,0.5);
+  }
+  #rules-body .ring {
+    border-radius: 50%; border: 1px solid var(--cold);
+    background: rgba(159,196,232,0.08); box-shadow: none; width: 0.86em; height: 0.86em;
+  }
+  #rules-body .districts2 { color: var(--ink-dim); letter-spacing: 0.04em; line-height: 2; font-size: 14px; }
+  #rules-body .seal { text-align: center; color: var(--gold-bright); font-style: italic; margin: 22px 0 2px; }
 
   #overlay {
     position: fixed; inset: 0; z-index: 10;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 20px; padding: 32px; text-align: center;
-    /* Title backdrop: the light-bringer in the dark wood, veiled dark so gold text stays legible. */
+    /* Title backdrop: the light-bringer before the dark cathedral. Veiled just
+       enough that the centered panel's gold text stays legible — the painting
+       reads through, darkest behind the panel and lifting toward the edges. */
     background:
-      radial-gradient(ellipse at center, rgba(11,13,26,0.86), rgba(4,5,12,0.95)),
+      radial-gradient(ellipse 70% 78% at 50% 46%, rgba(6,8,16,0.42), rgba(4,5,12,0.7)),
       url("./art/title-backdrop.jpg") center/cover no-repeat,
       #05060d;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(1px);
   }
   #overlay.hidden { display: none; }
   /* The overlay panel reads like an illuminated page: a thin gilt frame on vellum-dark. */
@@ -186,7 +264,7 @@
   #ov-panel::after {
     content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
     background: url("./art/texture-vellum.jpg") center/cover;
-    opacity: 0.1; mix-blend-mode: soft-light;
+    opacity: 0.22; mix-blend-mode: overlay;
   }
   /* The Keeper's sigil, an emblem of the threat, above the intro text. */
   .ov-sigil {
@@ -218,7 +296,7 @@
 <body>
   <header>
     <h1>The Light&#8209;Bringer</h1>
-    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span></div>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="rules-btn" title="How to play">Rules</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
   </header>
 
   <div id="citywrap">
@@ -253,6 +331,14 @@
         <button id="ov-btn">Carry on</button>
         <button id="ov-btn2" style="display:none"></button>
       </div>
+    </div>
+  </div>
+
+  <div id="rules">
+    <div id="rules-panel">
+      <button id="rules-close" aria-label="Close the rules" title="Close">✕</button>
+      <div id="rules-title">The Light&#8209;Bringer</div>
+      <div id="rules-body"></div>
     </div>
   </div>
 
