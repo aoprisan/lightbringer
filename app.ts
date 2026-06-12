@@ -522,47 +522,69 @@ type TapHandler = (id: number) => void;
 function render(g: GameState, svg: SVGSVGElement, onTap: TapHandler, dawnMode?: boolean): void {
   svg.innerHTML = "";
 
+  // Reusable filters and radial palettes. Two glows (a tight core flare and a
+  // soft bloom) plus gradients for warm light, cold Keeper auras, and inky veil.
   const defs = el("defs", {});
   defs.innerHTML = `
-    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="9" result="b"/>
+    <filter id="glow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <filter id="bloom" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
     <radialGradient id="halo">
-      <stop offset="0%" stop-color="#e8b34b" stop-opacity="0.55"/>
+      <stop offset="0%" stop-color="#ffe9b0" stop-opacity="0.85"/>
+      <stop offset="32%" stop-color="#e8b34b" stop-opacity="0.42"/>
       <stop offset="100%" stop-color="#e8b34b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="haloAwake">
+      <stop offset="0%" stop-color="#fff3d2" stop-opacity="1"/>
+      <stop offset="28%" stop-color="#ffd87a" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffd87a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cold">
+      <stop offset="0%" stop-color="#9fc4e8" stop-opacity="0.16"/>
+      <stop offset="55%" stop-color="#6f8fc0" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#6f8fc0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="veil">
+      <stop offset="0%" stop-color="#01020a" stop-opacity="0.95"/>
+      <stop offset="55%" stop-color="#05060d" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#05060d" stop-opacity="0"/>
     </radialGradient>`;
   svg.appendChild(defs);
 
-  // Veil blots first — the thickening dark sits beneath everything.
+  // Veil blots first — the thickening dark sits beneath everything, an ink
+  // stain that feathers out into the night rather than a hard disc.
   for (const n of g.nodes) {
     if (n.veil > 0.1 && n.kind !== "keeper") {
       svg.appendChild(el("circle", {
-        cx: n.x, cy: n.y, r: 14 + Math.min(26, n.veil * 7),
-        fill: "#05060d", opacity: Math.min(0.7, 0.18 + n.veil * 0.12),
+        cx: n.x, cy: n.y, r: 18 + Math.min(34, n.veil * 9),
+        fill: "url(#veil)", opacity: Math.min(0.9, 0.4 + n.veil * 0.14),
       }));
     }
   }
 
   // Keeper reach — for every Keeper the light has uncovered, draw the patrol
   // ring it actually snuffs within, so its threat is something you place
-  // around rather than a surprise. The ring swells as nearby veil thickens
-  // (keeperRadius is the same one stepKeepers enforces).
+  // around rather than a surprise. A cold aura fills the disc and a dashed
+  // rim marks the edge; both swell as nearby veil thickens (keeperRadius is the
+  // same one stepKeepers enforces).
   if (!dawnMode) {
     for (const k of g.nodes) {
       if (k.kind !== "keeper" || !k.revealed) continue;
       const rad = keeperRadius(g, k);
-      svg.appendChild(el("circle", {
-        cx: k.x, cy: k.y, r: rad, fill: "#9fc4e8", "fill-opacity": 0.04,
-      }));
+      svg.appendChild(el("circle", { cx: k.x, cy: k.y, r: rad, fill: "url(#cold)" }));
       svg.appendChild(el("circle", {
         cx: k.x, cy: k.y, r: rad, fill: "none", stroke: "#9fc4e8",
-        "stroke-opacity": 0.22, "stroke-width": 1, "stroke-dasharray": "3 8",
+        "stroke-opacity": 0.22, "stroke-width": 1, "stroke-dasharray": "2 9",
       }));
     }
   }
 
-  // Edges
+  // Edges. Lit streets carry a warm thread (with a soft underglow); revealed
+  // conduits and presses show as dashed lines of rumour; the rest stay faint.
   for (const e of g.edges) {
     const a = g.nodes[e.a];
     const b = g.nodes[e.b];
@@ -571,42 +593,67 @@ function render(g: GameState, svg: SVGSVGElement, onTap: TapHandler, dawnMode?: 
       (a.state === "lit" || a.state === "awakened") &&
       (b.state === "lit" || b.state === "awakened");
     const visible = a.revealed && b.revealed;
-    svg.appendChild(el("line", {
+    const carrier = a.kind === "conduit" || a.kind === "press" ||
+      b.kind === "conduit" || b.kind === "press";
+    if (litEdge && !dawnMode) {
+      svg.appendChild(el("line", {
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+        stroke: "#ffcf6e", "stroke-opacity": 0.28, "stroke-width": 5,
+        "stroke-linecap": "round", filter: "url(#bloom)",
+      }));
+    }
+    const line = el("line", {
       x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-      stroke: litEdge ? "#e8b34b" : dawnMode ? "#d8cfe0" : "#2a2f4a",
-      "stroke-opacity": litEdge ? 0.7 : visible ? (dawnMode ? 0.25 : 0.5) : 0.12,
-      "stroke-width": litEdge ? 2 : 1,
-    }));
+      stroke: litEdge ? "#e8b34b" : dawnMode ? "#d8cfe0" : carrier ? "#3a4068" : "#242a44",
+      "stroke-opacity": litEdge ? 0.78 : visible ? (dawnMode ? 0.25 : carrier ? 0.45 : 0.4) : 0.1,
+      "stroke-width": litEdge ? 1.8 : 1,
+    });
+    if (carrier && visible && !litEdge && !dawnMode) line.setAttribute("stroke-dasharray", "1 6");
+    svg.appendChild(line);
   }
 
   // Nodes
   for (const n of g.nodes) {
     const grp = el("g", { style: "cursor:pointer" });
     const isLit = n.state === "lit" || n.state === "awakened";
+    const awake = n.state === "awakened";
 
     if (isLit) {
-      grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 46 * n.brightness + 14, fill: "url(#halo)" }));
+      grp.appendChild(el("circle", {
+        cx: n.x, cy: n.y,
+        r: (awake ? 56 : 44) * n.brightness + (awake ? 16 : 12),
+        fill: awake ? "url(#haloAwake)" : "url(#halo)",
+      }));
     }
 
     if (n.kind === "keeper") {
+      // A watchful sentinel: a cold diamond with a dark vertical slit for an eye.
       const r = 9;
+      const op = n.revealed ? 0.95 : 0.1;
       grp.appendChild(el("rect", {
-        x: n.x - r, y: n.y - r, width: r * 2, height: r * 2,
-        fill: "#9fc4e8", opacity: n.revealed ? 0.95 : 0.1,
-        transform: `rotate(45 ${n.x} ${n.y})`,
+        x: n.x - r, y: n.y - r, width: r * 2, height: r * 2, rx: 1.5,
+        fill: "#9fc4e8", opacity: op, transform: `rotate(45 ${n.x} ${n.y})`,
       }));
+      if (n.revealed) {
+        grp.appendChild(el("rect", {
+          x: n.x - 1.4, y: n.y - 4.5, width: 2.8, height: 9, rx: 1.4,
+          fill: "#0b0f1c", opacity: 0.85,
+        }));
+      }
     } else if (n.state === "snuffed") {
+      // Snuffed ground: a cold-rimmed husk over its own veil stain.
       grp.appendChild(el("circle", {
-        cx: n.x, cy: n.y, r: 11, fill: "#12131f",
-        stroke: "#46527a", "stroke-width": 1.5, opacity: 0.95,
+        cx: n.x, cy: n.y, r: 10, fill: "#0a0c16",
+        stroke: "#46527a", "stroke-width": 1.4, opacity: 0.95,
       }));
+      grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 2.4, fill: "#2a3354", opacity: 0.9 }));
     } else {
       let fill = dawnMode ? "#cfc6dc" : "#3a4060";
       let r = 7;
-      let opacity = n.revealed ? 0.9 : 0.22;
+      let opacity = n.revealed ? 0.9 : 0.2;
       if (isLit) {
-        fill = n.state === "awakened" ? "#ffd87a" : "#e8b34b";
-        r = n.state === "awakened" ? 10 : 8;
+        fill = awake ? "#ffd87a" : "#e8b34b";
+        r = awake ? 9 : 7.5;
         opacity = 1;
       } else if (n.kind === "conduit") {
         fill = n.revealed ? "#5a5f86" : "#3a4060";
@@ -620,14 +667,31 @@ function render(g: GameState, svg: SVGSVGElement, onTap: TapHandler, dawnMode?: 
       const c = el("circle", { cx: n.x, cy: n.y, r, fill, opacity });
       if (isLit) c.setAttribute("filter", "url(#glow)");
       grp.appendChild(c);
-      // presses get a small mark; awakened souls get a ring
+      // A lit node carries a hot white heart inside the flame.
+      if (isLit) {
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: awake ? 3.4 : 2.6, fill: "#fff6da",
+        }));
+      }
+      // Presses bear an inked mark; unlit shrines a faint aureole.
       if (n.kind === "press" && n.revealed && !isLit) {
         grp.appendChild(el("rect", { x: n.x - 3, y: n.y - 3, width: 6, height: 6, fill: "#0b0d1a", opacity: 0.6 }));
       }
-      if (n.state === "awakened") {
+      if (n.kind === "shrine" && n.revealed && !isLit) {
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 12, fill: "none",
+          stroke: "#8a7aa8", "stroke-width": 0.8, "stroke-opacity": 0.4,
+        }));
+      }
+      // Awakened souls wear a steady halo-ring: a beacon, and a marked one.
+      if (awake) {
         grp.appendChild(el("circle", {
           cx: n.x, cy: n.y, r: 15, fill: "none",
           stroke: "#ffd87a", "stroke-width": 1.4, opacity: 0.85,
+        }));
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 19, fill: "none",
+          stroke: "#ffd87a", "stroke-width": 0.6, opacity: 0.4,
         }));
       }
     }
