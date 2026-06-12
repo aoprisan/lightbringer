@@ -68,5 +68,32 @@ const reloaded = lb.loadGame();
 ok(reloaded && reloaded.g.nodes.length === g.nodes.length, "save/load round-trips the city");
 ok(reloaded.g.night === g.night && reloaded.g.maxFlame === g.maxFlame, "save preserves night/flame");
 
+// 8. Awakened souls are beacons: a Keeper hunts them before brighter lit ground.
+// Place an awakened soul and a lit node on top of a Keeper; only the soul should fall.
+const g3 = lb.freshGame();
+const keeper3 = g3.nodes.find((n) => n.kind === "keeper");
+const beacon = g3.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+const plain = g3.nodes.find((n) => n.kind === "dwelling" && n.state === "dark" && n.id !== beacon.id);
+beacon.x = keeper3.x + 8; beacon.y = keeper3.y + 8;
+plain.x = keeper3.x - 8; plain.y = keeper3.y - 8;
+lb.awaken(g3, beacon.id);
+lb.kindle(g3, plain.id);
+g3.nodes[plain.id].brightness = 1; // at least as bright as the beacon
+g3.tick = 0;                       // 0 % KEEPER_SNUFF_EVERY === 0 -> Keepers act
+lb.stepKeepers(g3);
+ok(g3.nodes[beacon.id].state === "snuffed", "Keeper snuffs the awakened beacon first");
+ok(g3.nodes[plain.id].state === "lit", "the equally-bright lit node is spared that cycle");
+ok(g3.lostSoul === true, "losing an awakened soul raises the lostSoul flag");
+
+// 9. A Keeper's patrol reach widens as veil thickens around it
+const g4 = lb.freshGame();
+const keeper4 = g4.nodes.find((n) => n.kind === "keeper");
+const base = lb.keeperRadius(g4, keeper4);
+for (const n of g4.nodes) {
+  if ((n.x - keeper4.x) ** 2 + (n.y - keeper4.y) ** 2 < 180 ** 2) n.veil = 3;
+}
+const widened = lb.keeperRadius(g4, keeper4);
+ok(widened > base, `keeper radius widens with veil (${base | 0} -> ${widened | 0})`);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

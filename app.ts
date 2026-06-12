@@ -50,6 +50,7 @@ interface GameState extends City {
   pendingFresco: string | null;
   lastSnuffDistrict: number;
   veilThickened: boolean;
+  lostSoul: boolean; // an awakened soul was snuffed since the last draw
 }
 
 interface District {
@@ -293,27 +294,40 @@ function stepAwakened(g: GameState): void {
   }
 }
 
+// A Keeper's reach widens with the snuffed dark around it — the Veil patrols
+// its own scars. Kept as a pure helper so render() can draw the very ring the
+// simulation enforces; the two must never drift apart.
+function keeperRadius(g: GameState, k: CityNode): number {
+  let localVeil = 0;
+  for (const n of g.nodes) {
+    const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
+    if (d2 <= (KEEPER_RADIUS * 1.4) ** 2) localVeil += n.veil;
+  }
+  return KEEPER_RADIUS * (1 + Math.min(0.6, localVeil * 0.05));
+}
+
 function stepKeepers(g: GameState): void {
   if (g.tick % KEEPER_SNUFF_EVERY !== 0) return;
   for (const k of g.nodes) {
     if (k.kind !== "keeper") continue;
-    // Snuffed dark nearby widens a Keeper's reach — the Veil patrols its scars.
-    let localVeil = 0;
+    const radius2 = keeperRadius(g, k) ** 2;
+    // A Keeper hunts beacons first: an awakened soul outranks any lit ground in
+    // reach, however bright — banking a flame paints a target. Within a tier,
+    // the brightest light draws the eye.
     let target: CityNode | null = null;
-    for (const n of g.nodes) {
-      const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
-      if (d2 <= (KEEPER_RADIUS * 1.4) ** 2) localVeil += n.veil;
-    }
-    const radius2 = (KEEPER_RADIUS * (1 + Math.min(0.6, localVeil * 0.05))) ** 2;
+    let targetAwake = false;
     for (const n of g.nodes) {
       if (n.state !== "lit" && n.state !== "awakened") continue;
       if ((n.x - k.x) ** 2 + (n.y - k.y) ** 2 > radius2) continue;
-      if (!target || n.brightness > target.brightness) target = n;
+      const awake = n.state === "awakened";
+      if (!target ||
+          (awake && !targetAwake) ||
+          (awake === targetAwake && n.brightness > target.brightness)) {
+        target = n;
+        targetAwake = awake;
+      }
     }
-    if (!target) continue;
-    target.heat += 1;
-    const threshold = target.state === "awakened" ? 2 : 1; // banked souls resist longer
-    if (target.heat >= threshold) snuff(g, target);
+    if (target) snuff(g, target);
   }
   reinforceVeil(g);
 }
@@ -324,10 +338,12 @@ function snuff(g: GameState, n: CityNode): void {
   n.brightness = 0;
   n.revealed = true;
   n.heat = 0;
-  // Snuffed ground does not return to neutral dark — it thickens.
+  // Snuffed ground does not return to neutral dark — it thickens. A martyred
+  // soul scars hardest, and that scar is what eventually breeds a new Keeper.
   n.veil += wasAwakened ? 2 : 1.2;
   for (const mId of g.adj.get(n.id) ?? []) g.nodes[mId].veil += 0.5;
   g.lastSnuffDistrict = n.district;
+  if (wasAwakened) g.lostSoul = true;
 }
 
 // Heavily-snuffed ground thickens into a new Keeper post: more patrolled.
@@ -460,6 +476,7 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     tick: data.tick || 0,
     shownFrescoes: Array.isArray(data.shownFrescoes) ? data.shownFrescoes : [],
     pendingFresco: null, lastSnuffDistrict: -1, veilThickened: false,
+    lostSoul: false,
   };
   return { g, savedAt: data.savedAt || Date.now() };
 }
@@ -471,7 +488,7 @@ function freshGame(): GameState {
     night: 1, maxFlame: START_FLAME, flame: START_FLAME,
     mode: "kindle", phase: "night", tick: 0,
     shownFrescoes: [], pendingFresco: null,
-    lastSnuffDistrict: -1, veilThickened: false,
+    lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
   };
   for (const n of g.nodes) if (n.kind === "shrine") reveal(g, n.id, 1);
   return g;
@@ -523,6 +540,24 @@ function render(g: GameState, svg: SVGSVGElement, onTap: TapHandler, dawnMode?: 
       svg.appendChild(el("circle", {
         cx: n.x, cy: n.y, r: 14 + Math.min(26, n.veil * 7),
         fill: "#05060d", opacity: Math.min(0.7, 0.18 + n.veil * 0.12),
+      }));
+    }
+  }
+
+  // Keeper reach — for every Keeper the light has uncovered, draw the patrol
+  // ring it actually snuffs within, so its threat is something you place
+  // around rather than a surprise. The ring swells as nearby veil thickens
+  // (keeperRadius is the same one stepKeepers enforces).
+  if (!dawnMode) {
+    for (const k of g.nodes) {
+      if (k.kind !== "keeper" || !k.revealed) continue;
+      const rad = keeperRadius(g, k);
+      svg.appendChild(el("circle", {
+        cx: k.x, cy: k.y, r: rad, fill: "#9fc4e8", "fill-opacity": 0.04,
+      }));
+      svg.appendChild(el("circle", {
+        cx: k.x, cy: k.y, r: rad, fill: "none", stroke: "#9fc4e8",
+        "stroke-opacity": 0.22, "stroke-width": 1, "stroke-dasharray": "3 8",
       }));
     }
   }
@@ -649,6 +684,10 @@ function start(): void {
     render(g, svg, onTap, dawnMode);
     hud();
     if (g.pendingFresco) { showToast(g.pendingFresco); g.pendingFresco = null; }
+    if (g.lostSoul) {
+      g.lostSoul = false;
+      showToast("A soul you woke is snuffed; the Veil closes where they stood.");
+    }
     if (g.veilThickened) {
       g.veilThickened = false;
       const d = g.lastSnuffDistrict >= 0 ? DISTRICTS[g.lastSnuffDistrict].name : "the city";
@@ -762,7 +801,7 @@ function start(): void {
       "The Light-Bringer",
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle. Awaken a dwelling and it carries the light while you are away. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
+      `<em>Tap to kindle. The cold rings are the Keepers' reach. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
       "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); }
     );
     draw();
@@ -813,8 +852,8 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
   testGlobal.__lb = {
     generateCity, freshGame, simulateTicks, stepSpread, stepAwakened,
-    stepKeepers, kindle, awaken, snuff, litStats, applyDawn, districtStats,
-    saveGame, loadGame, DISTRICTS,
+    stepKeepers, keeperRadius, kindle, awaken, snuff, litStats, applyDawn,
+    districtStats, saveGame, loadGame, DISTRICTS,
   };
 } else {
   start();

@@ -47,6 +47,7 @@ The test seam is at the bottom of `app.ts`: when `globalThis.__LB_TEST__` is set
 - **Snuffing is irreversible and compounding.** A snuffed node never returns to neutral dark — its `veil` thickens, damps nearby relighting, and once `veil` crosses `VEIL_REINFORCE_AT` it breeds a *new Keeper* (`reinforceVeil`). This asymmetry is the whole strategic point; don't "fix" it into something reversible.
 - **Only light connected to an awakened soul survives dawn.** `applyDawn` does a flood-fill from awakened nodes; unconnected `lit` nodes fade to dark. Awakened dwellings are the persistence layer.
 - **Awakened souls are the idle layer.** `stepAwakened` makes them kindle on their own, including during the "while you were away" catch-up that runs `simulateTicks` on load (bounded by `IDLE_CAP_TICKS`).
+- **Awakened souls are beacons, not bunkers.** `stepKeepers` targets any awakened soul in reach *before* brighter lit ground — banking a flame buys persistence and autonomous spread but paints a target. Snuffing one sets `g.lostSoul` (a toast) and scars the veil hardest. So the kindle-vs-awaken choice is a placement decision: awaken *outside* a Keeper's radius. That radius is drawn (`keeperRadius`, used by both `stepKeepers` and `render`), so it's a visible threat to play around — keep those two callers in sync.
 
 ### Persistence (save format v2)
 
