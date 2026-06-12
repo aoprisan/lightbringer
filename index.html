@@ -120,7 +120,11 @@
     position: fixed; inset: 0; z-index: 10;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 20px; padding: 32px; text-align: center;
-    background: radial-gradient(ellipse at center, rgba(11,13,26,0.9), rgba(4,5,12,0.97));
+    /* Title backdrop: the light-bringer in the dark wood, veiled dark so gold text stays legible. */
+    background:
+      radial-gradient(ellipse at center, rgba(11,13,26,0.86), rgba(4,5,12,0.95)),
+      url("./art/title-backdrop.jpg") center/cover no-repeat,
+      #05060d;
     backdrop-filter: blur(4px);
   }
   #overlay.hidden { display: none; }
