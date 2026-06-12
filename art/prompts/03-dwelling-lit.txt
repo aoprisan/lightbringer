@@ -1,0 +1,26 @@
+ASSET: dwelling-lit.png — node kind "dwelling", state "lit"
+OUTPUT: art/dwelling-lit.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo.
+- SILHOUETTE CONTINUITY: Do NOT generate from scratch. Use Gemini's
+  image-editing mode on dwelling-dark.png ("edit this image: now lit from
+  within…") so this shares the exact silhouette of the dark state. The game
+  swaps states on the same node.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. View: three-quarter top-down (about 60°), consistent light
+from the object's own flame only. Single centered subject, isolated on a
+flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+
+--- PROMPT ---
+The same small medieval row-house dwelling, now lit from within: warm
+candle-gold glow spilling from one window and under the door, faint smoke
+from the chimney, gentle warm light pooling on the ground at its base. The
+house itself stays dark; only the light is warm.

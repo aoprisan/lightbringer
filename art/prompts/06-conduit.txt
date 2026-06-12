@@ -1,0 +1,23 @@
+ASSET: conduit.png — node kind "conduit" (rumor/oil channels that carry fire fast)
+OUTPUT: art/conduit.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. View: three-quarter top-down (about 60°), consistent light
+from the object's own flame only. Single centered subject, isolated on a
+flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+
+--- PROMPT ---
+A narrow medieval alley structure seen from above: an open stone channel or
+gutter running through a cramped passage between walls, slick with lamp-oil
+sheen, hanging laundry lines and message-strings overhead. Dark and quiet,
+with the faintest cold reflection along the wet channel hinting it would
+carry flame instantly.

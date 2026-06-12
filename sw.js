@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v12";
+const CACHE = "lightbringer-v14";
 
 const ASSETS = [
   "./",
@@ -22,6 +22,24 @@ const ASSETS = [
   "./art/fresco-morning.jpg",
   "./art/texture-vellum.jpg",
   "./art/texture-ink.jpg",
+  // Gameplay sprites (see ART_PLAN.md), optimized from art/prompts/*.png.
+  // addAll() rejects the whole install if any listed asset 404s, so every
+  // file here must exist in art/ — bump CACHE whenever this list changes.
+  "./art/ground.png",
+  "./art/dwelling-dark.png",
+  "./art/dwelling-lit.png",
+  "./art/dwelling-awakened.png",
+  "./art/dwelling-snuffed.png",
+  "./art/conduit.png",
+  "./art/press.png",
+  "./art/shrine.png",
+  "./art/keeper-node.png",
+  "./art/keeper-patrol.png",
+  "./art/player-lantern.png",
+  "./art/veil-scar.png",
+  "./art/flame-spark.png",
+  "./art/rain-overlay.png",
+  "./art/wind-overlay.png",
 ];
 
 self.addEventListener("install", (event) => {

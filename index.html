@@ -70,6 +70,24 @@
     position: fixed; inset: 0; z-index: 3; pointer-events: none;
     background: radial-gradient(ellipse 75% 75% at 50% 46%, transparent 52%, rgba(2,3,8,0.62) 100%);
   }
+  /* Weather wash — painted overlays (art/rain-overlay.png, art/wind-overlay.png)
+     drift over the city when that sky is rolled. Missing files fail silently:
+     the div simply stays empty until the art exists. */
+  #wx {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    opacity: 0; transition: opacity 1.4s ease;
+    background-size: 512px 512px;
+  }
+  #wx.rain { opacity: 0.22; background-image: url("./art/rain-overlay.png"); animation: wxRain 0.9s linear infinite; }
+  #wx.wind { opacity: 0.16; background-image: url("./art/wind-overlay.png"); animation: wxWind 2.6s linear infinite; }
+  @keyframes wxRain { from { background-position: 0 0; } to { background-position: -64px 512px; } }
+  @keyframes wxWind { from { background-position: 0 0; } to { background-position: 512px 0; } }
+  /* The player's lantern-hand, shown for a breath where the flame was given. */
+  .lantern-mark { animation: lanternFade 1.1s ease-out forwards; pointer-events: none; }
+  @keyframes lanternFade {
+    from { opacity: 1; }
+    to { opacity: 0; transform: translateY(-10px); }
+  }
   /* Hand-painted ink-veil texture, the thickening dark, washed faint over the city. */
   .inkveil {
     position: fixed; inset: 0; z-index: 2; pointer-events: none;
@@ -295,7 +313,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
-    .grain, h1 { animation: none !important; }
+    .grain, h1, #wx { animation: none !important; }
   }
 </style>
 </head>
@@ -312,6 +330,7 @@
   <div class="inkveil"></div>
   <div class="grain"></div>
   <div class="vignette"></div>
+  <div id="wx"></div>
 
   <div id="toast"></div>
 

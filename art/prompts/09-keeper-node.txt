@@ -1,0 +1,25 @@
+ASSET: keeper-node.png — node kind "keeper" (the static Keeper post)
+OUTPUT: art/keeper-node.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo.
+- Absolutely no warm light on this asset — it is the anti-flame.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. View: three-quarter top-down (about 60°), consistent light
+from the object's own flame only. Single centered subject, isolated on a
+flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+
+--- PROMPT ---
+A grim watch-post of the Order of Keepers: a tall narrow black-iron
+brazier-tower on a stone base, its cage holding not fire but a dense sphere
+of darkness that bends the faint light around it, snuffing-hooks and long
+candle-snuffer poles racked against it, a black banner with a single
+eye-and-extinguisher sigil. Cold violet-black accents, absolutely no warm
+light.

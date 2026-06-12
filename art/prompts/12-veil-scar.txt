@@ -1,0 +1,24 @@
+ASSET: veil-scar.png — overlay decal for thickened veil
+OUTPUT: art/veil-scar.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo. This is a ground decal
+  meant to be composited as a soft-edged overlay (chroma-key the #0B0E1A).
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. View: directly top-down (flat ground decal). Single centered
+subject, isolated on a flat solid #0B0E1A background, 1024×1024, no text, no
+watermark, no border.
+
+--- PROMPT ---
+A flat ground-decal seen from directly above: a roughly circular stain of
+black-violet smoke and ash soaked into cobblestones, denser at the center,
+wisping to nothing at the edges, faint suppressed-ember flecks of dull
+grey-gold deep inside it. Painted as a soft-edged blot suitable as an
+overlay.

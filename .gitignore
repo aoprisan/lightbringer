@@ -2,3 +2,11 @@ node_modules/
 
 # Build output — app.js is compiled from app.ts by `npm run build` (and in CI).
 /app.js
+
+# macOS junk
+.DS_Store
+
+# Original full-res art generations (~5MB each). The prompt .txt files are
+# tracked as the regeneration recipe; the shipped, optimized sprites live in
+# art/*.png. The 2048px source PNGs are kept locally only.
+art/prompts/*.png

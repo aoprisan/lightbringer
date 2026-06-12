@@ -673,6 +673,38 @@ function el<K extends keyof SVGElementTagNameMap>(
 // GPUs choke on at full-screen redraw rates; the tight glow stays.
 const LOW_FX = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
+// Painted sprites (see ART_PLAN.md) are strictly optional: every art/*.png
+// that exists is used, and anything missing keeps its vector primitive — the
+// game is playable with zero, some, or all of the set. Sprites are generated
+// on solid night (#0B0E1A), so each <image> is drawn through the spriteFade
+// mask, which melts the square edge into the dark.
+const SPRITE_NAMES = [
+  "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened",
+  "dwelling-snuffed", "conduit", "press", "shrine",
+  "keeper-node", "keeper-patrol", "player-lantern", "veil-scar", "flame-spark",
+] as const;
+const sprites = new Set<string>();
+
+// Probe each file once at startup; each arrival notifies (the shell repaints).
+function loadSprites(onChange: () => void): void {
+  if (typeof Image === "undefined") return; // headless test harness
+  for (const name of SPRITE_NAMES) {
+    const img = new Image();
+    img.onload = () => { sprites.add(name); onChange(); };
+    img.src = `art/${name}.png`;
+  }
+}
+
+function spriteImage(
+  name: string, x: number, y: number, size: number, opacity: number,
+): SVGImageElement {
+  return el("image", {
+    href: `art/${name}.png`,
+    x: x - size / 2, y: y - size / 2, width: size, height: size,
+    opacity, mask: "url(#spriteFade)",
+  });
+}
+
 // Built once: the filter/gradient defs and the camera group every frame
 // renders into. The camera transform lives on the returned group, so pan and
 // zoom survive each repaint untouched.
@@ -709,7 +741,18 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
       <stop offset="0%" stop-color="#01020a" stop-opacity="0.95"/>
       <stop offset="55%" stop-color="#05060d" stop-opacity="0.6"/>
       <stop offset="100%" stop-color="#05060d" stop-opacity="0"/>
-    </radialGradient>`;
+    </radialGradient>
+    <radialGradient id="spriteFadeGrad">
+      <stop offset="0%" stop-color="#fff"/>
+      <stop offset="58%" stop-color="#fff"/>
+      <stop offset="98%" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="spriteFade" maskContentUnits="objectBoundingBox">
+      <circle cx="0.5" cy="0.5" r="0.5" fill="url(#spriteFadeGrad)"/>
+    </mask>
+    <pattern id="groundPat" patternUnits="userSpaceOnUse" width="512" height="512">
+      <image href="art/ground.png" width="512" height="512"/>
+    </pattern>`;
   svg.appendChild(defs);
   const cam = el("g", {});
   svg.appendChild(cam);
@@ -721,14 +764,25 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
 function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
   layer.innerHTML = "";
 
+  // Painted cobblestone ground, when its sprite exists — beneath every mark.
+  // Dawn keeps the bare pale field; the texture is night art.
+  if (!dawnMode && sprites.has("ground")) {
+    layer.appendChild(el("rect", {
+      x: 0, y: 0, width: W, height: H, fill: "url(#groundPat)", opacity: 0.55,
+    }));
+  }
+
   // Veil blots first — the thickening dark sits beneath everything, an ink
   // stain that feathers out into the night rather than a hard disc.
   for (const n of g.nodes) {
     if (n.veil > 0.1 && n.kind !== "keeper") {
-      layer.appendChild(el("circle", {
-        cx: n.x, cy: n.y, r: 18 + Math.min(34, n.veil * 9),
-        fill: "url(#veil)", opacity: Math.min(0.9, 0.4 + n.veil * 0.14),
-      }));
+      const r = 18 + Math.min(34, n.veil * 9);
+      const op = Math.min(0.9, 0.4 + n.veil * 0.14);
+      if (!dawnMode && sprites.has("veil-scar")) {
+        layer.appendChild(spriteImage("veil-scar", n.x, n.y, r * 2.6, op));
+      } else {
+        layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill: "url(#veil)", opacity: op }));
+      }
     }
   }
 
@@ -796,64 +850,91 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
     }
 
     if (n.kind === "keeper") {
-      // A watchful sentinel: a cold diamond with a dark vertical slit for an
-      // eye, drawn at its patrol position — it moves, and you see it move.
-      const r = 9;
-      const op = n.revealed ? 0.95 : 0.1;
-      grp.appendChild(el("rect", {
-        x: n.px - r, y: n.py - r, width: r * 2, height: r * 2, rx: 1.5,
-        fill: "#9fc4e8", opacity: op, transform: `rotate(45 ${n.px} ${n.py})`,
-      }));
-      if (n.revealed) {
+      if (!dawnMode && sprites.has("keeper-patrol")) {
+        // The post stands at (x,y); the robed sentinel roams at (px,py).
+        if (n.revealed && sprites.has("keeper-node")) {
+          grp.appendChild(spriteImage("keeper-node", n.x, n.y, 66, 0.9));
+        }
+        grp.appendChild(spriteImage("keeper-patrol", n.px, n.py, 42, n.revealed ? 1 : 0.12));
+      } else {
+        // A watchful sentinel: a cold diamond with a dark vertical slit for an
+        // eye, drawn at its patrol position — it moves, and you see it move.
+        const r = 9;
+        const op = n.revealed ? 0.95 : 0.1;
         grp.appendChild(el("rect", {
-          x: n.px - 1.4, y: n.py - 4.5, width: 2.8, height: 9, rx: 1.4,
-          fill: "#0b0f1c", opacity: 0.85,
+          x: n.px - r, y: n.py - r, width: r * 2, height: r * 2, rx: 1.5,
+          fill: "#9fc4e8", opacity: op, transform: `rotate(45 ${n.px} ${n.py})`,
         }));
+        if (n.revealed) {
+          grp.appendChild(el("rect", {
+            x: n.px - 1.4, y: n.py - 4.5, width: 2.8, height: 9, rx: 1.4,
+            fill: "#0b0f1c", opacity: 0.85,
+          }));
+        }
       }
     } else if (n.state === "snuffed") {
-      // Snuffed ground: a cold-rimmed husk over its own veil stain.
-      grp.appendChild(el("circle", {
-        cx: n.x, cy: n.y, r: 10, fill: "#0a0c16",
-        stroke: "#46527a", "stroke-width": 1.4, opacity: 0.95,
-      }));
-      grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 2.4, fill: "#2a3354", opacity: 0.9 }));
+      if (!dawnMode && n.kind === "dwelling" && sprites.has("dwelling-snuffed")) {
+        grp.appendChild(spriteImage("dwelling-snuffed", n.x, n.y, 54, 0.95));
+      } else {
+        // Snuffed ground: a cold-rimmed husk over its own veil stain.
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 10, fill: "#0a0c16",
+          stroke: "#46527a", "stroke-width": 1.4, opacity: 0.95,
+        }));
+        grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 2.4, fill: "#2a3354", opacity: 0.9 }));
+      }
     } else {
-      let fill = dawnMode ? "#cfc6dc" : "#3a4060";
-      let r = 7;
-      let opacity = n.revealed ? 0.9 : 0.2;
-      if (isLit) {
-        fill = awake ? "#ffd87a" : "#e8b34b";
-        r = awake ? 9 : 7.5;
-        opacity = 1;
-      } else if (n.kind === "conduit") {
-        fill = n.revealed ? "#5a5f86" : "#3a4060";
-      } else if (n.kind === "press") {
-        fill = n.revealed ? "#6f6a8e" : "#3a4060";
-        r = 8;
-      } else if (n.kind === "shrine") {
-        fill = n.revealed ? "#8a7aa8" : "#3a4060";
-        opacity = Math.max(opacity, 0.35);
-      }
-      const c = el("circle", { cx: n.x, cy: n.y, r, fill, opacity });
-      if (isLit) c.setAttribute("filter", "url(#glow)");
-      grp.appendChild(c);
-      // A lit node carries a hot white heart inside the flame.
-      if (isLit) {
-        grp.appendChild(el("circle", {
-          cx: n.x, cy: n.y, r: awake ? 3.4 : 2.6, fill: "#fff6da",
-        }));
-      }
-      // Presses bear an inked mark; unlit shrines a faint aureole.
-      if (n.kind === "press" && n.revealed && !isLit) {
-        grp.appendChild(el("rect", { x: n.x - 3, y: n.y - 3, width: 6, height: 6, fill: "#0b0d1a", opacity: 0.6 }));
-      }
-      if (n.kind === "shrine" && n.revealed && !isLit) {
-        grp.appendChild(el("circle", {
-          cx: n.x, cy: n.y, r: 12, fill: "none",
-          stroke: "#8a7aa8", "stroke-width": 0.8, "stroke-opacity": 0.4,
-        }));
+      // Dwellings swap sprites by state; the other kinds have one face each,
+      // with a flame-spark laid over them when they burn.
+      const spriteName = n.kind === "dwelling"
+        ? (awake ? "dwelling-awakened" : isLit ? "dwelling-lit" : "dwelling-dark")
+        : n.kind;
+      if (!dawnMode && sprites.has(spriteName)) {
+        const size = n.kind === "press" ? 64 : n.kind === "shrine" ? 52 : n.kind === "conduit" ? 50 : 54;
+        const op = isLit ? 1 : n.revealed ? 0.88 : n.kind === "shrine" ? 0.3 : 0.16;
+        grp.appendChild(spriteImage(spriteName, n.x, n.y, size, op));
+        if (isLit && n.kind !== "dwelling" && sprites.has("flame-spark")) {
+          grp.appendChild(spriteImage("flame-spark", n.x, n.y - 6, 24, 1));
+        }
+      } else {
+        let fill = dawnMode ? "#cfc6dc" : "#3a4060";
+        let r = 7;
+        let opacity = n.revealed ? 0.9 : 0.2;
+        if (isLit) {
+          fill = awake ? "#ffd87a" : "#e8b34b";
+          r = awake ? 9 : 7.5;
+          opacity = 1;
+        } else if (n.kind === "conduit") {
+          fill = n.revealed ? "#5a5f86" : "#3a4060";
+        } else if (n.kind === "press") {
+          fill = n.revealed ? "#6f6a8e" : "#3a4060";
+          r = 8;
+        } else if (n.kind === "shrine") {
+          fill = n.revealed ? "#8a7aa8" : "#3a4060";
+          opacity = Math.max(opacity, 0.35);
+        }
+        const c = el("circle", { cx: n.x, cy: n.y, r, fill, opacity });
+        if (isLit) c.setAttribute("filter", "url(#glow)");
+        grp.appendChild(c);
+        // A lit node carries a hot white heart inside the flame.
+        if (isLit) {
+          grp.appendChild(el("circle", {
+            cx: n.x, cy: n.y, r: awake ? 3.4 : 2.6, fill: "#fff6da",
+          }));
+        }
+        // Presses bear an inked mark; unlit shrines a faint aureole.
+        if (n.kind === "press" && n.revealed && !isLit) {
+          grp.appendChild(el("rect", { x: n.x - 3, y: n.y - 3, width: 6, height: 6, fill: "#0b0d1a", opacity: 0.6 }));
+        }
+        if (n.kind === "shrine" && n.revealed && !isLit) {
+          grp.appendChild(el("circle", {
+            cx: n.x, cy: n.y, r: 12, fill: "none",
+            stroke: "#8a7aa8", "stroke-width": 0.8, "stroke-opacity": 0.4,
+          }));
+        }
       }
       // Awakened souls wear a steady halo-ring: a beacon, and a marked one.
+      // Drawn over sprite and primitive alike — it is gameplay information.
       if (awake) {
         grp.appendChild(el("circle", {
           cx: n.x, cy: n.y, r: 15, fill: "none",
@@ -899,6 +980,7 @@ function start(): void {
   const fresco = byId("fresco");
   const frescoImg = byId("fresco-img") as HTMLImageElement;
   const frescoCap = byId("fresco-cap");
+  const wx = byId("wx");
 
   const loaded = loadGame();
   let g: GameState = loaded ? loaded.g : freshGame();
@@ -1025,6 +1107,17 @@ function start(): void {
 
   fitCam();
 
+  // Painted sprites pop in as each file is found (or never, harmlessly, while
+  // the art is still being generated). Arrivals coalesce into one repaint.
+  let spriteFrame = 0;
+  loadSprites(() => {
+    if (spriteFrame) return;
+    spriteFrame = requestAnimationFrame(() => {
+      spriteFrame = 0;
+      draw(g.phase === "end");
+    });
+  });
+
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   function showToast(text: string): void {
     toast.textContent = text;
@@ -1062,6 +1155,10 @@ function start(): void {
   function draw(dawnMode?: boolean): void {
     render(g, layer, dawnMode);
     hud();
+    // The sky, washed over the whole screen. The CSS backgrounds point at
+    // art/rain-overlay.png / art/wind-overlay.png and fail silently until
+    // those files exist.
+    wx.className = g.phase === "night" && g.weather.kind !== "still" ? g.weather.kind : "";
     if (g.pendingFresco) { revealFresco(g.pendingFresco); g.pendingFresco = null; }
     if (g.lostSoul) {
       g.lostSoul = false;
@@ -1077,16 +1174,25 @@ function start(): void {
   function onTap(id: number): void {
     if (g.phase !== "night") return;
     const n = g.nodes[id];
+    let acted = false;
     if (g.mode === "kindle") {
       if (g.flame < KINDLE_COST) { showToast("No flame left to give. End the night."); return; }
-      if (kindle(g, id)) g.flame -= KINDLE_COST;
+      if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; }
     } else {
       if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦.`); return; }
       if (n.kind !== "dwelling") { showToast("Only a dwelling — a person — can be awakened."); return; }
-      if (awaken(g, id)) g.flame -= AWAKEN_COST;
+      if (awaken(g, id)) { g.flame -= AWAKEN_COST; acted = true; }
     }
     saveGame(g);
     draw();
+    // The Light-Bringer's hand, glimpsed where the flame was given. Appended
+    // after the repaint, it fades by CSS and vanishes with the next tick's
+    // wholesale redraw — ephemeral by construction.
+    if (acted && sprites.has("player-lantern")) {
+      const mark = spriteImage("player-lantern", n.x, n.y - 18, 48, 1);
+      mark.setAttribute("class", "lantern-mark");
+      layer.appendChild(mark);
+    }
   }
 
   modeBtn.addEventListener("click", () => {

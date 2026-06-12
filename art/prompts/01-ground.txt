@@ -1,0 +1,25 @@
+ASSET: ground.png — city ground texture (the one non-sprite)
+OUTPUT: art/ground.png
+FORMAT: 1024×1024, no text, no watermark, no border. Seamless tileable.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo.
+- This is the ONLY non-sprite asset: it is a seamless tile, NOT a single
+  centered subject. Edges must wrap.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. View: three-quarter top-down (about 60°), consistent light
+from the object's own flame only. Isolated on a flat solid #0B0E1A
+background, 1024×1024, no text, no watermark, no border.
+
+--- PROMPT ---
+Seamless tileable texture of medieval city ground seen from above at night:
+worn cobblestones, patches of dirt, faint cart ruts, occasional drain grate,
+all in very dark slate blue and charcoal so it reads as background.
+Extremely low contrast, no focal point, no light sources, edges must tile
+seamlessly. 1024×1024.

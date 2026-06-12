@@ -1,0 +1,21 @@
+ASSET: rain-overlay.png — weather overlay (optional)
+OUTPUT: art/rain-overlay.png
+FORMAT: 1024×1024, full-frame overlay, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #0B0E1A (night indigo).
+  Never use a white background — flame glow will halo. This is a full-frame
+  overlay (chroma-key the #0B0E1A), NOT a centered subject. Even density
+  edge to edge.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, medieval city at night,
+ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo
+(#0B0E1A), slate blues, charcoal stone; warm candle-gold (#F5C66B) and ember
+orange for any light. Soft painterly edges, subtle grain, no outlines, no
+photorealism. Full-frame overlay, isolated on a flat solid #0B0E1A
+background, 1024×1024, no text, no watermark, no border.
+
+--- PROMPT ---
+A full-frame overlay of thin slanted silver-blue rain streaks and tiny
+splash rings on darkness, sparse and subtle, even density edge to edge.
