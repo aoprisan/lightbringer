@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v6";
+const CACHE = "lightbringer-v7";
 
 const ASSETS = [
   "./",
@@ -12,6 +12,7 @@ const ASSETS = [
   "./icons/icon-512.png",
   "./icons/maskable-512.png",
   "./icons/icon-180.png",
+  "./icons/og-image.jpg",
   "./art/title-backdrop.jpg",
 ];
 
