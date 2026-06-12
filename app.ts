@@ -646,14 +646,20 @@ function freshGame(): GameState {
   return g;
 }
 
+// One breath of the city: light spreads a step, awakened souls kindle, the
+// Keepers advance and snuff. This is the single unit of simulation time —
+// the turn-based shell runs exactly one per player action (or deliberate Wait),
+// and the idle catch-up loops it for "while you were away".
+function stepCity(g: GameState): void {
+  g.tick += 1;
+  stepSpread(g);
+  stepAwakened(g);
+  stepKeepers(g);
+}
+
 // Run the city forward unattended (used for "while you were away").
 function simulateTicks(g: GameState, count: number): void {
-  for (let i = 0; i < count; i++) {
-    g.tick += 1;
-    stepSpread(g);
-    stepAwakened(g);
-    stepKeepers(g);
-  }
+  for (let i = 0; i < count; i++) stepCity(g);
 }
 
 // ---------- Rendering (SVG) ----------
@@ -965,6 +971,7 @@ function start(): void {
   const nightEl = byId("night");
   const litEl = byId("litpct");
   const modeBtn = byId("mode");
+  const waitBtn = byId("wait");
   const endBtn = byId("endnight");
   const resetBtn = byId("reset");
   const overlay = byId("overlay");
@@ -1171,24 +1178,33 @@ function start(): void {
     }
   }
 
+  // One breath of the city, driven by the player rather than a clock: the turn
+  // advances only when you act or deliberately Wait. After the city steps we
+  // save and repaint, surfacing any toast (a snuffed soul, a thickened veil).
+  function breathe(): void {
+    stepCity(g);
+    saveGame(g);
+    draw();
+  }
+
   function onTap(id: number): void {
     if (g.phase !== "night") return;
     const n = g.nodes[id];
     let acted = false;
     if (g.mode === "kindle") {
-      if (g.flame < KINDLE_COST) { showToast("No flame left to give. End the night."); return; }
+      if (g.flame < KINDLE_COST) { showToast("No flame left to give. Wait, or end the night."); return; }
       if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; }
     } else {
       if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦.`); return; }
       if (n.kind !== "dwelling") { showToast("Only a dwelling — a person — can be awakened."); return; }
       if (awaken(g, id)) { g.flame -= AWAKEN_COST; acted = true; }
     }
-    saveGame(g);
-    draw();
+    if (!acted) return; // a tap that lights nothing costs no breath
+    breathe();          // your flame, then the city draws one breath in answer
     // The Light-Bringer's hand, glimpsed where the flame was given. Appended
-    // after the repaint, it fades by CSS and vanishes with the next tick's
+    // after the breath's repaint, it fades by CSS and vanishes with the next
     // wholesale redraw — ephemeral by construction.
-    if (acted && sprites.has("player-lantern")) {
+    if (sprites.has("player-lantern")) {
       const mark = spriteImage("player-lantern", n.x, n.y - 18, 48, 1);
       mark.setAttribute("class", "lantern-mark");
       layer.appendChild(mark);
@@ -1198,6 +1214,13 @@ function start(): void {
   modeBtn.addEventListener("click", () => {
     g.mode = g.mode === "kindle" ? "awaken" : "kindle";
     hud();
+  });
+
+  // Wait: spend no flame, but let the night breathe once — light spreads and
+  // your awakened souls kindle, at the cost of one step of the Keepers' advance.
+  waitBtn.addEventListener("click", () => {
+    if (g.phase !== "night") return;
+    breathe();
   });
 
   // ----- Rules: the illuminated page, built from the tuning constants so it
@@ -1223,9 +1246,9 @@ function start(): void {
     `<h3>How a night runs</h3>` +
     `<ul>` +
     `<li>Tap to act; the footer button toggles between <em>kindle</em> and <em>awaken</em>. Drag to pan the city, pinch to zoom.</li>` +
-    `<li>Each tick, light spreads outward and your awakened souls kindle around themselves.</li>` +
+    `<li><em>The city moves only when you do.</em> Each act — or a deliberate <em>Wait</em> — lets the night breathe once: light spreads a step outward, your awakened souls kindle around themselves, and the Keepers advance.</li>` +
     `<li>Keepers stalk and snuff the light they reach. <em>Snuffing is irreversible</em> — snuffed ground scars over, damps any attempt to relight it, and once the scar thickens enough it breeds a <em>new Keeper</em>.</li>` +
-    `<li>End the night whenever your flame runs low.</li>` +
+    `<li><em>Wait</em> to let the light spread without spending flame — but every breath moves the Keepers too. End the night whenever you choose.</li>` +
     `</ul>` +
 
     `<h3>The sky</h3>` +
@@ -1331,16 +1354,9 @@ function start(): void {
     );
   });
 
-  // Live tick
-  setInterval(() => {
-    if (g.phase !== "night") return;
-    g.tick += 1;
-    stepSpread(g);
-    stepAwakened(g);
-    stepKeepers(g);
-    saveGame(g);
-    draw();
-  }, TICK_MS);
+  // No clock: the city is turn-based now. It advances one breath per player
+  // action (or Wait) via breathe(); only the idle catch-up below still runs the
+  // sim unattended, converting wall-clock absence into breaths at TICK_MS each.
 
   // ----- First-paint: intro, or "while you were away" -----
   if (!loaded) {
@@ -1350,7 +1366,7 @@ function start(): void {
       `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">` +
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle; drag to pan, pinch to zoom. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
+      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
       "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); }
     );
     draw();
@@ -1400,7 +1416,7 @@ const testGlobal = globalThis as unknown as {
 };
 if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
   testGlobal.__lb = {
-    generateCity, freshGame, simulateTicks, stepSpread, stepAwakened,
+    generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
     stepKeepers, keeperRadius, kindle, awaken, snuff, litStats, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
   };

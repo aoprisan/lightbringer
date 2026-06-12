@@ -42,6 +42,10 @@ The core sim functions (`generateCity`, `freshGame`, `simulateTicks`, `stepSprea
 
 The test seam is at the bottom of `app.ts`: when `globalThis.__LB_TEST__` is set, the module exports its internals on `globalThis.__lb` *instead of* calling `start()`. `smoke-test.mjs` sets that flag, stubs a minimal `localStorage`, then imports the compiled `../app.js`. If you add a sim function that tests need, export it through that `__lb` object. (`app.ts` has no `import`/`export` statements, so `tsc` emits a plain script that loads identically as a classic `<script>` and as a dynamic `import()` — keep it that way.)
 
+### The city is turn-based: it breathes only when the player acts
+
+`stepCity(g)` is the single unit of simulation time — one "breath": `tick += 1`, then `stepSpread` → `stepAwakened` → `stepKeepers`. There is **no wall-clock loop**; the shell's `breathe()` runs exactly one `stepCity` per player action (a successful kindle/awaken) or per deliberate **Wait** (the footer button), then saves and repaints. A tap that lights nothing costs no breath. `TICK_MS` is no longer a live tick rate — it survives only as the conversion factor for the "while you were away" idle catch-up, which loops `stepCity` via `simulateTicks` (bounded by `IDLE_CAP_TICKS`). Keep `stepCity` the one place a breath is defined, so the live shell and the idle catch-up can never drift apart.
+
 ### Key invariants in the simulation
 
 - **Snuffing is irreversible and compounding.** A snuffed node never returns to neutral dark — its `veil` thickens, damps nearby relighting, and once `veil` crosses `VEIL_REINFORCE_AT` it breeds a *new Keeper* (`reinforceVeil`). This asymmetry is the whole strategic point; don't "fix" it into something reversible.

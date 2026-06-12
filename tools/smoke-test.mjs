@@ -129,5 +129,15 @@ carrier.veil = 0;
 lb.kindle(g5, press.id);
 ok(carrier.state === "lit", "a kindled press fires its carrier line in one breath");
 
+// 11. stepCity is one breath: it advances the tick by exactly one and runs the
+// same sim the turn-based shell drives per action.
+const g6 = lb.freshGame();
+const beforeTick = g6.tick;
+lb.stepCity(g6);
+ok(g6.tick === beforeTick + 1, `stepCity advances exactly one breath (${beforeTick} -> ${g6.tick})`);
+const tenBefore = g6.tick;
+lb.simulateTicks(g6, 10);
+ok(g6.tick === tenBefore + 10, "simulateTicks runs ten breaths of stepCity");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
