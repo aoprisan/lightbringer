@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>The Light-Bringer</title>
+<meta name="description" content="A contemplative inversion game. Carry a stolen flame through a city taught that light burns.">
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b0d1a">
+<link rel="icon" href="./icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Light-Bringer">
+<meta name="mobile-web-app-capable" content="yes">
+
+<style>
+  :root {
+    --night: #0b0d1a;
+    --night-2: #11142a;
+    --ink: #c9c4d8;
+    --gold: #e8b34b;
+    --gold-bright: #ffd87a;
+    --cold: #9fc4e8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--night); color: var(--ink); overflow: hidden;
+    font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: calc(12px + env(safe-area-inset-top)) 18px 10px;
+    background: linear-gradient(var(--night) 55%, transparent);
+    pointer-events: none;
+  }
+  h1 {
+    font-size: 13px; font-weight: 400; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold);
+  }
+  .stats { display: flex; gap: 14px; font-size: 12px; letter-spacing: 0.08em; opacity: 0.85; }
+  #flame { color: var(--gold-bright); letter-spacing: 0.18em; }
+
+  #citywrap { position: absolute; inset: 0; }
+  svg { width: 100%; height: 100%; touch-action: pan-x pan-y; display: block; }
+
+  #toast {
+    position: fixed; top: calc(58px + env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%) translateY(-8px); z-index: 6;
+    max-width: 88%; text-align: center; font-style: italic; font-size: 14px;
+    line-height: 1.5; color: var(--gold-bright); letter-spacing: 0.02em;
+    padding: 10px 18px; border-radius: 2px;
+    background: rgba(11, 13, 26, 0.82); border: 1px solid rgba(232, 179, 75, 0.35);
+    box-shadow: 0 0 24px rgba(232, 179, 75, 0.12);
+    opacity: 0; pointer-events: none; transition: opacity .5s ease, transform .5s ease;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
+    display: flex; gap: 10px; justify-content: center;
+    padding: 12px 18px calc(16px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, var(--night) 60%);
+  }
+  button {
+    font-family: inherit; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 12px 20px; border-radius: 2px; cursor: pointer;
+    background: var(--night-2); color: var(--ink); border: 1px solid #2a2f4a;
+  }
+  button.kindle { border-color: var(--gold); color: var(--gold); }
+  button.awaken { border-color: var(--gold-bright); color: var(--gold-bright);
+    box-shadow: 0 0 14px rgba(255, 216, 122, 0.25); }
+  button:active { transform: translateY(1px); }
+
+  #overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 32px; text-align: center;
+    background: rgba(11, 13, 26, 0.93); backdrop-filter: blur(3px);
+  }
+  #overlay.hidden { display: none; }
+  #ov-title { font-size: 22px; font-weight: 400; letter-spacing: 0.12em; color: var(--gold); }
+  #ov-body { max-width: 460px; line-height: 1.65; font-size: 15.5px; }
+  #ov-body em { color: var(--gold-bright); font-style: italic; }
+  #ov-body .districts { display: inline-block; margin: 6px 0; font-size: 13.5px;
+    letter-spacing: 0.04em; opacity: 0.85; line-height: 1.9; }
+  .ov-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  #ov-btn { border-color: var(--gold); color: var(--gold); }
+
+  #help {
+    position: fixed; bottom: 78px; left: 0; right: 0; z-index: 4;
+    text-align: center; font-size: 11.5px; letter-spacing: 0.06em;
+    opacity: 0.55; font-style: italic; pointer-events: none;
+    padding: 0 24px;
+  }
+  @media (prefers-reduced-motion: reduce) { *, #toast { transition: none !important; } }
+</style>
+</head>
+<body>
+  <header>
+    <h1>The Light&#8209;Bringer</h1>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span></div>
+  </header>
+
+  <div id="citywrap">
+    <svg id="city" viewBox="0 0 1000 1400" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="help">Tap to kindle. Awaken a dwelling (3✦) and it carries the light after you. Snuffed ground thickens and breeds Keepers. Unbanked light dies at dawn.</div>
+
+  <footer>
+    <button id="mode" class="kindle">Kindle (1✦)</button>
+    <button id="endnight">End the night</button>
+  </footer>
+
+  <div id="overlay" class="hidden">
+    <div id="ov-title"></div>
+    <div id="ov-body"></div>
+    <div class="ov-buttons">
+      <button id="ov-btn">Carry on</button>
+      <button id="ov-btn2" style="display:none"></button>
+    </div>
+  </div>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
