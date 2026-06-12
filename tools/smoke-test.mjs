@@ -164,5 +164,23 @@ ok(near.decoy === 0, "a Keeper reaches and spends the false light");
 ok(near.veil === 0, "the searched decoy leaves no scar in the Veil");
 ok(gk.decoySpent, "spending a decoy raises the decoySpent flag");
 
+// 13. Hearths: a soul that holds through enough dawns settles and feeds the flame.
+const gh = lb.freshGame();
+const soul = gh.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+lb.awaken(gh, soul.id);
+ok(!lb.isHearth(soul), "a freshly awakened soul is not yet a hearth");
+for (let i = 0; i < 3; i++) lb.applyDawn(gh); // HEARTH_NIGHTS dawns held
+ok(soul.nights >= 3, `holding through dawns ages the soul (nights=${soul.nights})`);
+ok(lb.isHearth(soul), "a soul that holds enough dawns settles into a hearth");
+ok(lb.litStats(gh).hearths >= 1, "litStats counts the hearth");
+// the hearth's age survives a save/load round-trip
+lb.saveGame(gh);
+const ghReload = lb.loadGame();
+const soul2 = ghReload.g.nodes[soul.id];
+ok(soul2.nights === soul.nights && lb.isHearth(soul2), "a hearth's age round-trips through the save");
+// snuffing a hearth ends its age
+lb.snuff(gh, soul);
+ok(soul.nights === 0 && !lb.isHearth(soul), "snuffing a settled soul ends its hearth-age");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
