@@ -67,6 +67,17 @@ lb.saveGame(g);
 const reloaded = lb.loadGame();
 ok(reloaded && reloaded.g.nodes.length === g.nodes.length, "save/load round-trips the city");
 ok(reloaded.g.night === g.night && reloaded.g.maxFlame === g.maxFlame, "save preserves night/flame");
+ok(reloaded.g.nodes.every((n) => typeof n.px === "number" && typeof n.py === "number"),
+  "patrol positions survive the save");
+
+// 7b. Weather round-trips through the save
+g.weather = { kind: "wind", wx: 0, wy: 1 };
+lb.saveGame(g);
+const rew = lb.loadGame();
+ok(rew.g.weather.kind === "wind" && rew.g.weather.wy === 1, "save round-trips the weather");
+const rolled = lb.rollWeather(5);
+ok(["still", "wind", "rain"].includes(rolled.kind), `weather rolls a valid sky (${rolled.kind})`);
+ok(lb.rollWeather(1).kind === "still", "night 1 is always still");
 
 // 8. Awakened souls are beacons: a Keeper hunts them before brighter lit ground.
 // Place an awakened soul and a lit node on top of a Keeper; only the soul should fall.
@@ -85,6 +96,18 @@ ok(g3.nodes[beacon.id].state === "snuffed", "Keeper snuffs the awakened beacon f
 ok(g3.nodes[plain.id].state === "lit", "the equally-bright lit node is spared that cycle");
 ok(g3.lostSoul === true, "losing an awakened soul raises the lostSoul flag");
 
+// 8b. Keepers patrol: one that sees light leaves its post and closes on it,
+// but snuffs nothing until it is within reach.
+const g7 = lb.freshGame();
+const k7 = g7.nodes.find((n) => n.kind === "keeper");
+const prey = g7.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+prey.x = k7.x + 150; prey.y = k7.y; // seen (within 220) but out of snuff reach
+lb.kindle(g7, prey.id);
+g7.tick = 3; // a snuff tick — distance alone must spare the prey
+lb.stepKeepers(g7);
+ok(k7.px > k7.x, `a Keeper leaves its post toward the light (drifted ${(k7.px - k7.x) | 0})`);
+ok(prey.state === "lit", "but snuffs nothing it has not reached");
+
 // 9. A Keeper's patrol reach widens as veil thickens around it
 const g4 = lb.freshGame();
 const keeper4 = g4.nodes.find((n) => n.kind === "keeper");
@@ -94,6 +117,17 @@ for (const n of g4.nodes) {
 }
 const widened = lb.keeperRadius(g4, keeper4);
 ok(widened > base, `keeper radius widens with veil (${base | 0} -> ${widened | 0})`);
+
+// 10. A kindled press fires its whole carrier line at once
+const g5 = lb.freshGame();
+const press = g5.nodes.find((n) => n.kind === "press");
+const carrier = (g5.adj.get(press.id) || [])
+  .map((i) => g5.nodes[i])
+  .find((n) => n.kind !== "keeper" && n.state === "dark");
+carrier.kind = "conduit";
+carrier.veil = 0;
+lb.kindle(g5, press.id);
+ok(carrier.state === "lit", "a kindled press fires its carrier line in one breath");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

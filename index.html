@@ -80,12 +80,14 @@
   header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 5;
     display: flex; align-items: baseline; justify-content: space-between;
-    padding: calc(14px + env(safe-area-inset-top)) 20px 14px;
+    flex-wrap: wrap; column-gap: 14px; row-gap: 2px;
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
     background: linear-gradient(180deg, rgba(8,10,20,0.92) 30%, rgba(8,10,20,0.4) 75%, transparent);
     pointer-events: none;
   }
   h1 {
     font-size: 12.5px; font-weight: 400; letter-spacing: 0.34em; text-transform: uppercase;
+    white-space: nowrap;
     color: var(--gold); text-shadow: 0 0 14px rgba(232,179,75,0.4);
     animation: flicker 5.5s ease-in-out infinite;
   }
@@ -93,13 +95,17 @@
     0%,100% { opacity: 1; } 47% { opacity: 0.92; } 50% { opacity: 0.74; }
     53% { opacity: 0.95; } 70% { opacity: 0.85; }
   }
-  .stats { display: flex; gap: 16px; font-size: 12px; letter-spacing: 0.08em;
-    color: var(--ink-dim); align-items: baseline; }
+  .stats { display: flex; gap: 12px; font-size: 12px; letter-spacing: 0.08em;
+    color: var(--ink-dim); align-items: baseline;
+    flex-wrap: wrap; justify-content: flex-end; margin-left: auto; row-gap: 2px; }
+  .stats span { white-space: nowrap; }
   #flame { color: var(--gold-bright); letter-spacing: 0.16em; font-size: 13px;
     text-shadow: 0 0 10px rgba(255,216,122,0.45); }
 
-  #citywrap { position: absolute; inset: 0; z-index: 1; }
-  svg { width: 100%; height: 100%; touch-action: pan-x pan-y; display: block; }
+  #citywrap { position: absolute; inset: 0; z-index: 1;
+    -webkit-user-select: none; user-select: none; }
+  /* The game owns all gestures: drag pans, pinch zooms, tap acts. */
+  svg { width: 100%; height: 100%; touch-action: none; display: block; cursor: pointer; }
 
   #toast {
     position: fixed; top: calc(62px + env(safe-area-inset-top)); left: 50%;
@@ -300,7 +306,7 @@
   </header>
 
   <div id="citywrap">
-    <svg id="city" viewBox="0 0 1000 1400" preserveAspectRatio="xMidYMid meet"></svg>
+    <svg id="city"></svg>
   </div>
 
   <div class="inkveil"></div>
@@ -316,7 +322,7 @@
     </figure>
   </div>
 
-  <div id="help">Tap to kindle. The cold rings are the Keepers' reach. Awaken a dwelling (3✦) and it carries the light after you — but it draws their eye. Snuffed ground thickens and breeds Keepers. Unbanked light dies at dawn.</div>
+  <div id="help">Tap to kindle — drag to pan, pinch to zoom. The Keepers patrol: they hunt what they see. Awaken a dwelling (3✦) and it carries the light after you — but it draws their eye. Unbanked light dies at dawn.</div>
 
   <footer>
     <button id="mode" class="kindle">Kindle (1✦)</button>
