@@ -1,0 +1,25 @@
+# Art prompts — one file per prompt (copy-paste ready)
+
+Each `.txt` file here is a single, self-contained prompt for **Gemini 2.5 Flash
+Image ("Nano Banana")**. The house style is already baked into every file, so
+you can open one on your phone and copy-paste the whole thing — no assembling
+pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
+
+| File | What it makes |
+| --- | --- |
+| `01-app-icon.txt` | App icon — stolen flame (512 + 192) |
+| `01b-app-icon-maskable.txt` | Maskable icon variant (safe-zone padding) |
+| `02-favicon-apple-touch.txt` | Favicon / apple-touch (180) |
+| `03-social-share-card.txt` | Social / share card (og-image, 1200x630) |
+| `04-title-intro-backdrop.txt` | Title / intro backdrop (portrait 9:16) |
+| `05-keeper-sigil.txt` | Keeper sigil / threat marker (transparent) |
+| `06a-fresco-sun-and-faces.txt` | Fresco — sun and upturned faces |
+| `06b-fresco-printing-press.txt` | Fresco — printing press in flame |
+| `06c-fresco-child-and-candle.txt` | Fresco — child reaching for a candle |
+| `06d-fresco-veil-curtain.txt` | Fresco — veil as a lifted curtain |
+| `06e-fresco-sunrise.txt` | Fresco — sunrise over a sleeping city |
+| `07a-texture-vellum-whitewash.txt` | Texture — vellum / whitewash grain |
+| `07b-texture-ink-veil.txt` | Texture — ink veil (thickening dark) |
+
+Aspect ratios and transparent-background notes are already written into each
+prompt where they apply.

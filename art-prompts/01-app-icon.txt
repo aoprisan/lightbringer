@@ -1,0 +1,6 @@
+=== 1. App icon — the stolen flame (replaces icons/icon-512.png) ===
+Export at 512x512 and 192x192. Copy and paste the whole block below.
+
+Contemplative, reverent, illuminated-manuscript meets minimal poster art. Deep indigo night #080a14, warm gold light #e8b34b and #ffd87a with a near-white hot core #fff2cf, cold steel-blue accents #9fc4e8. High contrast, lots of negative darkness, soft volumetric glow, subtle film grain. No text, no watermark, no logos, no people's faces unless asked. Painterly but restrained — sacred, quiet, a little melancholy.
+
+App icon: a single small teardrop flame of warm gold light floating in the center, glowing against deep indigo night. The flame has a bright near-white core, a gold body, and a soft radial halo fading into the dark. Minimal, iconic, centered, symmetrical. Square 1:1. No text. Subtle vignette at the corners.
