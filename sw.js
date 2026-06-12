@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v7";
+const CACHE = "lightbringer-v8";
 
 const ASSETS = [
   "./",
@@ -14,6 +14,14 @@ const ASSETS = [
   "./icons/icon-180.png",
   "./icons/og-image.jpg",
   "./art/title-backdrop.jpg",
+  "./art/keeper-sigil.png",
+  "./art/fresco-sun.jpg",
+  "./art/fresco-veil.jpg",
+  "./art/fresco-press.jpg",
+  "./art/fresco-child.jpg",
+  "./art/fresco-morning.jpg",
+  "./art/texture-vellum.jpg",
+  "./art/texture-ink.jpg",
 ];
 
 self.addEventListener("install", (event) => {
