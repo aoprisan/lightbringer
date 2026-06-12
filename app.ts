@@ -12,7 +12,7 @@
 type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
 type NodeState = "dark" | "lit" | "awakened" | "snuffed";
 type Phase = "intro" | "night" | "dawn" | "end";
-type Mode = "kindle" | "awaken";
+type Mode = "kindle" | "awaken" | "decoy";
 
 type WeatherKind = "still" | "wind" | "rain";
 // wx/wy is the unit vector the wind blows TOWARD (a "north wind" runs south).
@@ -30,6 +30,7 @@ interface CityNode {
   revealed: boolean;
   heat: number; // Keeper attention accrued here
   veil: number; // thickening dark left by snuffing
+  decoy: number; // breaths a false light still burns here (0 = none); never saved
   district: number;
 }
 
@@ -58,6 +59,7 @@ interface GameState extends City {
   lastSnuffDistrict: number;
   veilThickened: boolean;
   lostSoul: boolean; // an awakened soul was snuffed since the last draw
+  decoySpent: boolean; // a Keeper searched a false light since the last draw
 }
 
 interface District {
@@ -77,6 +79,7 @@ const NEIGHBORS = 3;
 const START_FLAME = 12;
 const KINDLE_COST = 1;
 const AWAKEN_COST = 3;
+const DECOY_COST = 2;              // a false light to draw a Keeper off its post
 
 const TICK_MS = 850;
 const KEEPER_SNUFF_EVERY = 3;      // ticks between a Keeper's snuffings, once in reach
@@ -85,6 +88,7 @@ const KEEPER_SPEED = 13;           // patrol drift per tick while hunting
 const KEEPER_LEASH = 340;          // how far a Keeper strays from its post
 const KEEPER_SNUFF_REACH = 80;     // a Keeper must close to this range to snuff
 const AWAKEN_KINDLE_EVERY = 4;     // ticks between an awakened soul's own kindling
+const DECOY_TICKS = 10;            // breaths a false light burns before it fades
 const MAX_KEEPERS = 12;            // cap on Veil reinforcements
 const VEIL_REINFORCE_AT = 3.2;     // local veil weight that thickens into a new Keeper
 
@@ -228,6 +232,7 @@ function makeNode(id: number, x: number, y: number, kind: NodeKind): CityNode {
     revealed: false,
     heat: 0,             // Keeper attention accrued here
     veil: 0,             // thickening dark left by snuffing
+    decoy: 0,            // breaths a false light still burns here (0 = none)
     district: districtOf(x, y),
   };
 }
@@ -297,6 +302,7 @@ function kindle(g: GameState, id: number): boolean {
   if (n.state !== "dark" || n.kind === "keeper") return false;
   n.state = "lit";
   n.brightness = 1;
+  n.decoy = 0; // a false light that catches for real is no longer a ruse
   reveal(g, id, n.kind === "press" ? 3 : 2);
   if (n.kind === "shrine") revealDistrict(g, n.district); // a shrine lights its quarter
   if (n.kind === "press") runPress(g, n);                 // word made many — at once
@@ -332,8 +338,27 @@ function awaken(g: GameState, id: number): boolean {
   if (n.state !== "dark" && n.state !== "lit") return false;
   n.state = "awakened";
   n.brightness = 1;
+  n.decoy = 0;
   reveal(g, id, 2);
   return true;
+}
+
+// Lay a false light on dark, empty ground. It carries nothing and spreads
+// nothing — but a Keeper breaks for it before any true flame (see stepKeepers),
+// walks out to search the empty house, and finds only the spent ruse. Fades on
+// its own after DECOY_TICKS breaths. Deliberately transient: never persisted.
+function placeDecoy(g: GameState, id: number): boolean {
+  const n = g.nodes[id];
+  if (n.kind === "keeper") return false;
+  if (n.state !== "dark" || n.decoy > 0) return false;
+  n.decoy = DECOY_TICKS;
+  n.revealed = true; // the carrier sees the lure they laid
+  return true;
+}
+
+// Each breath a false light burns lower; at zero it fades back into the dark.
+function stepDecoys(g: GameState): void {
+  for (const n of g.nodes) if (n.decoy > 0) n.decoy -= 1;
 }
 
 function stepSpread(g: GameState): void {
@@ -413,16 +438,28 @@ function stepKeepers(g: GameState): void {
     if (k.kind !== "keeper") continue;
     const radius2 = keeperRadius(g, k) ** 2;
     let target: CityNode | null = null;
-    let targetAwake = false;
+    // A false light the carrier has laid draws the eye before any true flame:
+    // a Keeper breaks for the nearest decoy in its sight, past even a waking
+    // soul. With none, it falls back to the worst real light (souls, then the
+    // brightest ground).
+    let decoyD2 = Infinity;
     for (const n of g.nodes) {
-      if (n.state !== "lit" && n.state !== "awakened") continue;
-      if ((n.x - k.x) ** 2 + (n.y - k.y) ** 2 > radius2) continue;
-      const awake = n.state === "awakened";
-      if (!target ||
-          (awake && !targetAwake) ||
-          (awake === targetAwake && n.brightness > target.brightness)) {
-        target = n;
-        targetAwake = awake;
+      if (n.decoy <= 0 || n.kind === "keeper") continue;
+      const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
+      if (d2 <= radius2 && d2 < decoyD2) { decoyD2 = d2; target = n; }
+    }
+    if (!target) {
+      let targetAwake = false;
+      for (const n of g.nodes) {
+        if (n.state !== "lit" && n.state !== "awakened") continue;
+        if ((n.x - k.x) ** 2 + (n.y - k.y) ** 2 > radius2) continue;
+        const awake = n.state === "awakened";
+        if (!target ||
+            (awake && !targetAwake) ||
+            (awake === targetAwake && n.brightness > target.brightness)) {
+          target = n;
+          targetAwake = awake;
+        }
       }
     }
     if (target) {
@@ -450,8 +487,18 @@ function stepKeepers(g: GameState): void {
       }
     }
     // On a snuff tick, the hand falls on the worst light within arm's reach —
-    // not only the chosen quarry. Souls first, then the brightest.
+    // not only the chosen quarry. A false light within reach is searched first:
+    // the empty house is found out, the ruse spent, and no scar is left behind —
+    // that wasted reach is the breaths the carrier bought.
     if (g.tick % snuffEvery === 0) {
+      let decoyPrey: CityNode | null = null;
+      let decoyPreyD2 = Infinity;
+      for (const n of g.nodes) {
+        if (n.decoy <= 0 || n.kind === "keeper") continue;
+        const d2 = (n.x - k.px) ** 2 + (n.y - k.py) ** 2;
+        if (d2 <= KEEPER_SNUFF_REACH ** 2 && d2 < decoyPreyD2) { decoyPreyD2 = d2; decoyPrey = n; }
+      }
+      if (decoyPrey) { decoyPrey.decoy = 0; g.decoySpent = true; continue; }
       let prey: CityNode | null = null;
       let preyAwake = false;
       for (const n of g.nodes) {
@@ -627,7 +674,7 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     tick: data.tick || 0,
     shownFrescoes: Array.isArray(data.shownFrescoes) ? data.shownFrescoes : [],
     pendingFresco: null, lastSnuffDistrict: -1, veilThickened: false,
-    lostSoul: false,
+    lostSoul: false, decoySpent: false,
   };
   return { g, savedAt: data.savedAt || Date.now() };
 }
@@ -641,19 +688,27 @@ function freshGame(): GameState {
     mode: "kindle", phase: "night", tick: 0,
     shownFrescoes: [], pendingFresco: null,
     lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
+    decoySpent: false,
   };
   for (const n of g.nodes) if (n.kind === "shrine") reveal(g, n.id, 1);
   return g;
 }
 
+// One breath of the city: light spreads a step, awakened souls kindle, the
+// Keepers advance and snuff. This is the single unit of simulation time —
+// the turn-based shell runs exactly one per player action (or deliberate Wait),
+// and the idle catch-up loops it for "while you were away".
+function stepCity(g: GameState): void {
+  g.tick += 1;
+  stepSpread(g);
+  stepAwakened(g);
+  stepKeepers(g);
+  stepDecoys(g);
+}
+
 // Run the city forward unattended (used for "while you were away").
 function simulateTicks(g: GameState, count: number): void {
-  for (let i = 0; i < count; i++) {
-    g.tick += 1;
-    stepSpread(g);
-    stepAwakened(g);
-    stepKeepers(g);
-  }
+  for (let i = 0; i < count; i++) stepCity(g);
 }
 
 // ---------- Rendering (SVG) ----------
@@ -933,6 +988,19 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
           }));
         }
       }
+      // A false light the carrier has laid: a thin warm flicker the Keepers
+      // mistake for flame, ringed in a dashed cold rim so you can tell the ruse
+      // from a true light (and from an awakened soul's solid double-ring).
+      if (n.decoy > 0 && n.state === "dark") {
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 26, fill: "url(#halo)", opacity: 0.4,
+        }));
+        grp.appendChild(el("circle", { cx: n.x, cy: n.y, r: 4, fill: "#ffe9b0", opacity: 0.8 }));
+        grp.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 13, fill: "none", stroke: "#9fc4e8",
+          "stroke-width": 1, "stroke-opacity": 0.7, "stroke-dasharray": "2 3",
+        }));
+      }
       // Awakened souls wear a steady halo-ring: a beacon, and a marked one.
       // Drawn over sprite and primitive alike — it is gameplay information.
       if (awake) {
@@ -965,6 +1033,7 @@ function start(): void {
   const nightEl = byId("night");
   const litEl = byId("litpct");
   const modeBtn = byId("mode");
+  const waitBtn = byId("wait");
   const endBtn = byId("endnight");
   const resetBtn = byId("reset");
   const overlay = byId("overlay");
@@ -1148,7 +1217,9 @@ function start(): void {
     nightEl.textContent = `Night ${g.night} · ${weatherLabel(g.weather)}`;
     const s = litStats(g);
     litEl.textContent = `${Math.round((s.lit / s.total) * 100)}% lit`;
-    modeBtn.textContent = g.mode === "kindle" ? `Kindle (${KINDLE_COST}✦)` : `Awaken (${AWAKEN_COST}✦)`;
+    modeBtn.textContent = g.mode === "kindle" ? `Kindle (${KINDLE_COST}✦)`
+      : g.mode === "awaken" ? `Awaken (${AWAKEN_COST}✦)`
+      : `Decoy (${DECOY_COST}✦)`;
     modeBtn.className = g.mode;
   }
 
@@ -1163,7 +1234,10 @@ function start(): void {
     if (g.lostSoul) {
       g.lostSoul = false;
       showToast("A soul you woke is snuffed; the Veil closes where they stood.");
+    } else if (g.decoySpent) {
+      showToast("A Keeper searches your false light, and finds an empty house.");
     }
+    g.decoySpent = false;
     if (g.veilThickened) {
       g.veilThickened = false;
       const d = g.lastSnuffDistrict >= 0 ? DISTRICTS[g.lastSnuffDistrict].name : "the city";
@@ -1171,24 +1245,37 @@ function start(): void {
     }
   }
 
+  // One breath of the city, driven by the player rather than a clock: the turn
+  // advances only when you act or deliberately Wait. After the city steps we
+  // save and repaint, surfacing any toast (a snuffed soul, a thickened veil).
+  function breathe(): void {
+    stepCity(g);
+    saveGame(g);
+    draw();
+  }
+
   function onTap(id: number): void {
     if (g.phase !== "night") return;
     const n = g.nodes[id];
     let acted = false;
     if (g.mode === "kindle") {
-      if (g.flame < KINDLE_COST) { showToast("No flame left to give. End the night."); return; }
+      if (g.flame < KINDLE_COST) { showToast("No flame left to give. Wait, or end the night."); return; }
       if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; }
-    } else {
+    } else if (g.mode === "awaken") {
       if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦.`); return; }
       if (n.kind !== "dwelling") { showToast("Only a dwelling — a person — can be awakened."); return; }
       if (awaken(g, id)) { g.flame -= AWAKEN_COST; acted = true; }
+    } else {
+      if (g.flame < DECOY_COST) { showToast(`A false light costs ${DECOY_COST}✦.`); return; }
+      if (placeDecoy(g, id)) { g.flame -= DECOY_COST; acted = true; }
+      else { showToast("Lay a false light only on dark, empty ground."); return; }
     }
-    saveGame(g);
-    draw();
+    if (!acted) return; // a tap that lights nothing costs no breath
+    breathe();          // your flame, then the city draws one breath in answer
     // The Light-Bringer's hand, glimpsed where the flame was given. Appended
-    // after the repaint, it fades by CSS and vanishes with the next tick's
+    // after the breath's repaint, it fades by CSS and vanishes with the next
     // wholesale redraw — ephemeral by construction.
-    if (acted && sprites.has("player-lantern")) {
+    if (sprites.has("player-lantern")) {
       const mark = spriteImage("player-lantern", n.x, n.y - 18, 48, 1);
       mark.setAttribute("class", "lantern-mark");
       layer.appendChild(mark);
@@ -1196,8 +1283,15 @@ function start(): void {
   }
 
   modeBtn.addEventListener("click", () => {
-    g.mode = g.mode === "kindle" ? "awaken" : "kindle";
+    g.mode = g.mode === "kindle" ? "awaken" : g.mode === "awaken" ? "decoy" : "kindle";
     hud();
+  });
+
+  // Wait: spend no flame, but let the night breathe once — light spreads and
+  // your awakened souls kindle, at the cost of one step of the Keepers' advance.
+  waitBtn.addEventListener("click", () => {
+    if (g.phase !== "night") return;
+    breathe();
   });
 
   // ----- Rules: the illuminated page, built from the tuning constants so it
@@ -1216,6 +1310,8 @@ function start(): void {
     `<dd>Light a place. From there light spreads on its own along conduits and printing presses — the swift carriers of word and fire. Light a <em>press</em> itself and its whole line of carriers catches in one breath.</dd>` +
     `<dt>Awaken — ${AWAKEN_COST}✦</dt>` +
     `<dd>Wake a <em>dwelling</em> into a living soul. Awakened souls kindle by themselves, even while you are away, and they alone carry light through the dawn. Only a dwelling — a person — can be awakened.</dd>` +
+    `<dt>Decoy — ${DECOY_COST}✦</dt>` +
+    `<dd>Lay a <em>false light</em> on dark, empty ground. It carries nothing and fades on its own — but a Keeper breaks for it before any true flame, walks out to search the empty house, and finds only the spent ruse (no scar). Bait one off its post, then kindle or awaken where it cannot reach.</dd>` +
     `<dt><span class="swatch ring"></span>The cold rings</dt>` +
     `<dd>A Keeper's sight. Keepers <em>patrol</em>: one that sees light leaves its post and closes on it — an awakened soul before any plainer light — and snuffs only what it reaches, then drifts home when the dark is restored. Awaken <em>outside</em> the rings, and watch them move.</dd>` +
     `</dl>` +
@@ -1223,9 +1319,9 @@ function start(): void {
     `<h3>How a night runs</h3>` +
     `<ul>` +
     `<li>Tap to act; the footer button toggles between <em>kindle</em> and <em>awaken</em>. Drag to pan the city, pinch to zoom.</li>` +
-    `<li>Each tick, light spreads outward and your awakened souls kindle around themselves.</li>` +
+    `<li><em>The city moves only when you do.</em> Each act — or a deliberate <em>Wait</em> — lets the night breathe once: light spreads a step outward, your awakened souls kindle around themselves, and the Keepers advance.</li>` +
     `<li>Keepers stalk and snuff the light they reach. <em>Snuffing is irreversible</em> — snuffed ground scars over, damps any attempt to relight it, and once the scar thickens enough it breeds a <em>new Keeper</em>.</li>` +
-    `<li>End the night whenever your flame runs low.</li>` +
+    `<li><em>Wait</em> to let the light spread without spending flame — but every breath moves the Keepers too. End the night whenever you choose.</li>` +
     `</ul>` +
 
     `<h3>The sky</h3>` +
@@ -1331,16 +1427,9 @@ function start(): void {
     );
   });
 
-  // Live tick
-  setInterval(() => {
-    if (g.phase !== "night") return;
-    g.tick += 1;
-    stepSpread(g);
-    stepAwakened(g);
-    stepKeepers(g);
-    saveGame(g);
-    draw();
-  }, TICK_MS);
+  // No clock: the city is turn-based now. It advances one breath per player
+  // action (or Wait) via breathe(); only the idle catch-up below still runs the
+  // sim unattended, converting wall-clock absence into breaths at TICK_MS each.
 
   // ----- First-paint: intro, or "while you were away" -----
   if (!loaded) {
@@ -1350,7 +1439,7 @@ function start(): void {
       `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">` +
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle; drag to pan, pinch to zoom. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
+      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. Lay a false light to draw a Keeper off its post. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
       "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); }
     );
     draw();
@@ -1400,8 +1489,8 @@ const testGlobal = globalThis as unknown as {
 };
 if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
   testGlobal.__lb = {
-    generateCity, freshGame, simulateTicks, stepSpread, stepAwakened,
-    stepKeepers, keeperRadius, kindle, awaken, snuff, litStats, applyDawn,
+    generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
+    stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
   };
 } else {
