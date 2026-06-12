@@ -126,6 +126,16 @@ const FRESCOES: string[] = [
   "They keep the lamps low and call the dark holy.",
 ];
 
+// A few of the most quotable frescoes have painted art (the rest reveal as text
+// alone). Keyed by index into FRESCOES; see art-prompts/06*.txt.
+const FRESCO_ART: Record<number, string> = {
+  0: "art/fresco-sun.jpg",     // "Beneath the whitewash: a sun, and under it, our faces."
+  3: "art/fresco-veil.jpg",    // "The Veil is not a wall. It is a habit."
+  4: "art/fresco-press.jpg",   // "Here a press once ran…"
+  5: "art/fresco-child.jpg",   // "Every Keeper was, once, a child…"
+  12: "art/fresco-morning.jpg",// "The morning is not coming to judge you. It is only morning."
+};
+
 // ---------- City generation ----------
 
 function generateCity(): City {
@@ -722,6 +732,9 @@ function start(): void {
   const overlayBtn = byId("ov-btn");
   const overlayBtn2 = byId("ov-btn2");
   const toast = byId("toast");
+  const fresco = byId("fresco");
+  const frescoImg = byId("fresco-img") as HTMLImageElement;
+  const frescoCap = byId("fresco-cap");
 
   const loaded = loadGame();
   let g: GameState = loaded ? loaded.g : freshGame();
@@ -733,6 +746,22 @@ function start(): void {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toast.classList.remove("show"), 5200);
   }
+
+  // A revealed fresco with painted art gets its own quiet illuminated card;
+  // plain ones fall back to a toast.
+  let frescoTimer: ReturnType<typeof setTimeout> | undefined;
+  function hideFresco(): void { fresco.classList.remove("show"); }
+  function revealFresco(text: string): void {
+    const idx = FRESCOES.indexOf(text);
+    const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
+    if (!art) { showToast(text); return; }
+    frescoImg.src = art;
+    frescoCap.textContent = text;
+    fresco.classList.add("show");
+    clearTimeout(frescoTimer);
+    frescoTimer = setTimeout(hideFresco, 7000);
+  }
+  fresco.addEventListener("click", hideFresco);
 
   function hud(): void {
     flameEl.textContent = "✦".repeat(Math.max(0, g.flame)) +
@@ -747,7 +776,7 @@ function start(): void {
   function draw(dawnMode?: boolean): void {
     render(g, svg, onTap, dawnMode);
     hud();
-    if (g.pendingFresco) { showToast(g.pendingFresco); g.pendingFresco = null; }
+    if (g.pendingFresco) { revealFresco(g.pendingFresco); g.pendingFresco = null; }
     if (g.lostSoul) {
       g.lostSoul = false;
       showToast("A soul you woke is snuffed; the Veil closes where they stood.");
@@ -863,6 +892,7 @@ function start(): void {
     g.phase = "intro";
     showOverlay(
       "The Light-Bringer",
+      `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">` +
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
       `<em>Tap to kindle. The cold rings are the Keepers' reach. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
