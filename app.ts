@@ -124,6 +124,7 @@ const IDLE_CAP_TICKS = 600;        // most "while you were away" ticks we simula
 // functions gain avatar-aware branches that are all guarded on `g.player`, so
 // the turn-based game and the headless test are untouched.
 const ACTION_MODE = false;         // build default; ?action turns it on at runtime
+const ACTION_PREF_KEY = "lightbringer.mode.action"; // sticky choice, so mobile/PWA keep it
 const ACTION_STEP_MS = 170;        // wall-clock ms per city breath when clocked (~TICK_MS/5)
 const PLAYER_SPEED = 260;          // avatar travel, world units per second
 const PLAYER_RADIUS = 14;          // avatar body, for draw and hit tests
@@ -558,6 +559,10 @@ function stepKeepers(g: GameState): void {
         const pd = Math.hypot(g.player.x - k.px, g.player.y - k.py) || 1;
         g.player.x += ((g.player.x - k.px) / pd) * 24;
         g.player.y += ((g.player.y - k.py) / pd) * 24;
+        // Keep the shove inside the walls — a Keeper pinning the carrier to an
+        // edge must not push it out of bounds (the RAF clamp only runs later).
+        g.player.x = Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, g.player.x));
+        g.player.y = Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, g.player.y));
         continue; // this Keeper's hand is spent on the carrier this tick
       }
       let prey: CityNode | null = null;
@@ -1168,10 +1173,30 @@ function start(): void {
   const stickEl = byId("stick");
   const stickKnob = byId("stick-knob");
 
-  // Action mode: a real-time shell over the very same sim, toggled by the build
-  // flag or the ?action query param (so we can A/B without recompiling).
-  const actionMode = ACTION_MODE ||
-    (typeof location !== "undefined" && /[?&]action(\b|=|$)/.test(location.search));
+  // Action mode: a real-time shell over the very same sim. The choice is sticky.
+  // A `?action` (or `?action=0`) query is authoritative and is remembered, so an
+  // installed PWA — whose start_url carries no query — and a returning player
+  // both keep the chosen mode. With no query we fall back to the stored
+  // preference, then the build flag. The in-app toggle (in the Rules panel) is
+  // the only entry point that needs no URL editing, which is what makes action
+  // mode reachable on a phone at all.
+  const actionQuery = typeof location !== "undefined"
+    ? /[?&]action(?:=([^&]*))?/.exec(location.search) : null;
+  let actionMode: boolean;
+  if (actionQuery) {
+    actionMode = actionQuery[1] !== "0"; // ?action / ?action=1 → on, ?action=0 → off
+    try { localStorage.setItem(ACTION_PREF_KEY, actionMode ? "1" : "0"); } catch { /* ignore */ }
+  } else {
+    let stored = false;
+    try { stored = localStorage.getItem(ACTION_PREF_KEY) === "1"; } catch { /* ignore */ }
+    actionMode = ACTION_MODE || stored;
+  }
+  // Remember the mode and reload into it — the same save carries across, so a
+  // night in progress simply switches shells.
+  function setMode(action: boolean): void {
+    try { localStorage.setItem(ACTION_PREF_KEY, action ? "1" : "0"); } catch { /* ignore */ }
+    if (typeof location !== "undefined") location.reload();
+  }
 
   const loaded = loadGame();
   let g: GameState = loaded ? loaded.g : freshGame();
@@ -1434,6 +1459,7 @@ function start(): void {
       showToast("A Keeper searches your false light, and finds an empty house.");
     }
     g.decoySpent = false;
+    g.playerHit = false; // the hit-flash is driven by player.hurt; clear the per-draw flag
     if (g.veilThickened) {
       g.veilThickened = false;
       const d = g.lastSnuffDistrict >= 0 ? DISTRICTS[g.lastSnuffDistrict].name : "the city";
@@ -1631,7 +1657,19 @@ function start(): void {
     `<h3>The five quarters</h3>` +
     `<p class="districts2">${DISTRICTS.map((d) => d.name).join("<br>")}</p>` +
 
+    // The mode toggle: the one entry point that needs no URL editing, so action
+    // mode is reachable on a phone (and an installed PWA, which never carries the
+    // ?action query). The chosen mode is remembered across launches.
+    `<h3>${actionMode ? "The Lamplighter Run" : "Another way to play"}</h3>` +
+    `<p>${actionMode
+      ? "You are walking the streets in the flesh — move, and stand still to kindle. Prefer the contemplative, turn-based night?"
+      : "There is a real-time mode — <em>The Lamplighter Run</em> — where you become the flame and walk the streets while the Keepers hunt you."}</p>` +
+    `<p><button id="mode-toggle" class="mode-toggle">${actionMode ? "Switch to the classic night" : "Try the Lamplighter Run ▸"}</button></p>` +
+
     `<p class="seal">Ora pro nobis, Lucifer.</p>`;
+
+  const modeToggle = document.getElementById("mode-toggle");
+  if (modeToggle) modeToggle.addEventListener("click", () => setMode(!actionMode));
 
   function openRules(): void { rules.classList.add("show"); }
   function closeRules(): void { rules.classList.remove("show"); }
@@ -1759,7 +1797,8 @@ function start(): void {
       showOverlay(
         "The Lamplighter Run",
         `You are the flame now. Move with the stick — or <em>WASD</em> — and <em>stand still</em> to kindle the dark around you. Tap a dwelling to awaken a soul (${AWAKEN_COST}✦). The Keepers no longer wait: they leave their posts to hunt you. Your ✦ is your life — when it gutters out, the run ends.`,
-        "Run", () => { overlay.classList.add("hidden"); startAction(); }
+        "Run", () => { overlay.classList.add("hidden"); startAction(); },
+        "The classic night ▸", () => setMode(false),
       );
     }
   } else if (!loaded) {
@@ -1770,7 +1809,8 @@ function start(): void {
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
       `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. Lay a false light to draw a Keeper off its post. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
-      "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); }
+      "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
+      "Try the Lamplighter Run ▸", () => setMode(true),
     );
     draw();
   } else if (g.phase === "end") {
