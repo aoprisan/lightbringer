@@ -1009,9 +1009,23 @@ const SPRITE_NAMES = [
   "dwelling-snuffed", "conduit", "press", "shrine",
   "keeper-node", "keeper-patrol", "player-lantern", "veil-scar", "flame-spark",
 ] as const;
-const sprites = new Set<string>();
 
-// Probe each file once at startup; each arrival notifies (the shell repaints).
+// The built-world sprites a city may re-skin (art/<cityId>/<name>.png). The rest
+// — Keepers, the player-lantern, the veil-scar, the flame-spark — are universal
+// forces, shared across every city, so they are only ever loaded from the base
+// set. See art-prompts/09*.
+const CITY_SPRITES = new Set<string>([
+  "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened",
+  "dwelling-snuffed", "conduit", "press", "shrine",
+]);
+
+// A loaded sprite is keyed by the path under art/ that produced it: a base name
+// ("ground") or a city variant ("ashfold/ground"). spriteImage maps the key
+// straight back to art/<key>.png, so the subfolder rides along in the key.
+const sprites = new Set<string>();
+const probedCities = new Set<string>();
+
+// Probe each base file once at startup; each arrival notifies (the shell repaints).
 function loadSprites(onChange: () => void): void {
   if (typeof Image === "undefined") return; // headless test harness
   for (const name of SPRITE_NAMES) {
@@ -1021,11 +1035,35 @@ function loadSprites(onChange: () => void): void {
   }
 }
 
+// Probe a city's re-skinned built-world sprites once (missing ones simply never
+// arrive and the base sprite is used instead). Called when a run's city is set
+// or changed; guarded so a city is probed at most once.
+function loadCitySprites(cityId: string, onChange: () => void): void {
+  if (typeof Image === "undefined" || probedCities.has(cityId)) return;
+  probedCities.add(cityId);
+  for (const name of CITY_SPRITES) {
+    const img = new Image();
+    img.onload = () => { sprites.add(`${cityId}/${name}`); onChange(); };
+    img.src = `art/${cityId}/${name}.png`;
+  }
+}
+
+// The key to draw for a sprite name in this city: its city variant if one is
+// loaded, else the shared base sprite, else null (the caller keeps its vector
+// primitive). Keepers et al. are never city sprites, so they always resolve base.
+function spriteFor(g: GameState, name: string): string | null {
+  if (CITY_SPRITES.has(name)) {
+    const ck = `${g.level.id}/${name}`;
+    if (sprites.has(ck)) return ck;
+  }
+  return sprites.has(name) ? name : null;
+}
+
 function spriteImage(
-  name: string, x: number, y: number, size: number, opacity: number,
+  key: string, x: number, y: number, size: number, opacity: number,
 ): SVGImageElement {
   return el("image", {
-    href: `art/${name}.png`,
+    href: `art/${key}.png`,
     x: x - size / 2, y: y - size / 2, width: size, height: size,
     opacity, mask: "url(#spriteFade)",
   });
@@ -1091,8 +1129,13 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
   layer.innerHTML = "";
 
   // Painted cobblestone ground, when its sprite exists — beneath every mark.
-  // Dawn keeps the bare pale field; the texture is night art.
-  if (!dawnMode && sprites.has("ground")) {
+  // Dawn keeps the bare pale field; the texture is night art. The tiling pattern
+  // lives in the defs (built once); point it at this city's ground (its re-skin
+  // if present, else the base) before filling.
+  const groundKey = dawnMode ? null : spriteFor(g, "ground");
+  if (groundKey) {
+    const patImg = layer.ownerSVGElement?.querySelector("#groundPat image");
+    if (patImg) patImg.setAttribute("href", `art/${groundKey}.png`);
     layer.appendChild(el("rect", {
       x: 0, y: 0, width: W, height: H, fill: "url(#groundPat)", opacity: 0.55,
     }));
@@ -1104,8 +1147,9 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
     if (n.veil > 0.1 && n.kind !== "keeper") {
       const r = 18 + Math.min(34, n.veil * 9);
       const op = Math.min(0.9, 0.4 + n.veil * 0.14);
-      if (!dawnMode && sprites.has("veil-scar")) {
-        layer.appendChild(spriteImage("veil-scar", n.x, n.y, r * 2.6, op));
+      const veilKey = dawnMode ? null : spriteFor(g, "veil-scar");
+      if (veilKey) {
+        layer.appendChild(spriteImage(veilKey, n.x, n.y, r * 2.6, op));
       } else {
         layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill: "url(#veil)", opacity: op }));
       }
@@ -1176,12 +1220,14 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
     }
 
     if (n.kind === "keeper") {
-      if (!dawnMode && sprites.has("keeper-patrol")) {
+      // Keepers are a shared force — never a city re-skin — so they resolve to
+      // the base sprite in every city.
+      const patrolKey = dawnMode ? null : spriteFor(g, "keeper-patrol");
+      if (patrolKey) {
         // The post stands at (x,y); the robed sentinel roams at (px,py).
-        if (n.revealed && sprites.has("keeper-node")) {
-          grp.appendChild(spriteImage("keeper-node", n.x, n.y, 66, 0.9));
-        }
-        grp.appendChild(spriteImage("keeper-patrol", n.px, n.py, 42, n.revealed ? 1 : 0.12));
+        const nodeKey = n.revealed ? spriteFor(g, "keeper-node") : null;
+        if (nodeKey) grp.appendChild(spriteImage(nodeKey, n.x, n.y, 66, 0.9));
+        grp.appendChild(spriteImage(patrolKey, n.px, n.py, 42, n.revealed ? 1 : 0.12));
       } else {
         // A watchful sentinel: a cold diamond with a dark vertical slit for an
         // eye, drawn at its patrol position — it moves, and you see it move.
@@ -1199,8 +1245,9 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
         }
       }
     } else if (n.state === "snuffed") {
-      if (!dawnMode && n.kind === "dwelling" && sprites.has("dwelling-snuffed")) {
-        grp.appendChild(spriteImage("dwelling-snuffed", n.x, n.y, 54, 0.95));
+      const snuffKey = (!dawnMode && n.kind === "dwelling") ? spriteFor(g, "dwelling-snuffed") : null;
+      if (snuffKey) {
+        grp.appendChild(spriteImage(snuffKey, n.x, n.y, 54, 0.95));
       } else {
         // Snuffed ground: a cold-rimmed husk over its own veil stain.
         grp.appendChild(el("circle", {
@@ -1215,12 +1262,14 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
       const spriteName = n.kind === "dwelling"
         ? (awake ? "dwelling-awakened" : isLit ? "dwelling-lit" : "dwelling-dark")
         : n.kind;
-      if (!dawnMode && sprites.has(spriteName)) {
+      const spKey = dawnMode ? null : spriteFor(g, spriteName);
+      if (spKey) {
         const size = n.kind === "press" ? 64 : n.kind === "shrine" ? 52 : n.kind === "conduit" ? 50 : 54;
         const op = isLit ? 1 : n.revealed ? 0.88 : n.kind === "shrine" ? 0.3 : 0.16;
-        grp.appendChild(spriteImage(spriteName, n.x, n.y, size, op));
-        if (isLit && n.kind !== "dwelling" && sprites.has("flame-spark")) {
-          grp.appendChild(spriteImage("flame-spark", n.x, n.y - 6, 24, 1));
+        grp.appendChild(spriteImage(spKey, n.x, n.y, size, op));
+        if (isLit && n.kind !== "dwelling") {
+          const sparkKey = spriteFor(g, "flame-spark");
+          if (sparkKey) grp.appendChild(spriteImage(sparkKey, n.x, n.y - 6, 24, 1));
         }
       } else {
         let fill = dawnMode ? "#cfc6dc" : "#3a4060";
@@ -1593,15 +1642,19 @@ function start(): void {
   fitCam();
 
   // Painted sprites pop in as each file is found (or never, harmlessly, while
-  // the art is still being generated). Arrivals coalesce into one repaint.
+  // the art is still being generated). Arrivals coalesce into one repaint. The
+  // base set loads always; each city's re-skinned built world loads on demand
+  // when that city becomes the run's city (here, and on every city pick).
   let spriteFrame = 0;
-  loadSprites(() => {
+  function onSpriteChange(): void {
     if (spriteFrame) return;
     spriteFrame = requestAnimationFrame(() => {
       spriteFrame = 0;
       draw(g.phase === "end");
     });
-  });
+  }
+  loadSprites(onSpriteChange);
+  loadCitySprites(g.level.id, onSpriteChange);
 
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   function showToast(text: string): void {
@@ -2035,7 +2088,12 @@ function start(): void {
       () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
       "Try the Lamplighter Run ▸", () => setMode(true),
     );
-    wireCityPicker((lv) => { g = freshGame(lv); showClassicIntro(); draw(); });
+    wireCityPicker((lv) => {
+      g = freshGame(lv);
+      loadCitySprites(g.level.id, onSpriteChange);
+      showClassicIntro();
+      draw();
+    });
     draw();
   }
 
@@ -2055,6 +2113,7 @@ function start(): void {
     );
     wireCityPicker((lv) => {
       g = freshGame(lv);
+      loadCitySprites(g.level.id, onSpriteChange);
       spawnPlayer();
       g.phase = "night";
       centerCam(g.player!.x, g.player!.y);

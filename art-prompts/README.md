@@ -45,8 +45,12 @@ sprites each, on the same silhouettes as the base set. The **Keepers, the
 player-lantern, the veil-scar, and the flame-spark stay shared** across all
 cities (universal forces), so each city only needs those eight. Each set drops
 into a city subfolder: `art/ashfold/`, `art/drowned/`, `art/glassworks/`,
-`art/vesper/` (The Old City keeps the base `art/*.png`). These DO need a small
-loader change — the render must try `art/<cityId>/<name>.png` and fall back to
-`art/<name>.png` — and once shipped, every file must be added to `sw.js` `ASSETS`
-with a `CACHE` bump. Until that wiring lands the sprites sit unused; the game
-stays fully playable on the shared base set.
+`art/vesper/` (The Old City keeps the base `art/*.png`).
+
+**The loader is already wired** (`spriteFor` / `loadCitySprites` in `app.ts`): the
+render prefers `art/<cityId>/<name>.png` and silently falls back to the base
+`art/<name>.png` when a city sprite is absent. So you can drop any subset of a
+city's PNGs in and they appear immediately — no code change. The only follow-up
+when you ship a set is **offline**: add the new `art/<cityId>/*.png` files to
+`sw.js` `ASSETS` and bump `CACHE`, or returning offline users keep the base
+look (they're fetched/cached opportunistically online in the meantime).
