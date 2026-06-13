@@ -9,7 +9,7 @@
 
 // ---------- Types ----------
 
-type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
+type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper" | "barrier";
 type NodeState = "dark" | "lit" | "awakened" | "snuffed";
 type Phase = "intro" | "night" | "dawn" | "end";
 type Mode = "kindle" | "awaken" | "decoy";
@@ -91,10 +91,25 @@ const NODE_COUNT = 124;
 const MIN_DIST = 70;
 const NEIGHBORS = 3;
 
-const START_FLAME = 12;
+const START_FLAME = 15;           // eased: a longer night before the carrier burns out
 const KINDLE_COST = 1;
 const AWAKEN_COST = 3;
 const DECOY_COST = 2;              // a false light to draw a Keeper off its post
+
+const BURN_PER_DAWN = 1;          // flame the carrier's greatest measure loses each dawn
+
+// Obstacles: the Keepers' barricades, sanctioned dark made physical. A barrier
+// is no part of the street graph (it carries and blocks no light — see
+// finalizeCity), so the turn-based night is untouched; it is purely a body in
+// the way. In the Lamplighter Run the carrier cannot walk through one.
+const BARRIER_RADIUS = 22;        // a wall's footprint — the avatar is pushed out of this
+
+// The city wakes — a positive end. When enough of the city is lit AND able to
+// keep its own light (held by awakened souls through the same dawn flood-fill
+// applyDawn uses), the city no longer needs the carrier: a victory distinct from
+// burning out, made reachable by the eased flame economy.
+const CITY_WAKE_PCT = 0.6;        // share of the city that must be soul-sustained
+const CITY_WAKE_SOULS = 6;        // and this many awakened souls must hold it
 
 const TICK_MS = 850;
 const KEEPER_SNUFF_EVERY = 3;      // ticks between a Keeper's snuffings, once in reach
@@ -149,6 +164,7 @@ const COND: Record<NodeKind, number> = {
   dwelling: 0.18,
   shrine: 0.28,
   keeper: 0.0,
+  barrier: 0.0,   // a wall carries nothing — and is excluded from the graph anyway
 };
 
 const SAVE_KEY = "lightbringer.save.v5";
@@ -200,6 +216,7 @@ interface LevelDef {
   conduitFrac: number; // share of places that are conduits (fire runs along them)
   pressCount: number;  // printing presses — word made many
   shrineCount: number; // street shrines — each lights its whole quarter
+  barrierCount: number;// barricades — physical walls the carrier's body cannot pass
   keeperCount: number; // Keepers seeded at dusk (the Veil may still breed more)
   keeperSpacing: number;// closest two seeded Keepers sit
   keeperRadius: number;// base sensing radius for this city's watch
@@ -216,7 +233,7 @@ const LEVELS: LevelDef[] = [
     epigraph: "Where you first stole the flame. The watch is even, the streets remember nothing.",
     art: "art/city-old.jpg",
     nodeCount: NODE_COUNT, minDist: MIN_DIST,
-    conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
+    conduitFrac: 0.16, pressCount: 4, shrineCount: 5, barrierCount: 6,
     keeperCount: 6, keeperSpacing: 360, keeperRadius: KEEPER_RADIUS,
     startFlame: START_FLAME,
     sky: { wind: 0.35, rain: 0.30 },
@@ -228,9 +245,9 @@ const LEVELS: LevelDef[] = [
     epigraph: "They burned it once to teach it fear. It is dry tinder, and it remembers fire.",
     art: "art/city-ashfold.jpg",
     nodeCount: 130, minDist: 64,
-    conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
+    conduitFrac: 0.26, pressCount: 6, shrineCount: 3, barrierCount: 9,
     keeperCount: 7, keeperSpacing: 320, keeperRadius: 240,
-    startFlame: 14,
+    startFlame: 17,
     sky: { wind: 0.62, rain: 0.05 },
     districts: quarters("The Cinder Yards", "Embergate", "The Tanneries", "Smokefell", "The Black Quay"),
   },
@@ -240,9 +257,9 @@ const LEVELS: LevelDef[] = [
     epigraph: "The water took the low streets. What light remains here, remains alone — and patient.",
     art: "art/city-drowned.jpg",
     nodeCount: 104, minDist: 86,
-    conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
+    conduitFrac: 0.10, pressCount: 2, shrineCount: 6, barrierCount: 4,
     keeperCount: 4, keeperSpacing: 420, keeperRadius: 300,
-    startFlame: 11,
+    startFlame: 14,
     sky: { wind: 0.10, rain: 0.62 },
     districts: quarters("The Sunk Nave", "Tidewall", "The Weir", "Greylethe", "Mussel Row"),
   },
@@ -252,9 +269,9 @@ const LEVELS: LevelDef[] = [
     epigraph: "Everything here is bright and breaks. The watch is thick and quick. Be precise.",
     art: "art/city-glassworks.jpg",
     nodeCount: 134, minDist: 66,
-    conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
+    conduitFrac: 0.14, pressCount: 3, shrineCount: 8, barrierCount: 11,
     keeperCount: 9, keeperSpacing: 270, keeperRadius: 170,
-    startFlame: 10,
+    startFlame: 13,
     sky: { wind: 0.30, rain: 0.20 },
     districts: quarters("The Kilns", "Prism Row", "The Annealing", "Cullet Yard", "The Lantern Houses"),
   },
@@ -264,9 +281,9 @@ const LEVELS: LevelDef[] = [
     epigraph: "The watch is thickest where the faithful sleep. The fire will not run for you here — place every light by hand.",
     art: "art/city-vesper.jpg",
     nodeCount: 124, minDist: 70,
-    conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
+    conduitFrac: 0.08, pressCount: 3, shrineCount: 4, barrierCount: 8,
     keeperCount: 11, keeperSpacing: 250, keeperRadius: 230,
-    startFlame: 12,
+    startFlame: 15,
     sky: { wind: 0.25, rain: 0.25 },
     districts: quarters("The Cloisters", "Matins", "The Long Watch", "Compline", "The Pale"),
     unlockNight: 4,
@@ -357,6 +374,15 @@ function generateCity(level: LevelDef): City {
   const nConduit = Math.floor(nodes.length * level.conduitFrac);
   shuffled.slice(0, nConduit).forEach((n) => (n.kind = "conduit"));
   shuffled.slice(nConduit, nConduit + level.pressCount).forEach((n) => (n.kind = "press"));
+  // Barricades: physical walls (no street, no light) — a body in the way. Taken
+  // from the middle of the shuffle so they never collide with the conduits/
+  // presses up front or the shrines pulled from the end. Revealed from the
+  // start: a wall is a thing you can see, in any quarter.
+  const barrierStart = nConduit + level.pressCount;
+  shuffled.slice(barrierStart, barrierStart + level.barrierCount).forEach((n) => {
+    n.kind = "barrier";
+    n.revealed = true;
+  });
   shuffled.slice(-level.shrineCount).forEach((n) => (n.kind = "shrine"));
 
   const keepers: CityNode[] = [];
@@ -393,8 +419,14 @@ function finalizeCity(nodes: CityNode[]): City {
   const edges: Edge[] = [];
   const seen = new Set<string>();
   for (const n of nodes) {
+    // Barricades are physical only: they hold no street and carry no light, so
+    // they take part in no edge — neither as an endpoint nor as a neighbour
+    // candidate. The light graph among the real places is built as if the walls
+    // were not there, so the turn-based spread is unchanged; the walls bite only
+    // a body that tries to walk through them (the Lamplighter Run).
+    if (n.kind === "barrier") continue;
     const near = nodes
-      .filter((m) => m.id !== n.id)
+      .filter((m) => m.id !== n.id && m.kind !== "barrier")
       .sort((p, q) =>
         (p.x - n.x) ** 2 + (p.y - n.y) ** 2 - ((q.x - n.x) ** 2 + (q.y - n.y) ** 2))
       .slice(0, NEIGHBORS);
@@ -449,7 +481,7 @@ function maybeFresco(g: GameState, n: CityNode): void {
 
 function kindle(g: GameState, id: number): boolean {
   const n = g.nodes[id];
-  if (n.state !== "dark" || n.kind === "keeper") return false;
+  if (n.state !== "dark" || n.kind === "keeper" || n.kind === "barrier") return false;
   n.state = "lit";
   n.brightness = 1;
   n.decoy = 0; // a false light that catches for real is no longer a ruse
@@ -499,7 +531,7 @@ function awaken(g: GameState, id: number): boolean {
 // its own after DECOY_TICKS breaths. Deliberately transient: never persisted.
 function placeDecoy(g: GameState, id: number): boolean {
   const n = g.nodes[id];
-  if (n.kind === "keeper") return false;
+  if (n.kind === "keeper" || n.kind === "barrier") return false;
   if (n.state !== "dark" || n.decoy > 0) return false;
   n.decoy = DECOY_TICKS;
   n.revealed = true; // the carrier sees the lure they laid
@@ -749,7 +781,7 @@ interface LitStats { lit: number; total: number; awakened: number; hearths: numb
 function litStats(g: GameState): LitStats {
   let lit = 0, awakened = 0, hearths = 0, total = 0;
   for (const n of g.nodes) {
-    if (n.kind === "keeper") continue;
+    if (n.kind === "keeper" || n.kind === "barrier") continue;
     total++;
     if (n.state === "lit" || n.state === "awakened") lit++;
     if (n.state === "awakened") awakened++;
@@ -763,11 +795,42 @@ interface DistrictStat { name: string; lit: number; total: number; }
 function districtStats(g: GameState): DistrictStat[] {
   const out: DistrictStat[] = g.level.districts.map((d) => ({ name: d.name, lit: 0, total: 0 }));
   for (const n of g.nodes) {
-    if (n.kind === "keeper") continue;
+    if (n.kind === "keeper" || n.kind === "barrier") continue;
     out[n.district].total++;
     if (n.state === "lit" || n.state === "awakened") out[n.district].lit++;
   }
   return out;
+}
+
+// Light that would outlast the carrier: lit/awakened nodes reachable, through
+// other lit/awakened nodes, from an awakened soul. This is exactly what survives
+// the dawn (the same flood applyDawn runs), so it measures the city's *durable*
+// light — what it keeps without you, not the transient creep a Keeper will trim.
+function sustainedLit(g: GameState): number {
+  const keep = new Set<number>();
+  const queue = g.nodes.filter((n) => n.state === "awakened").map((n) => n.id);
+  queue.forEach((id) => keep.add(id));
+  while (queue.length) {
+    const id = queue.pop()!;
+    for (const m of g.adj.get(id) ?? []) {
+      const node = g.nodes[m];
+      if ((node.state === "lit" || node.state === "awakened") && !keep.has(m)) {
+        keep.add(m);
+        queue.push(m);
+      }
+    }
+  }
+  return keep.size; // every node in keep is a soul-connected lit/awakened light
+}
+
+// The city wakes when it can keep its own light: enough of it soul-sustained,
+// held by enough awakened souls that the carrier is no longer needed. This is
+// the positive end — checked live each breath in both shells — distinct from
+// burning out, and the eased flame economy is what makes it reachable.
+function cityWoke(g: GameState): boolean {
+  const s = litStats(g);
+  if (s.awakened < CITY_WAKE_SOULS || s.total === 0) return false;
+  return sustainedLit(g) / s.total >= CITY_WAKE_PCT;
 }
 
 // At dawn only light connected to an awakened soul survives; the rest fades.
@@ -913,10 +976,11 @@ interface Legacy {
   bestLit: number;     // most lights carried into a morning
   bestPct: number;     // brightest morning, as a percent of the city
   bestHearths: number; // most hearths settled in a single run
+  wins: number;        // cities woken — runs that reached the positive end
 }
 
 function emptyLegacy(): Legacy {
-  return { runs: 0, bestNight: 0, bestLit: 0, bestPct: 0, bestHearths: 0 };
+  return { runs: 0, bestNight: 0, bestLit: 0, bestPct: 0, bestHearths: 0, wins: 0 };
 }
 
 function loadLegacy(): Legacy {
@@ -930,6 +994,7 @@ function loadLegacy(): Legacy {
         bestLit: r.bestLit || 0,
         bestPct: r.bestPct || 0,
         bestHearths: r.bestHearths || 0,
+        wins: r.wins || 0,
       };
     }
   } catch (_) { /* storage may be unavailable; the record is best-effort */ }
@@ -941,9 +1006,10 @@ function loadLegacy(): Legacy {
 // percent without the count — track both.)
 interface LegacyBeat { night: boolean; lit: boolean; pct: boolean; hearths: boolean; }
 
-// Fold a finished run into the lifetime record and persist it. Returns the saved
-// legacy (already including this run) and the bests this run set.
-function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat } {
+// Fold a finished run into the lifetime record and persist it. `won` marks a run
+// that reached the positive end (the city woke). Returns the saved legacy
+// (already including this run) and the bests this run set.
+function recordRun(g: GameState, won = false): { legacy: Legacy; beat: LegacyBeat } {
   const s = litStats(g);
   const pct = s.total ? Math.round((s.lit / s.total) * 100) : 0;
   const prev = loadLegacy();
@@ -959,6 +1025,7 @@ function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat } {
     bestLit: Math.max(prev.bestLit, s.lit),
     bestPct: Math.max(prev.bestPct, pct),
     bestHearths: Math.max(prev.bestHearths, s.hearths),
+    wins: prev.wins + (won ? 1 : 0),
   };
   try { localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy)); } catch (_) { /* best-effort */ }
   return { legacy, beat };
@@ -974,6 +1041,7 @@ function legacyHtml(l: Legacy, beat?: LegacyBeat): string {
     `<div><dt>Furthest night</dt><dd>${l.bestNight}${mark(beat?.night)}</dd></div>` +
     `<div><dt>Brightest morning</dt><dd>${l.bestPct}% · ${l.bestLit} lights${mark(beat && (beat.pct || beat.lit))}</dd></div>` +
     `<div><dt>Most hearths kept</dt><dd>${l.bestHearths}${mark(beat?.hearths)}</dd></div>` +
+    (l.wins > 0 ? `<div><dt>Cities woken</dt><dd>${l.wins}</dd></div>` : ``) +
     `</dl></div>`;
 }
 
@@ -1018,7 +1086,7 @@ const LOW_FX = typeof matchMedia === "function" && matchMedia("(pointer: coarse)
 // mask, which melts the square edge into the dark.
 const SPRITE_NAMES = [
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened",
-  "dwelling-snuffed", "conduit", "press", "shrine",
+  "dwelling-snuffed", "conduit", "press", "shrine", "barrier",
   "keeper-node", "keeper-patrol", "player-lantern", "veil-scar", "flame-spark",
 ] as const;
 
@@ -1028,7 +1096,7 @@ const SPRITE_NAMES = [
 // set. See art-prompts/09*.
 const CITY_SPRITES = new Set<string>([
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened",
-  "dwelling-snuffed", "conduit", "press", "shrine",
+  "dwelling-snuffed", "conduit", "press", "shrine", "barrier",
 ]);
 
 // A loaded sprite is keyed by the path under art/ that produced it: a base name
@@ -1255,6 +1323,31 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
             fill: "#0b0f1c", opacity: 0.85,
           }));
         }
+      }
+    } else if (n.kind === "barrier") {
+      // A barricade — sanctioned dark made physical. The fire routes around it
+      // (it holds no street); in the Lamplighter Run the carrier's body cannot
+      // pass it. Always drawn — a wall is a thing you can see.
+      const barKey = dawnMode ? null : spriteFor(g, "barrier");
+      if (barKey) {
+        grp.appendChild(spriteImage(barKey, n.x, n.y, BARRIER_RADIUS * 2.4, 0.95));
+      } else {
+        const r = BARRIER_RADIUS;
+        const stone = dawnMode ? "#b9b1c6" : "#2b3048";
+        const rim = dawnMode ? "#9a93ab" : "#4a5278";
+        grp.appendChild(el("rect", {
+          x: n.x - r, y: n.y - r, width: r * 2, height: r * 2, rx: 4,
+          fill: stone, stroke: rim, "stroke-width": 2, opacity: 0.92,
+        }));
+        // A faint cross of mortar lines, so it reads as masonry rather than a tile.
+        grp.appendChild(el("line", {
+          x1: n.x - r + 5, y1: n.y, x2: n.x + r - 5, y2: n.y,
+          stroke: rim, "stroke-width": 1.3, opacity: 0.7,
+        }));
+        grp.appendChild(el("line", {
+          x1: n.x, y1: n.y - r + 5, x2: n.x, y2: n.y + r - 5,
+          stroke: rim, "stroke-width": 1.3, opacity: 0.7,
+        }));
       }
     } else if (n.state === "snuffed") {
       const snuffKey = (!dawnMode && n.kind === "dwelling") ? spriteFor(g, "dwelling-snuffed") : null;
@@ -1626,7 +1719,7 @@ function start(): void {
     let best: CityNode | null = null;
     let bd = reach * reach;
     for (const n of g.nodes) {
-      if (n.kind === "keeper") continue;
+      if (n.kind === "keeper" || n.kind === "barrier") continue;
       const d2 = (n.x - wx) ** 2 + (n.y - wy) ** 2;
       if (d2 <= bd) { bd = d2; best = n; }
     }
@@ -1733,6 +1826,7 @@ function start(): void {
   // save and repaint, surfacing any toast (a snuffed soul, a thickened veil).
   function breathe(): void {
     stepCity(g);
+    if (cityWoke(g)) { winCity(); return; } // the city now keeps its own light
     saveGame(g);
     draw();
   }
@@ -1740,6 +1834,24 @@ function start(): void {
   // ----- Action mode: the real-time shell over the same sim -----
   function spawnPlayer(): void {
     g.player = { x: W / 2, y: H / 2, vx: 0, vy: 0, hurt: 0 };
+  }
+  // Keep the avatar out of the barricades: push it to the rim of any wall it has
+  // run into, then back inside the city bounds. Obstacles bite only the body —
+  // the turn-based sim never sees this (it has no avatar).
+  function avoidBarriers(p: Player): void {
+    const min = BARRIER_RADIUS + PLAYER_RADIUS;
+    for (const n of g.nodes) {
+      if (n.kind !== "barrier") continue;
+      const dx = p.x - n.x, dy = p.y - n.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < min * min) {
+        const d = Math.sqrt(d2) || 0.0001;
+        p.x = n.x + (dx / d) * min;
+        p.y = n.y + (dy / d) * min;
+      }
+    }
+    p.x = Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, p.x));
+    p.y = Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, p.y));
   }
   function centerCam(wx2: number, wy2: number): void {
     const vw = svg.clientWidth, vh = svg.clientHeight;
@@ -1776,6 +1888,7 @@ function start(): void {
     p.vy = move.y * PLAYER_SPEED;
     p.x = Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, p.x + p.vx * dt / 1000));
     p.y = Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, p.y + p.vy * dt / 1000));
+    avoidBarriers(p); // the body cannot pass a wall — slide along it instead
     if (p.hurt > 0) p.hurt = Math.max(0, p.hurt - dt);
 
     // The weapon: stand still and the lantern kindles the nearest dark ground.
@@ -1784,7 +1897,7 @@ function start(): void {
       let best: CityNode | null = null;
       let bd = KINDLE_RADIUS ** 2;
       for (const n of g.nodes) {
-        if (n.kind === "keeper" || n.state !== "dark") continue;
+        if (n.kind === "keeper" || n.kind === "barrier" || n.state !== "dark") continue;
         const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
         if (d2 <= bd) { bd = d2; best = n; }
       }
@@ -1799,6 +1912,9 @@ function start(): void {
       while (stepAcc >= ACTION_STEP_MS && breaths < 8) { stepCity(g); stepAcc -= ACTION_STEP_MS; breaths++; }
       if (stepAcc > ACTION_STEP_MS) stepAcc = ACTION_STEP_MS;
     }
+
+    // The positive end: the city now keeps its own light, and needs no carrier.
+    if (g.phase === "night" && cityWoke(g)) { winCity(); return; }
 
     centerCam(p.x, p.y);
     draw();
@@ -1832,6 +1948,30 @@ function start(): void {
         : `The Keepers ran you down, and the city is dark again.<br><br><em>Begin again. The morning is patient.</em>`) +
         legacyHtml(legacy, beat),
       "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
+    );
+  }
+
+  // The positive end — the city woke. Reached live, in either shell, the breath
+  // its durable light crosses the threshold. The carrier still burns, but it no
+  // longer has to: enough of the city now keeps its own light that the Veil can
+  // never close it again. Folded into the legacy as a win.
+  function winCity(): void {
+    running = false;       // halt the action loop if it is the one that found it
+    g.phase = "end";
+    g.player = undefined;  // no avatar on the morning-after board
+    saveGame(g);
+    const { legacy, beat } = recordRun(g, true);
+    draw(true);
+    const after = litStats(g);
+    const pct = Math.round((after.lit / after.total) * 100);
+    showOverlay(
+      "The city wakes",
+      `You carried light enough that the city keeps its own. ${after.lit} lights burn — ${pct}% of it — held by ${after.awakened} awakened souls` +
+        (after.hearths > 0 ? `, ${after.hearths} of them settled hearths` : ``) +
+        `. The Veil cannot close what so many now hold awake.<br><br>` +
+        `<em>You did not finish the city. You left it able to finish itself.</em>` +
+        legacyHtml(legacy, beat),
+      "Carry a new flame", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
     );
   }
 
@@ -1895,6 +2035,8 @@ function start(): void {
     `<dd>Lay a <em>false light</em> on dark, empty ground. It carries nothing and fades on its own — but a Keeper breaks for it before any true flame, walks out to search the empty house, and finds only the spent ruse (no scar). Bait one off its post, then kindle or awaken where it cannot reach.</dd>` +
     `<dt><span class="swatch ring"></span>The cold rings</dt>` +
     `<dd>A Keeper's sight. Keepers <em>patrol</em>: one that sees light leaves its post and closes on it — an awakened soul before any plainer light — and snuffs only what it reaches, then drifts home when the dark is restored. Awaken <em>outside</em> the rings, and watch them move.</dd>` +
+    `<dt>Barricades</dt>` +
+    `<dd>The Keepers' walls — sanctioned dark made physical. Light routes around them as though they were not there. In the <em>Lamplighter Run</em> they are solid: your body cannot pass one, so they shape the path you walk.</dd>` +
     `</dl>` +
 
     `<h3>How a night runs</h3>` +
@@ -1914,8 +2056,11 @@ function start(): void {
     `<h3>Hearths</h3>` +
     `<p>A soul that holds awakened through <em>${HEARTH_NIGHTS} dawns</em> settles into a <em>hearth</em> — a home that keeps the flame. Each hearth returns <em>+${HEARTH_REFUND}✦</em> to you at dawn. The carrier still burns, so the end still comes; hearths only make the nights you have left burn brighter. Protect your oldest souls — bait the Keepers off them with decoys — and they become your warmth.</p>` +
 
-    `<h3>The only victory</h3>` +
-    `<p>When your flame is finally spent, what the awakened souls still hold is everything that outlived you. Bank light in souls, set where the Keepers cannot reach, and carry as much of the city into the morning as you can.</p>` +
+    `<h3>The city wakes</h3>` +
+    `<p>There is a way to win outright. Carry enough of the city into self-sustaining light — <em>${Math.round(CITY_WAKE_PCT * 100)}%</em> of it held awake by your souls, ${CITY_WAKE_SOULS} of them or more — and the city keeps its own flame: <em>the city wakes</em>, and no longer needs you. You did not finish it. You left it able to finish itself.</p>` +
+
+    `<h3>The other victory</h3>` +
+    `<p>If your flame is spent before then, what the awakened souls still hold is everything that outlived you. Bank light in souls, set where the Keepers cannot reach, and carry as much of the city into the morning as you can.</p>` +
 
     `<h3>The five quarters of ${g.level.name}</h3>` +
     `<p class="districts2">${g.level.districts.map((d) => d.name).join("<br>")}</p>` +
@@ -1982,7 +2127,7 @@ function start(): void {
     g.phase = "dawn";
     const { faded } = applyDawn(g);
     const after = litStats(g);
-    g.maxFlame -= 1; // the carrier burns
+    g.maxFlame -= BURN_PER_DAWN; // the carrier burns
 
     if (g.maxFlame <= 0) {
       g.phase = "end";
@@ -2227,6 +2372,7 @@ function start(): void {
     const before = litStats(g);
     if (ticks > 8 && before.awakened > 0) {
       simulateTicks(g, ticks);
+      if (cityWoke(g)) { winCity(); return; } // it woke while you were away
       const after = litStats(g);
       const gained = after.lit - before.lit;
       saveGame(g);
@@ -2284,7 +2430,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
   testGlobal.__lb = {
     generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
     stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, isHearth, applyDawn,
-    districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
+    sustainedLit, cityWoke, districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
     loadLegacy, recordRun, emptyLegacy,
     LEVELS, levelById,
   };

@@ -268,5 +268,41 @@ ok(lb.rollWeather(1, ash).kind === "still", "night 1 is still in any city");
 const drown = lb.levelById("drowned");
 ok(["still", "wind", "rain"].includes(lb.rollWeather(5, drown).kind), "a city rolls a valid sky");
 
+// 17. Obstacles: barricades are physical walls — they hold no street and carry
+// no light, so the turn-based spread is untouched; only a body is blocked.
+const gB = lb.freshGame();
+const barriers = gB.nodes.filter((n) => n.kind === "barrier");
+ok(barriers.length >= 1, `the city seeds barricades (${barriers.length})`);
+ok(lb.LEVELS.every((l) => typeof l.barrierCount === "number"), "every city sets a barrier count");
+const bar = barriers[0];
+ok(!(gB.adj.get(bar.id) || []).length, "a barricade holds no street (no adjacency)");
+ok(gB.edges.every((e) => e.a !== bar.id && e.b !== bar.id), "no edge touches a barricade");
+ok(!lb.kindle(gB, bar.id) && bar.state === "dark", "a barricade cannot be kindled");
+ok(!lb.placeDecoy(gB, bar.id), "a barricade cannot hold a decoy");
+const lightable = gB.nodes.filter((n) => n.kind !== "keeper" && n.kind !== "barrier").length;
+ok(lb.litStats(gB).total === lightable, "barricades are not counted in the city's lightable total");
+
+// 18. The city wakes: a positive end when enough of the city is soul-sustained.
+const gWk = lb.freshGame();
+ok(!lb.cityWoke(gWk), "a dark city has not woken");
+const soulW = gWk.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+lb.awaken(gWk, soulW.id);
+const nbr = (gWk.adj.get(soulW.id) || []).map((i) => gWk.nodes[i])
+  .find((n) => n.kind !== "keeper" && n.state === "dark");
+if (nbr) lb.kindle(gWk, nbr.id);
+ok(lb.sustainedLit(gWk) >= (nbr ? 2 : 1), "sustainedLit counts soul-connected light");
+ok(!lb.cityWoke(gWk), "one soul is not yet a woken city");
+// Hold the whole city awake: every place soul-sustained -> the city wakes.
+for (const n of gWk.nodes) {
+  if (n.kind === "keeper" || n.kind === "barrier") continue;
+  n.state = "awakened"; n.brightness = 1;
+}
+ok(lb.cityWoke(gWk), "a fully soul-sustained city wakes");
+
+// A won run is folded into the legacy as a city woken; a lost run is not.
+store.delete("lightbringer.legacy.v1");
+ok(lb.recordRun(gWk, true).legacy.wins === 1, "recordRun folds a won run into the legacy");
+ok(lb.recordRun(lb.freshGame(), false).legacy.wins === 1, "a lost run adds no win");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
