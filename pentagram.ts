@@ -29,6 +29,11 @@ type Phase = "fight" | "won" | "lost";
 // dwelling can `lit` once the sigil's ring catches it.
 interface ArenaNode { x: number; y: number; kind: NodeKind; lit?: boolean }
 
+// A line segment strung between two posts. Fences are low walls (they block the
+// hero and shades, capsule-collision); pathways are open lanes (the hero runs
+// swift along them). Both are pure geometry, woven from node positions at build.
+interface Segment { x1: number; y1: number; x2: number; y2: number }
+
 interface Hero {
   x: number; y: number; vx: number; vy: number;
   hp: number; maxHp: number;
@@ -51,6 +56,8 @@ interface PgState {
   level: LevelDef;
   scenery: ArenaNode[];
   solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
+  fences: Segment[];     // low walls the hero/shades must weave around
+  pathways: Segment[];   // open lanes the hero runs swift along
   hero: Hero;
   shades: Shade[];
   penta: Penta;
@@ -103,6 +110,18 @@ const SHADE_WAKE_STAGGER = 700;  // ms between successive waves rising from a po
 const OBSTACLE_KINDS = new Set<NodeKind>(["press", "shrine"]);
 const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 20 };
 
+// Fences — low walls strung between neighbouring posts. They block movement (a
+// capsule: the segment plus this half-thickness) for both the hero and the
+// shades, but NOT the pentagram's flame, which burns straight through. The hero
+// weaves them as cover to break a swarm's contact.
+const FENCE_HALF = 8;            // half-thickness of a fence wall (collision)
+
+// Pathways — open lanes the flame-hero runs swift along (the cleared streets).
+// Travelling within this half-width of a pathway grants a speed boost, rewarding
+// the streets for kiting the host. Shades ignore them — only the hero is quick.
+const PATHWAY_HALF = 30;         // half-width of a pathway lane
+const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
+
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
@@ -127,6 +146,8 @@ interface LevelDef {
   shrineCount: number;
   keeperCount: number; // keeper-posts — each raises SHADE_PER_KEEPER shades
   keeperSpacing: number;
+  fenceCount: number;  // low walls woven between neighbouring posts (cover)
+  pathwayCount: number; // open lanes the hero runs swift along
 }
 
 const LEVELS: LevelDef[] = [
@@ -138,6 +159,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
+    fenceCount: 8, pathwayCount: 6,
   },
   {
     id: "ashfold",
@@ -147,6 +169,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
+    fenceCount: 6, pathwayCount: 9,
   },
   {
     id: "drowned",
@@ -156,6 +179,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
+    fenceCount: 11, pathwayCount: 3,
   },
   {
     id: "glassworks",
@@ -165,6 +189,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
+    fenceCount: 13, pathwayCount: 5,
   },
   {
     id: "vesper",
@@ -174,6 +199,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
+    fenceCount: 9, pathwayCount: 4,
   },
 ];
 
@@ -220,10 +246,49 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-// Push a moving body (hero or shade) out of any solid scenery it has overlapped,
-// then back inside the world bounds. Circle-vs-circle: shove along the normal so
-// it slides along an obstacle's edge rather than stopping dead.
-function pushOutOfSolids(s: PgState, x: number, y: number, radius: number): { x: number; y: number } {
+// Closest point on segment AB to P, and the distance to it. The workhorse for
+// both fence collision (capsule = segment + radius) and "is the hero on a
+// pathway?" (distance to the lane's centre line).
+function closestOnSegment(
+  px: number, py: number, ax: number, ay: number, bx: number, by: number,
+): { x: number; y: number; d: number } {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1);
+  const x = ax + dx * t, y = ay + dy * t;
+  return { x, y, d: Math.hypot(px - x, py - y) };
+}
+
+// String `count` line segments between pairs of nodes whose gap falls in
+// [lo, hi], hugging each anchor's nearest in-band neighbour so the segment runs
+// along the street grid. Fences want short gaps (walls between neighbours);
+// pathways want longer gaps (lanes across a quarter). Keeper-posts are skipped
+// so spawns stay clear. Pure geometry — it only reads the placed nodes.
+function weaveSegments(
+  nodes: ArenaNode[], count: number, lo: number, hi: number,
+): Segment[] {
+  const segs: Segment[] = [];
+  const pool = nodes.filter((n) => n.kind !== "keeper");
+  if (pool.length < 2) return segs;
+  let guard = 0;
+  while (segs.length < count && guard++ < count * 40) {
+    const a = pool[Math.floor(Math.random() * pool.length)];
+    let best: ArenaNode | null = null, bestD = Infinity;
+    for (const b of pool) {
+      if (b === a) continue;
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d >= lo && d <= hi && d < bestD) { bestD = d; best = b; }
+    }
+    if (best) segs.push({ x1: a.x, y1: a.y, x2: best.x, y2: best.y });
+  }
+  return segs;
+}
+
+// Push a moving body (hero or shade) out of any blocking terrain it has
+// overlapped — solid scenery (circle-vs-circle) and fences (circle-vs-segment) —
+// then back inside the world bounds. Shove along the normal so a body slides
+// along an edge rather than stopping dead.
+function pushOut(s: PgState, x: number, y: number, radius: number): { x: number; y: number } {
   for (const n of s.solids) {
     const rr = radius + (OBSTACLE_RADIUS[n.kind] || 0);
     let dx = x - n.x, dy = y - n.y;
@@ -233,6 +298,18 @@ function pushOutOfSolids(s: PgState, x: number, y: number, radius: number): { x:
     x = n.x + (dx / d) * rr;
     y = n.y + (dy / d) * rr;
   }
+  for (const f of s.fences) {
+    const rr = radius + FENCE_HALF;
+    const c = closestOnSegment(x, y, f.x1, f.y1, f.x2, f.y2);
+    if (c.d >= rr) continue;
+    let dx = x - c.x, dy = y - c.y, d = c.d;
+    if (d === 0) { // dead on the line: shove perpendicular to the fence
+      const fx = f.x2 - f.x1, fy = f.y2 - f.y1, fl = Math.hypot(fx, fy) || 1;
+      dx = -fy / fl; dy = fx / fl; d = 1;
+    }
+    x = c.x + (dx / d) * rr;
+    y = c.y + (dy / d) * rr;
+  }
   return { x: clamp(x, radius, W - radius), y: clamp(y, radius, H - radius) };
 }
 
@@ -240,6 +317,9 @@ function pushOutOfSolids(s: PgState, x: number, y: number, radius: number): { x:
 // finite host of shades from each keeper-post in staggered waves.
 function buildArena(level: LevelDef): PgState {
   const scenery = generateCity(level);
+  // Fences hug close neighbours (short walls); pathways span quarters (long lanes).
+  const fences = weaveSegments(scenery, level.fenceCount, level.minDist * 0.9, level.minDist * 2.0);
+  const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
     x: W / 2, y: H / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
   };
@@ -260,6 +340,7 @@ function buildArena(level: LevelDef): PgState {
   return {
     level, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
+    fences, pathways,
     hero, shades,
     penta: { charge: 0, angle: 0 },
     pulseAcc: 0, elapsed: 0, kills: 0, total: shades.length,
@@ -301,7 +382,7 @@ function stepShades(s: PgState, dt: number): void {
     const m = Math.hypot(sx, sy) || 1;
     e.vx = (sx / m) * SHADE_SPEED;
     e.vy = (sy / m) * SHADE_SPEED;
-    const p = pushOutOfSolids(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
+    const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
   }
 }
@@ -342,17 +423,21 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   s.elapsed += dt;
   const h = s.hero;
 
-  h.vx = move.x * HERO_SPEED;
-  h.vy = move.y * HERO_SPEED;
+  // Travelling along a cleared pathway runs the hero swift; off it, normal pace.
+  const onPath = s.pathways.some(
+    (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= PATHWAY_HALF,
+  );
+  const speed = HERO_SPEED * (onPath ? PATHWAY_BOOST : 1);
+  h.vx = move.x * speed;
+  h.vy = move.y * speed;
   {
-    const p = pushOutOfSolids(s, h.x + (h.vx * dt) / 1000, h.y + (h.vy * dt) / 1000, HERO_RADIUS);
+    const p = pushOut(s, h.x + (h.vx * dt) / 1000, h.y + (h.vy * dt) / 1000, HERO_RADIUS);
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
   // Stand still and the sigil inscribes itself; move and it fades.
-  const speed = Math.hypot(h.vx, h.vy);
-  if (speed < HERO_STILL_MAXSPEED) {
+  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
     s.penta.charge = Math.min(1, s.penta.charge + dt / PENTA_CHARGE_MS);
   } else {
     s.penta.charge = Math.max(0, s.penta.charge - dt / PENTA_CHARGE_MS);
@@ -372,7 +457,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
-        const p = pushOutOfSolids(s, h.x + (dx / d) * HERO_KNOCKBACK, h.y + (dy / d) * HERO_KNOCKBACK, HERO_RADIUS);
+        const p = pushOut(s, h.x + (dx / d) * HERO_KNOCKBACK, h.y + (dy / d) * HERO_KNOCKBACK, HERO_RADIUS);
         h.x = p.x; h.y = p.y;
         break; // one blow per slice; i-frames cover the rest of the swarm
       }
@@ -524,6 +609,21 @@ function render(s: PgState, layer: SVGGElement): void {
     fill: hasGround ? "url(#groundPat)" : "#0a0c16", opacity: hasGround ? 0.5 : 1,
   }));
 
+  // Pathways — open lanes drawn on the ground beneath the built world: a pale
+  // worn road with a faint warm centre line, so the swift routes read at a glance.
+  for (const p of s.pathways) {
+    layer.appendChild(el("line", {
+      x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
+      stroke: "#2a2a1c", "stroke-width": PATHWAY_HALF * 2,
+      "stroke-linecap": "round", opacity: 0.45,
+    }));
+    layer.appendChild(el("line", {
+      x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
+      stroke: "#6a5a30", "stroke-width": 3,
+      "stroke-linecap": "round", "stroke-dasharray": "10 14", opacity: 0.4,
+    }));
+  }
+
   // Scenery — the built world, drawn dark for the Diablo gloom. Keeper-posts are
   // spawn-points, not scenery, so they aren't drawn here. Solid structures (press,
   // shrine) draw full-opacity with a faint ring so they read as blockers; a lit
@@ -552,6 +652,21 @@ function render(s: PgState, layer: SVGGElement): void {
         fill: "none", stroke: "#3a3050", "stroke-width": 1.5, opacity: 0.4,
       }));
     }
+  }
+
+  // Fences — low walls strung between posts, drawn over the ground/scenery as a
+  // stout dark bar with a lighter top edge so they read as solid blockers.
+  for (const f of s.fences) {
+    layer.appendChild(el("line", {
+      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
+      stroke: "#15101f", "stroke-width": FENCE_HALF * 2,
+      "stroke-linecap": "round", opacity: 0.92,
+    }));
+    layer.appendChild(el("line", {
+      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
+      stroke: "#4a3f63", "stroke-width": 2.5,
+      "stroke-linecap": "round", opacity: 0.7,
+    }));
   }
 
   // The pentagram — the only procedural art. Scales and brightens with charge,
@@ -886,7 +1001,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around the presses and shrines, and light the dark dwellings.");
+    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings.");
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -931,8 +1046,9 @@ function start(): void {
     let html =
       `<p class="lede">Choose a city to descend into. Stand still to inscribe a ` +
       `pentagram that burns the shades around you; move to dodge their touch and ` +
-      `weave around the solid presses and shrines. Catch a dark dwelling in the ring ` +
-      `to light it and mend yourself. Clear every shade and the city is cleansed.</p><div class="cities">`;
+      `weave around the solid presses, shrines and fences. Run the pathways to outpace ` +
+      `the swarm, and catch a dark dwelling in the ring to light it and mend yourself. ` +
+      `Clear every shade and the city is cleansed.</p><div class="cities">`;
     for (const lv of LEVELS) {
       const done = l.best[lv.id];
       const mark = done ? ` <span class="legacy-new">cleansed ${fmtTime(done)}</span>` : "";
@@ -988,12 +1104,13 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
     aliveShades, clearedPct, LEVELS, levelById,
+    weaveSegments, closestOnSegment,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS, HERO_SPEED,
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER, SHADE_WAKE_STAGGER,
-      OBSTACLE_RADIUS, DWELLING_HEAL,
+      OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
     },
   };
 } else {
