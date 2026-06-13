@@ -2122,6 +2122,27 @@ function start(): void {
     });
   }
 
+  // Returning to a run already under way — no city picker (that is a fresh-start
+  // choice, and it would front the saved city's lights as if newly chosen). Show
+  // the city you are already in and a step back into it; "Begin a new run" clears
+  // the save so the next load lands on the picker for a true new city.
+  function showActionResume(): void {
+    const card = g.level.art ? `<img class="city-art" src="${g.level.art}" alt="">` : "";
+    const after = litStats(g);
+    const pct = after.total ? Math.round((after.lit / after.total) * 100) : 0;
+    showOverlay(
+      `Back in ${g.level.name}`,
+      card +
+      `Your run continues. ${after.lit} of ${after.total} lights still burn — ${pct}% of the city.<br><br>` +
+      `<em>Stand still to kindle the dark around you; move with the stick or WASD. Your ✦ is your life.</em>`,
+      "Carry on",
+      () => { overlay.classList.add("hidden"); startAction(); },
+      "Begin a new run ▸", () => { localStorage.removeItem(SAVE_KEY); location.reload(); },
+    );
+    const img = document.querySelector<HTMLImageElement>("#ov-body .city-art");
+    if (img) img.onerror = () => { img.style.display = "none"; };
+  }
+
   // ----- First-paint: intro, or "while you were away" -----
   if (actionMode) {
     // Auto-kindle and tap-to-awaken replace the kindle/awaken/wait footer;
@@ -2139,11 +2160,21 @@ function start(): void {
         `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>` +
           legacyHtml(loadLegacy()),
         "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); });
-    } else {
+    } else if (!loaded) {
+      // A fresh start: choose a city, then run. (Only here — the picker rerolls
+      // a not-yet-begun map, so it must never front a run already under way.)
       g.phase = "night";
       centerCam(g.player!.x, g.player!.y);
       draw();
       showActionIntro();
+    } else {
+      // Resuming a run already in progress: keep its city and its lit dwellings.
+      // The picker would mislead here — it would paint a "chosen" city over the
+      // flames the save still carries, so we step straight back into the run.
+      g.phase = "night";
+      centerCam(g.player!.x, g.player!.y);
+      draw();
+      showActionResume();
     }
   } else if (!loaded) {
     g.phase = "intro";
