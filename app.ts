@@ -2239,9 +2239,31 @@ function start(): void {
 }
 
 // Service worker registration for offline play.
+//
+// `updateViaCache: "none"` keeps sw.js itself out of the browser's HTTP cache,
+// so every load revalidates the worker against the network — a deploy that
+// bumps CACHE/ASSETS is picked up promptly instead of hiding behind a stale
+// cached worker. We also call update() on load to force that check, and reload
+// once when a freshly-activated worker takes control (guarded against the
+// first-ever controller so a brand-new install doesn't loop). The shell
+// (index.html + app.js) is already network-first in sw.js, so this is mainly
+// about retiring stale caches and re-precaching new assets on each visit.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
+      .then((reg) => { reg.update().catch(() => {}); })
+      .catch(() => {});
+  });
+  // A page with no controller at load is being claimed for the first time
+  // (fresh install) — that is not an update, so don't reload for it. Only a
+  // controllerchange that supersedes an existing controller means new code
+  // activated under us; reload once to run it.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloadedForUpdate = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloadedForUpdate) return;
+    reloadedForUpdate = true;
+    location.reload();
   });
 }
 
