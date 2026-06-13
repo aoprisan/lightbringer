@@ -79,6 +79,18 @@ The cross-run **legacy** (`loadLegacy`/`recordRun`, key `lightbringer.legacy.v1`
 
 `lightbringer.ts` and `the-light-bringer.html` are the original single-file TypeScript prototype, kept for reference only. They are **not** part of the deployed game, are excluded from `tsconfig.json`'s compile, and are not wired into anything. The shipped logic in `app.ts` has diverged (presses, districts, frescoes, veil reinforcement, persistence, idle catch-up). Don't edit these to change game behavior, and don't assume they're in sync with `app.ts`.
 
+### Pentagram — the action-combat spinoff (`pentagram.ts` / `pentagram.html`)
+
+`pentagram.ts` (→ `pentagram.js`) + `pentagram.html` are a **sibling spinoff**, reachable from the title screen's "Pentagram" link and shipped alongside the main game. It is an Archero-style action descent set in the *same world*: it reuses the parent's cities (`LEVELS`/`generateCity`, copied and trimmed — the city's keeper nodes become enemy spawn-points) and the *same art* (ground/dwelling/conduit/press/shrine sprites for scenery, `player-lantern` for the hero, the two `keeper-*` sprites for the "shades"). The **only procedural art is the pentagram itself** (`pentagramPath`, layered SVG). The weapon is *stand-still auto-inscribe*: standing still ramps `penta.charge` and the sigil pulses AoE damage to shades in `PENTA_RADIUS`; moving dodges and lets it fade. A city holds a **finite** host (`keeperCount * SHADE_PER_KEEPER`) — clear them all to win; lose your HP to fall.
+
+Key differences from `app.ts`:
+- **It is a TS module** (note the trailing `export {};`), not a global script like `app.ts`. This is required: both files are in `tsconfig.json`'s `include`, and two scriptless files would collide on every top-level name (`W`, `el`, `render`, `start`, …). Module scope keeps `pentagram.ts` isolated. The page loads it with `<script type="module">`; don't remove the `export {};` or convert it to a global script.
+- **Combat is real-time per-frame**, not the turn-based "breath": `stepCombat(s, dt, move)` integrates the hero, shades, and pentagram pulses every RAF frame (dt-clamped), analogous to `app.ts`'s `actionFrame` but with no fixed-step city breath.
+- It keeps the parent's **pure-sim / read-only-render split** and **test seam**: `globalThis.__PG_TEST__` exposes internals on `globalThis.__pg`; `tools/pentagram-test.mjs` drives it headlessly (run by `npm test` after the parent smoke test).
+- Its **legacy** lives in its own key `pentagram.legacy.v1` (cities cleansed + best clear time), completely separate from the parent's save/legacy — no save-version coupling. There is no mid-combat save (descents are short).
+
+Shipping rules still apply: `pentagram.html`/`pentagram.js` are in `sw.js` `ASSETS` and counted as shell (network-first); bump `CACHE` when their bytes change (recompiling `pentagram.ts` does).
+
 ## Deploy
 
 `.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling `app.ts` → `app.js`), prunes `node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual `workflow_dispatch`). One-time setup is Settings → Pages → Source: "GitHub Actions". The site IS the repository root — there is no `dist/`.

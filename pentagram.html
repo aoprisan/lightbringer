@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pentagram — a Light-Bringer spinoff</title>
+<meta name="description" content="An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; clear every shade.">
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b0d1a">
+<link rel="icon" href="./icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pentagram">
+<meta name="mobile-web-app-capable" content="yes">
+
+<style>
+  :root {
+    --night: #080a14;
+    --night-2: #11142a;
+    --night-3: #0d1020;
+    --ink: #cbc6da;
+    --ink-dim: #8a86a4;
+    --gold: #e8b34b;
+    --gold-bright: #ffd87a;
+    --gold-core: #fff2cf;
+    --cold: #9fc4e8;
+    --ember: #ff6a3c;
+    --edge: #2a2f4a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; color: var(--ink); overflow: hidden;
+    font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 8%, rgba(255,106,60,0.07), transparent 60%),
+      radial-gradient(ellipse 70% 45% at 50% 104%, rgba(120,90,180,0.05), transparent 60%),
+      linear-gradient(180deg, var(--night-3) 0%, var(--night) 55%, #05060d 100%);
+    background-attachment: fixed;
+  }
+
+  /* Atmosphere overlays — grain + vignette, drawn above the city, click-through. */
+  .grain {
+    position: fixed; inset: -50%; z-index: 3; pointer-events: none; opacity: 0.05;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: grain 7s steps(6) infinite;
+  }
+  @keyframes grain {
+    0%,100% { transform: translate(0,0); } 20% { transform: translate(-4%,2%); }
+    40% { transform: translate(3%,-3%); } 60% { transform: translate(-2%,4%); }
+    80% { transform: translate(4%,1%); }
+  }
+  .vignette {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    background: radial-gradient(ellipse 75% 75% at 50% 46%, transparent 50%, rgba(2,3,8,0.66) 100%);
+  }
+  .inkveil {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+    background: url("./art/texture-ink.jpg") center/cover;
+    opacity: 0.32; mix-blend-mode: overlay;
+  }
+
+  /* Action joystick, placed where the thumb lands. */
+  #stick {
+    position: fixed; z-index: 6; display: none; width: 120px; height: 120px;
+    margin-left: -60px; margin-top: -60px; border-radius: 50%;
+    border: 1.5px solid rgba(255, 216, 122, 0.35);
+    background: radial-gradient(circle, rgba(255, 216, 122, 0.07), transparent 70%);
+    pointer-events: none;
+  }
+  #stick-knob {
+    position: absolute; left: 50%; top: 50%; width: 48px; height: 48px;
+    border-radius: 50%; transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255, 233, 176, 0.5), rgba(232, 179, 75, 0.2));
+    border: 1.5px solid rgba(255, 233, 176, 0.6);
+  }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; column-gap: 14px; row-gap: 6px;
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    background: linear-gradient(180deg, rgba(8,10,20,0.92) 30%, rgba(8,10,20,0.4) 75%, transparent);
+    pointer-events: none;
+  }
+  h1 {
+    font-size: 12.5px; font-weight: 400; letter-spacing: 0.34em; text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--ember); text-shadow: 0 0 14px rgba(255,106,60,0.45);
+  }
+  .stats { display: flex; gap: 12px; font-size: 12px; letter-spacing: 0.08em;
+    color: var(--ink-dim); align-items: center;
+    flex-wrap: wrap; justify-content: flex-end; margin-left: auto; row-gap: 6px; }
+  .stats span { white-space: nowrap; }
+  #cityname { color: var(--gold-bright); letter-spacing: 0.1em; }
+  #foes { color: var(--cold); }
+  .hpbar {
+    width: 132px; height: 9px; border: 1px solid rgba(255,106,60,0.5);
+    border-radius: 4px; background: rgba(40,10,10,0.55); overflow: hidden;
+  }
+  #hp {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #ff3a1c, #ff8a4c);
+    box-shadow: 0 0 10px rgba(255,106,60,0.5);
+    transition: width .14s ease;
+  }
+  #reset {
+    pointer-events: auto;
+    font-family: inherit; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
+    border: 1px solid transparent; background: none; color: var(--ink-dim);
+    opacity: 0.5; cursor: pointer; transition: opacity .2s ease, color .2s ease;
+    text-transform: uppercase;
+  }
+  #reset:hover { opacity: 1; color: var(--ember); }
+
+  #citywrap { position: absolute; inset: 0; z-index: 1;
+    -webkit-user-select: none; user-select: none; }
+  svg { width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
+
+  #toast {
+    position: fixed; top: calc(66px + env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%) translateY(-8px); z-index: 6;
+    max-width: 86%; text-align: center; font-style: italic; font-size: 14px;
+    line-height: 1.55; color: var(--gold-bright); letter-spacing: 0.02em;
+    padding: 12px 22px; border-radius: 2px;
+    background: linear-gradient(180deg, rgba(17,20,42,0.92), rgba(8,10,20,0.92));
+    border: 1px solid rgba(255,106,60,0.3);
+    box-shadow: 0 0 30px rgba(255,106,60,0.14);
+    opacity: 0; pointer-events: none; transition: opacity .5s ease, transform .5s ease;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  #help {
+    position: fixed; bottom: calc(18px + env(safe-area-inset-bottom)); left: 0; right: 0; z-index: 4;
+    text-align: center; font-size: 11.5px; letter-spacing: 0.06em; line-height: 1.6;
+    color: var(--ink-dim); opacity: 0.7; font-style: italic; pointer-events: none;
+    padding: 0 26px;
+  }
+
+  /* Overlay — intro / win / lose. Reuses the parent game's illuminated-page look. */
+  #overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    gap: 20px; padding: 32px; text-align: center;
+    background:
+      radial-gradient(ellipse 70% 78% at 50% 46%, rgba(6,8,16,0.5), rgba(4,5,12,0.74)),
+      url("./art/title-backdrop.jpg") center/cover no-repeat,
+      #05060d;
+  }
+  #overlay.hidden { display: none; }
+  #ov-panel {
+    max-width: 520px; padding: 34px 30px; position: relative; overflow: hidden;
+    margin: auto 0; flex-shrink: 0;
+    background: linear-gradient(180deg, rgba(17,20,42,0.6), rgba(8,10,20,0.6));
+    border: 1px solid rgba(255,106,60,0.28);
+    box-shadow: 0 0 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(255,106,60,0.04);
+  }
+  #ov-panel > * { position: relative; z-index: 1; }
+  #ov-panel::after {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background: url("./art/texture-vellum.jpg") center/cover;
+    opacity: 0.22; mix-blend-mode: overlay;
+  }
+  #ov-title { font-size: 23px; font-weight: 400; letter-spacing: 0.14em; color: var(--ember);
+    text-shadow: 0 0 18px rgba(255,106,60,0.4); margin-bottom: 16px; }
+  #ov-body { line-height: 1.7; font-size: 15.5px; color: var(--ink); }
+  #ov-body em { color: var(--gold-bright); font-style: italic; }
+  #ov-body .lede { font-style: italic; color: var(--ink-dim); margin: 2px 0 6px; }
+  #ov-body .cities {
+    display: flex; flex-direction: column; gap: 8px;
+    margin: 14px auto 6px; max-width: 400px; text-align: left;
+  }
+  #ov-body .city {
+    display: block; width: 100%; padding: 10px 13px; cursor: pointer;
+    border: 1px solid rgba(255,106,60,0.22); border-radius: 6px;
+    background: rgba(255,106,60,0.03); font: inherit; color: var(--ink);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #ov-body .city:hover { border-color: rgba(255,106,60,0.5); background: rgba(255,106,60,0.08); }
+  #ov-body .city-name {
+    display: block; color: var(--gold-bright); font-size: 15px; letter-spacing: 0.05em;
+  }
+  #ov-body .city-line {
+    display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.45;
+    color: var(--ink-dim); font-style: italic;
+  }
+  #ov-body .legacy {
+    margin: 20px auto 0; max-width: 340px; padding-top: 16px;
+    border-top: 1px solid rgba(255,106,60,0.22);
+  }
+  #ov-body .legacy-head {
+    font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ember); opacity: 0.85; margin-bottom: 9px;
+  }
+  #ov-body .legacy dl { margin: 0; }
+  #ov-body .legacy dl > div {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; font-size: 13.5px; line-height: 1.9;
+  }
+  #ov-body .legacy dt { color: var(--ink-dim); letter-spacing: 0.04em; }
+  #ov-body .legacy dd { margin: 0; color: var(--gold-bright); white-space: nowrap; }
+  #ov-body .legacy-new {
+    font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--cold); margin-left: 7px; font-style: normal;
+  }
+  .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
+  button {
+    font-family: inherit; font-size: 12.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    padding: 13px 22px; border-radius: 2px; cursor: pointer; position: relative;
+    color: var(--ink-dim); border: 1px solid var(--edge);
+    background: linear-gradient(180deg, #15182e, #0d1020);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.4);
+    transition: color .25s ease, border-color .25s ease, box-shadow .25s ease;
+  }
+  button:active { transform: translateY(1px); }
+  #ov-btn, #ov-btn2 { border-color: rgba(255,106,60,0.55); color: var(--ember);
+    box-shadow: inset 0 0 14px rgba(255,106,60,0.1), 0 0 16px rgba(255,106,60,0.18); }
+
+  @media (max-width: 480px) {
+    header { column-gap: 8px; padding-left: 12px; padding-right: 12px; }
+    .stats { gap: 8px; }
+    .hpbar { width: 96px; }
+    #help { padding: 0 18px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, #toast { transition: none !important; }
+    .grain { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Pentagram</h1>
+    <div class="stats">
+      <span id="cityname"></span>
+      <span id="foes"></span>
+      <div class="hpbar"><div id="hp"></div></div>
+      <button id="reset" title="Return to the city select">Choose city</button>
+    </div>
+  </header>
+
+  <div id="citywrap">
+    <svg id="city"></svg>
+  </div>
+
+  <div class="inkveil"></div>
+  <div class="grain"></div>
+  <div class="vignette"></div>
+
+  <div id="stick"><div id="stick-knob"></div></div>
+
+  <div id="toast"></div>
+
+  <div id="help">Move with the joystick or WASD to dodge. Stand still to inscribe the pentagram — it burns the shades around you.</div>
+
+  <div id="overlay" class="hidden">
+    <div id="ov-panel">
+      <div id="ov-title"></div>
+      <div id="ov-body"></div>
+      <div class="ov-buttons">
+        <button id="ov-btn"></button>
+        <button id="ov-btn2" style="display:none"></button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./pentagram.js"></script>
+</body>
+</html>

@@ -1,12 +1,16 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v31";
+const CACHE = "lightbringer-v32";
 
 const ASSETS = [
   "./",
   "./index.html",
   "./app.js",
+  // Pentagram — the action-combat spinoff (its own page + module, reusing the
+  // same art and cities). Network-first like the rest of the shell (see isShell).
+  "./pentagram.html",
+  "./pentagram.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -70,7 +74,8 @@ self.addEventListener("activate", (event) => {
 // it stays cache-first — that is what makes the game playable offline at all.
 function isShell(url) {
   return url.pathname === "/" || url.pathname.endsWith("/") ||
-    url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js");
+    url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js") ||
+    url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js");
 }
 
 self.addEventListener("fetch", (event) => {

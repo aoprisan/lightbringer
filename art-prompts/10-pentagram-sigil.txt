@@ -1,0 +1,21 @@
+Pentagram sigil — the spinoff's signature weapon (PROCEDURAL, no PNG shipped).
+
+The pentagram in the action-combat spinoff (pentagram.html / pentagram.ts) is
+drawn procedurally as layered SVG, NOT from a PNG — so there is no art file to
+generate. This prompt records the intended look in case it is ever painted as a
+sprite later (it would drop in via the same spriteFor() fallback the rest of the
+art uses).
+
+Intended look:
+- A {5/2} star polygon (the classic single-stroke pentagram) inscribed in a
+  circle, centered under the flame-hero.
+- Inscribes itself as the hero stands still: scales up and brightens with
+  "charge" (0 -> 1), fades when the hero moves.
+- Colour: an infernal warm palette to set it apart from the parent game's gold
+  light — ember red (#ff6a3c) outer ring, gold (#ffd87a) star stroke, a soft
+  red-gold radial fill (#ffd9a0 -> #ff6a3c -> transparent), all through a glow.
+- Slowly rotating. Reads as a burning brand scorched into the ground.
+
+If ever shipped as a PNG: transparent background, square, drawn on solid night
+(#0B0E1A) like the other sprites so the spriteFade mask melts its edge, and add
+it to sw.js ASSETS + bump CACHE.
