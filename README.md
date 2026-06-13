@@ -7,6 +7,12 @@ A contemplative inversion game — an installable browser **PWA**, playable offl
 No install required — it runs in the browser. On mobile, use *Add to Home Screen*
 to install it as an offline app.
 
+### ✦ [**Play the spinoff → Pentagram**](https://aoprisan.github.io/lightbringer/pentagram.html)
+
+A real-time action descent in the same world: stand still to inscribe a burning
+pentagram that scorches the shades around you, move to dodge — clear every shade
+to cleanse the city. ([more below](#pentagram--an-action-spinoff))
+
 > The world has been taught that the light burns. An order of Keepers maintains
 > the Veil: a sanctioned dimness in which people live safe, obedient,
 > half-asleep. You are the heretic who carries a stolen flame. The "demonic"
@@ -61,6 +67,19 @@ Across runs the game keeps a quiet **legacy** — the furthest night you reached
 the brightest morning you held, the most hearths you settled — shown on the
 title and the end screen so each new flame has something to outdo.
 
+## Pentagram — an action spinoff
+
+[**Pentagram**](https://aoprisan.github.io/lightbringer/pentagram.html) is a
+sibling game shipped alongside the Light-Bringer (and linked from its title
+screen): an Archero-style action descent set in the *same* world, reusing the
+same five cities and the same art. Instead of tending light, you walk a
+flame-hero through a city and **stand still to inscribe a pentagram** on the
+ground — a burning sigil that pulses damage to every *shade* (the city's watch,
+risen against you) in its ring. Move and the sigil fades and you dodge; stand and
+it scorches. Each city holds a **finite** host of shades — clear them all and the
+city is cleansed; lose your health and you fall. It is its own installable PWA
+page, with its own quiet legacy (cities cleansed, best clear time).
+
 ## Tech
 
 A single TypeScript module rendering layered SVG (deep indigo world, light in
@@ -74,10 +93,13 @@ a bounded "while you were away" catch-up.
 | --- | --- |
 | `index.html` | App shell, styling, PWA tags |
 | `app.ts` | Game logic + rendering (the whole game) — compiles to `app.js` |
-| `sw.js` | Service worker — offline app-shell cache |
-| `manifest.webmanifest` | Install metadata |
+| `pentagram.ts` | Pentagram spinoff — combat sim + rendering — compiles to `pentagram.js` |
+| `pentagram.html` | Spinoff page shell |
+| `sw.js` | Service worker — offline app-shell cache (both games) |
+| `manifest.webmanifest`, `pentagram.webmanifest` | Install metadata (main game / spinoff) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
 | `tools/smoke-test.mjs` | Headless simulation test (`npm test`) |
+| `tools/pentagram-test.mjs` | Headless combat test for the spinoff (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
 ### Local run
@@ -103,8 +125,9 @@ npm run typecheck           # type-check without emitting
 ## Deploy (GitHub Pages)
 
 The site is the repository root. A workflow at
-`.github/workflows/deploy.yml` installs deps, compiles `app.ts` → `app.js`, and
-publishes on every push to `main`.
+`.github/workflows/deploy.yml` installs deps, compiles the TypeScript
+(`app.ts` → `app.js` and `pentagram.ts` → `pentagram.js`), and publishes on every
+push to `main`.
 
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via
