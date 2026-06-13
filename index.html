@@ -199,13 +199,13 @@
     box-shadow: inset 0 0 14px rgba(159,196,232,0.1), 0 0 16px rgba(159,196,232,0.2); }
   button:active { transform: translateY(1px); }
   /* Subtle "Begin again" reset, tucked in the header beside the stats. */
-  #reset {
+  #reset, #refresh {
     pointer-events: auto;
     font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
     border-color: transparent; background: none; box-shadow: none;
     color: var(--ink-dim); opacity: 0.5; transition: opacity .2s ease, color .2s ease;
   }
-  #reset:hover { opacity: 1; color: var(--gold); }
+  #reset:hover, #refresh:hover { opacity: 1; color: var(--gold); }
   /* "Rules" and the mode switch — same quiet header treatment as the reset link. */
   #rules-btn, #mode-switch {
     pointer-events: auto;
@@ -434,7 +434,7 @@
 <body>
   <header>
     <h1>The Light&#8209;Bringer</h1>
-    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="mode-switch" title="Switch between the contemplative night and the real-time Lamplighter Run">Lamplighter Run</button><button id="rules-btn" title="How to play">Rules</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="mode-switch" title="Switch between the contemplative night and the real-time Lamplighter Run">Lamplighter Run</button><button id="rules-btn" title="How to play">Rules</button><button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Refresh</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
   </header>
 
   <div id="citywrap">

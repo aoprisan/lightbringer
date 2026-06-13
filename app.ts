@@ -1401,6 +1401,7 @@ function start(): void {
   const waitBtn = byId("wait");
   const endBtn = byId("endnight");
   const resetBtn = byId("reset");
+  const refreshBtn = byId("refresh");
   const overlay = byId("overlay");
   const overlayTitle = byId("ov-title");
   const overlayBody = byId("ov-body");
@@ -2033,6 +2034,27 @@ function start(): void {
       "Keep carrying",
       () => { overlay.classList.add("hidden"); },
     );
+  });
+
+  // Force-fresh the app. A cache-first service worker keeps serving the offline
+  // copy of app.js (and the rest of the shell) until its cache is retired, so a
+  // shipped fix can sit invisible behind a stale cache. This drops every cache
+  // and unregisters the worker, then reloads — the next load fetches the current
+  // files from the network. The save and the lifetime legacy live in
+  // localStorage, untouched; this clears cached *files*, not game progress.
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.textContent = "Clearing…";
+    try {
+      if (typeof caches !== "undefined") {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch { /* best effort — reload regardless */ }
+    location.reload();
   });
 
   // No clock: the city is turn-based now. It advances one breath per player
