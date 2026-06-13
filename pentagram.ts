@@ -1,11 +1,13 @@
-// Pentagram — an action-combat spinoff of The Light-Bringer.
+// The Burning Vigil — an action-combat spinoff of The Light-Bringer.
 //
 // Same world, same art, same gloom — but the contemplative night becomes an
 // Archero-style descent: you walk a flame-hero through one of the very cities
 // the parent game generates, and instead of shooting you STAND STILL to inscribe
 // a burning pentagram on the ground that scorches every shade in its ring. Move
 // to dodge; stop to fight. A city holds a finite host of shades — clear them all
-// and the city is cleansed.
+// and the city is cleansed. Presses and shrines are solid: you weave the swarm
+// around them. Dark dwellings caught in the sigil's ring kindle alight, mending
+// the hero a little — relighting the city is a vigil kept alongside the killing.
 //
 // This file is deliberately self-contained (no import/export, like app.ts, so
 // tsc emits a plain classic script). It copies the minimal slice of app.ts it
@@ -23,8 +25,9 @@ type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
 type Phase = "fight" | "won" | "lost";
 
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
-// place and kind (which sprite, and whether it's a shade spawn-point).
-interface ArenaNode { x: number; y: number; kind: NodeKind }
+// place and kind (which sprite, and whether it's a shade spawn-point). A dark
+// dwelling can `lit` once the sigil's ring catches it.
+interface ArenaNode { x: number; y: number; kind: NodeKind; lit?: boolean }
 
 interface Hero {
   x: number; y: number; vx: number; vy: number;
@@ -47,13 +50,16 @@ interface Penta {
 interface PgState {
   level: LevelDef;
   scenery: ArenaNode[];
+  solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
   hero: Hero;
   shades: Shade[];
   penta: Penta;
   pulseAcc: number; // ms accumulated toward the next damage pulse
   elapsed: number;  // ms since the descent began (clear time + wake timing)
   kills: number;
-  total: number;    // the finite host: clear them all to win
+  total: number;        // the finite host: clear them all to win
+  dwellingsTotal: number; // dark dwellings the city began with
+  litCount: number;     // how many the sigil has kindled (secondary objective)
   phase: Phase;
 }
 
@@ -90,6 +96,16 @@ const SHADE_CONTACT_DMG = 10;    // hero HP lost per touch (gated by i-frames)
 const SHADE_SEP = 34;            // shades push apart within this range, so they swarm
 const SHADE_PER_KEEPER = 3;      // how many shades each keeper-post raises
 const SHADE_WAKE_STAGGER = 700;  // ms between successive waves rising from a post
+
+// Obstacles — the city's built structures stand solid; the hero and shades must
+// weave around them. Only presses and shrines block; dwellings/conduits are
+// passable (you light the former). Radii are roughly the sprite's footprint.
+const OBSTACLE_KINDS = new Set<NodeKind>(["press", "shrine"]);
+const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 20 };
+
+// Dwellings — a dark one caught in the charged sigil kindles alight, mending the
+// hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
+const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -204,6 +220,22 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+// Push a moving body (hero or shade) out of any solid scenery it has overlapped,
+// then back inside the world bounds. Circle-vs-circle: shove along the normal so
+// it slides along an obstacle's edge rather than stopping dead.
+function pushOutOfSolids(s: PgState, x: number, y: number, radius: number): { x: number; y: number } {
+  for (const n of s.solids) {
+    const rr = radius + (OBSTACLE_RADIUS[n.kind] || 0);
+    let dx = x - n.x, dy = y - n.y;
+    let d = Math.hypot(dx, dy);
+    if (d >= rr) continue;
+    if (d === 0) { dx = 1; dy = 0; d = 1; } // degenerate: dead-centre, pick a direction
+    x = n.x + (dx / d) * rr;
+    y = n.y + (dy / d) * rr;
+  }
+  return { x: clamp(x, radius, W - radius), y: clamp(y, radius, H - radius) };
+}
+
 // Build a fresh descent: dress the city, drop the hero at its heart, and raise a
 // finite host of shades from each keeper-post in staggered waves.
 function buildArena(level: LevelDef): PgState {
@@ -226,9 +258,14 @@ function buildArena(level: LevelDef): PgState {
     }
   }
   return {
-    level, scenery, hero, shades,
+    level, scenery,
+    solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
+    hero, shades,
     penta: { charge: 0, angle: 0 },
-    pulseAcc: 0, elapsed: 0, kills: 0, total: shades.length, phase: "fight",
+    pulseAcc: 0, elapsed: 0, kills: 0, total: shades.length,
+    dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
+    litCount: 0,
+    phase: "fight",
   };
 }
 
@@ -264,13 +301,14 @@ function stepShades(s: PgState, dt: number): void {
     const m = Math.hypot(sx, sy) || 1;
     e.vx = (sx / m) * SHADE_SPEED;
     e.vy = (sy / m) * SHADE_SPEED;
-    e.x = clamp(e.x + (e.vx * dt) / 1000, SHADE_RADIUS, W - SHADE_RADIUS);
-    e.y = clamp(e.y + (e.vy * dt) / 1000, SHADE_RADIUS, H - SHADE_RADIUS);
+    const p = pushOutOfSolids(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
+    e.x = p.x; e.y = p.y;
   }
 }
 
 // The pentagram pulses on its own clock: every PENTA_PULSE_MS it burns every
-// risen shade within its ring for PENTA_DMG scaled by how fully it is inscribed.
+// risen shade within its ring for PENTA_DMG scaled by how fully it is inscribed,
+// and kindles any dark dwelling the ring has caught (mending the hero a little).
 function stepPentagram(s: PgState, dt: number): void {
   s.pulseAcc += dt;
   while (s.pulseAcc >= PENTA_PULSE_MS) {
@@ -283,6 +321,14 @@ function stepPentagram(s: PgState, dt: number): void {
       if ((e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2 <= r2) {
         e.hp -= dmg;
         if (e.hp <= 0) { e.dead = true; s.kills++; }
+      }
+    }
+    for (const n of s.scenery) {
+      if (n.kind !== "dwelling" || n.lit) continue;
+      if ((n.x - s.hero.x) ** 2 + (n.y - s.hero.y) ** 2 <= r2) {
+        n.lit = true;
+        s.litCount++;
+        s.hero.hp = Math.min(s.hero.maxHp, s.hero.hp + DWELLING_HEAL);
       }
     }
   }
@@ -298,8 +344,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
 
   h.vx = move.x * HERO_SPEED;
   h.vy = move.y * HERO_SPEED;
-  h.x = clamp(h.x + (h.vx * dt) / 1000, HERO_RADIUS, W - HERO_RADIUS);
-  h.y = clamp(h.y + (h.vy * dt) / 1000, HERO_RADIUS, H - HERO_RADIUS);
+  {
+    const p = pushOutOfSolids(s, h.x + (h.vx * dt) / 1000, h.y + (h.vy * dt) / 1000, HERO_RADIUS);
+    h.x = p.x; h.y = p.y;
+  }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
   // Stand still and the sigil inscribes itself; move and it fades.
@@ -324,8 +372,8 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
-        h.x = clamp(h.x + (dx / d) * HERO_KNOCKBACK, HERO_RADIUS, W - HERO_RADIUS);
-        h.y = clamp(h.y + (dy / d) * HERO_KNOCKBACK, HERO_RADIUS, H - HERO_RADIUS);
+        const p = pushOutOfSolids(s, h.x + (dx / d) * HERO_KNOCKBACK, h.y + (dy / d) * HERO_KNOCKBACK, HERO_RADIUS);
+        h.x = p.x; h.y = p.y;
         break; // one blow per slice; i-frames cover the rest of the swarm
       }
     }
@@ -352,13 +400,13 @@ const LOW_FX = typeof matchMedia === "function" && matchMedia("(pointer: coarse)
 // The base sprites this spinoff draws. Scenery uses the dark dwelling/conduit/
 // press/shrine art; the hero is the player-lantern; the shades are the Keepers.
 const SPRITE_NAMES = [
-  "ground", "dwelling-dark", "conduit", "press", "shrine",
+  "ground", "dwelling-dark", "dwelling-lit", "conduit", "press", "shrine",
   "keeper-node", "keeper-patrol", "player-lantern",
 ] as const;
 
 // Which sprites a city may re-skin (art/<cityId>/<name>.png) — the built world.
 const CITY_SPRITES = new Set<string>([
-  "ground", "dwelling-dark", "conduit", "press", "shrine",
+  "ground", "dwelling-dark", "dwelling-lit", "conduit", "press", "shrine",
 ]);
 
 const sprites = new Set<string>();
@@ -477,16 +525,31 @@ function render(s: PgState, layer: SVGGElement): void {
   }));
 
   // Scenery — the built world, drawn dark for the Diablo gloom. Keeper-posts are
-  // spawn-points, not scenery, so they aren't drawn here.
+  // spawn-points, not scenery, so they aren't drawn here. Solid structures (press,
+  // shrine) draw full-opacity with a faint ring so they read as blockers; a lit
+  // dwelling glows with a warm halo.
   for (const n of s.scenery) {
     if (n.kind === "keeper") continue;
-    const key = spriteFor(s.level, SCENERY_SPRITE[n.kind]);
+    const solid = OBSTACLE_KINDS.has(n.kind);
+    if (n.kind === "dwelling" && n.lit) {
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 30, fill: "url(#haloAwake)", opacity: 0.7 }));
+    }
+    const spriteName = n.kind === "dwelling" && n.lit ? "dwelling-lit" : SCENERY_SPRITE[n.kind];
+    const key = spriteFor(s.level, spriteName);
     if (key) {
-      layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], 0.5));
+      layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], solid ? 1 : 0.5));
     } else {
       layer.appendChild(el("rect", {
         x: n.x - 8, y: n.y - 8, width: 16, height: 16, rx: 2,
-        fill: "#161a2c", stroke: "#222842", "stroke-width": 1, opacity: 0.7,
+        fill: n.lit ? "#3a2a14" : "#161a2c",
+        stroke: solid ? "#3a3050" : n.lit ? "#ffd87a" : "#222842",
+        "stroke-width": 1, opacity: solid ? 0.95 : 0.7,
+      }));
+    }
+    if (solid) {
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: (OBSTACLE_RADIUS[n.kind] || 0),
+        fill: "none", stroke: "#3a3050", "stroke-width": 1.5, opacity: 0.4,
       }));
     }
   }
@@ -560,16 +623,22 @@ function render(s: PgState, layer: SVGGElement): void {
 
 // ---------- Legacy (cross-run record, in its own key) ----------
 
-interface PgLegacy { runs: number; clears: number; best: Record<string, number> }
+interface PgLegacy {
+  runs: number; clears: number; best: Record<string, number>;
+  dwellingsLit: number; // lifetime dwellings kindled across all descents
+}
 
-function emptyPgLegacy(): PgLegacy { return { runs: 0, clears: 0, best: {} }; }
+function emptyPgLegacy(): PgLegacy { return { runs: 0, clears: 0, best: {}, dwellingsLit: 0 }; }
 
 function loadPgLegacy(): PgLegacy {
   try {
     const raw = localStorage.getItem(PG_LEGACY_KEY);
     if (!raw) return emptyPgLegacy();
     const l = JSON.parse(raw) as Partial<PgLegacy>;
-    return { runs: l.runs || 0, clears: l.clears || 0, best: l.best || {} };
+    return {
+      runs: l.runs || 0, clears: l.clears || 0, best: l.best || {},
+      dwellingsLit: l.dwellingsLit || 0,
+    };
   } catch { return emptyPgLegacy(); }
 }
 
@@ -577,17 +646,19 @@ function savePgLegacy(l: PgLegacy): void {
   try { localStorage.setItem(PG_LEGACY_KEY, JSON.stringify(l)); } catch { /* ignore */ }
 }
 
-function recordClear(level: LevelDef, ms: number): PgLegacy {
+function recordClear(level: LevelDef, ms: number, lit = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++; l.clears++;
+  l.dwellingsLit += lit;
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
   savePgLegacy(l);
   return l;
 }
 
-function recordDeath(): PgLegacy {
+function recordDeath(lit = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++;
+  l.dwellingsLit += lit;
   savePgLegacy(l);
   return l;
 }
@@ -613,6 +684,7 @@ function start(): void {
   const ovBtn2 = byId("ov-btn2") as HTMLButtonElement;
   const hpFill = byId("hp");
   const foesEl = byId("foes");
+  const lightsEl = byId("lights");
   const cityEl = byId("cityname");
   const toastEl = byId("toast");
   const stickEl = byId("stick");
@@ -745,6 +817,7 @@ function start(): void {
     if (!s) return;
     hpFill.style.width = Math.max(0, (s.hero.hp / s.hero.maxHp) * 100) + "%";
     foesEl.textContent = `${aliveShades(s)} / ${s.total} shades`;
+    lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
     cityEl.textContent = s.level.name;
   }
 
@@ -813,7 +886,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Stand still to inscribe the pentagram. Move to dodge.");
+    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around the presses and shrines, and light the dark dwellings.");
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -821,12 +894,17 @@ function start(): void {
   function onWin(): void {
     if (!s) return;
     const ms = s.elapsed;
-    const l = recordClear(s.level, ms);
+    const lit = s.litCount, total = s.dwellingsTotal;
+    const l = recordClear(s.level, ms, lit);
     const best = l.best[s.level.id];
+    const relit = lit >= total && total > 0
+      ? `You relit every dwelling — <em>${total}</em>. The city is whole again.`
+      : `You relit <em>${lit}</em> of ${total} dwellings.`;
     showOverlay(
       "The city is cleansed",
       `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them, ` +
       `in <em>${fmtTime(ms)}</em>.<br><br>` +
+      `${relit}<br><br>` +
       (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`),
       "Descend again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -835,11 +913,12 @@ function start(): void {
 
   function onLost(): void {
     if (!s) return;
-    recordDeath();
+    recordDeath(s.litCount);
     showOverlay(
       "You fell",
       `The watch of <em>${s.level.name}</em> pulled you down with ` +
       `<em>${aliveShades(s)}</em> shades still standing.<br><br>` +
+      `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.<br><br>` +
       `<em>The dark is patient. Descend again.</em>`,
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -851,8 +930,9 @@ function start(): void {
     const l = loadPgLegacy();
     let html =
       `<p class="lede">Choose a city to descend into. Stand still to inscribe a ` +
-      `pentagram that burns the shades around you; move to dodge their touch. ` +
-      `Clear every shade and the city is cleansed.</p><div class="cities">`;
+      `pentagram that burns the shades around you; move to dodge their touch and ` +
+      `weave around the solid presses and shrines. Catch a dark dwelling in the ring ` +
+      `to light it and mend yourself. Clear every shade and the city is cleansed.</p><div class="cities">`;
     for (const lv of LEVELS) {
       const done = l.best[lv.id];
       const mark = done ? ` <span class="legacy-new">cleansed ${fmtTime(done)}</span>` : "";
@@ -866,9 +946,10 @@ function start(): void {
       html +=
         `<div class="legacy"><div class="legacy-head">Your descents</div><dl>` +
         `<div><dt>Descents</dt><dd>${l.runs}</dd></div>` +
-        `<div><dt>Cities cleansed</dt><dd>${l.clears}</dd></div></dl></div>`;
+        `<div><dt>Cities cleansed</dt><dd>${l.clears}</dd></div>` +
+        `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div></dl></div>`;
     }
-    showOverlay("Pentagram", html, "", () => {});
+    showOverlay("The Burning Vigil", html, "", () => {});
     ovBtn.style.display = "none";
     ovBtn2.style.display = "none";
     overlay.querySelectorAll<HTMLButtonElement>(".city").forEach((b) => {
@@ -909,9 +990,10 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     aliveShades, clearedPct, LEVELS, levelById,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy,
     K: {
-      W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS,
+      W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS, HERO_SPEED,
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER, SHADE_WAKE_STAGGER,
+      OBSTACLE_RADIUS, DWELLING_HEAL,
     },
   };
 } else {
