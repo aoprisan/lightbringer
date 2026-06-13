@@ -135,6 +135,13 @@ const MOVE_KINDLE_MAXSPEED = 40;   // avatar must be slower than this (units/s) 
 const HIT_FLAME_COST = 1;          // flame lost when a Keeper catches the avatar
 const HIT_IFRAMES_MS = 900;        // grace after a hit, no further damage
 const KEEPER_PLAYER_LEASH = 900;   // a Keeper chasing the avatar ranges far past its post
+// The turn-based night advances spread one breath per deliberate tap; the action
+// shell breathes ~6x/second (ACTION_STEP_MS), so the same per-breath spread
+// chance would flood the whole city — and trip every fresco — while the carrier
+// just stands at spawn. Damp ambient spread when an avatar is present so the
+// lantern (and movement) stay the way light travels; the creep still wins
+// eventually, but slowly enough that standing still is not a free win.
+const ACTION_SPREAD_DAMP = 0.16;   // ambient-spread multiplier while g.player is set
 
 const COND: Record<NodeKind, number> = {
   conduit: 0.5,   // oil, paper, rumor — carries light fast
@@ -526,7 +533,8 @@ function stepSpread(g: GameState): void {
       }
       const chance =
         e.conductivity * n.brightness * (n.state === "awakened" ? 1.25 : 1) * veilDamp * sky;
-      if (Math.random() < chance * 0.45) toLight.push(mId);
+      const clock = g.player ? ACTION_SPREAD_DAMP : 1; // action shell breathes faster
+      if (Math.random() < chance * 0.45 * clock) toLight.push(mId);
     }
     if (n.state === "lit") n.brightness = Math.max(0.35, n.brightness - 0.03);
   }

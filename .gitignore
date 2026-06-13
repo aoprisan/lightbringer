@@ -10,3 +10,7 @@ node_modules/
 # tracked as the regeneration recipe; the shipped, optimized sprites live in
 # art/*.png. The 2048px source PNGs are kept locally only.
 art/prompts/*.png
+
+# Full-res city establishing-art generations (~7.5MB each). The shipped,
+# optimized versions live in art/city-*.jpg; the source PNGs are local-only.
+art-prompts/city-*.png
