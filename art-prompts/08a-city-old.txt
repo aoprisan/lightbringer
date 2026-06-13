@@ -1,0 +1,8 @@
+=== 8a. City card — The Old City ===
+Establishing card shown when the carrier chooses to walk into THE OLD CITY
+(the balanced first city; an even, indifferent watch). Output: art/city-old.jpg
+Wide 16:9. Copy and paste the whole block below.
+
+Contemplative, reverent, illuminated-manuscript meets minimal poster art. Deep indigo night #080a14, warm gold light #e8b34b and #ffd87a with a near-white hot core #fff2cf, cold steel-blue accents #9fc4e8. High contrast, lots of negative darkness, soft volumetric glow, subtle film grain. No text, no watermark, no logos, no people's faces. Painterly but restrained — sacred, quiet, a little melancholy.
+
+An establishing night view of a sprawling medieval city seen from a high three-quarter angle, packed slate-grey rooftops, slender spires and a distant dark cathedral on the horizon. The whole city sleeps under a sanctioned dimness — almost no light. A single small warm-gold flame glows in one window near the center, a fragile point of defiance, casting the faintest pool of gold on the stones below. A few evenly-spaced cold steel-blue watch-braziers dot the rooftops, calm and indifferent. Balanced, hushed, the baseline against which every other city is measured. Wide 16:9 cinematic composition, deep negative darkness around a low horizon.
