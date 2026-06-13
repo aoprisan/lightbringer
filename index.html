@@ -313,6 +313,28 @@
     color: var(--ink-dim); opacity: 0.7; font-style: italic; pointer-events: none;
     padding: 0 26px;
   }
+  /* Phones — the desktop sizing overflows a narrow screen. Without this the
+     three footer buttons spill past both edges (body is overflow:hidden, so
+     they're clipped, not scrollable) and the header stats crowd the title.
+     Tighten padding and letter-spacing so the controls fit, and let the
+     footer wrap as a last resort on the smallest screens. */
+  @media (max-width: 480px) {
+    header { column-gap: 8px; padding-left: 12px; padding-right: 12px; }
+    .stats { gap: 8px; }
+    footer {
+      flex-wrap: wrap; gap: 8px;
+      padding-left: 10px; padding-right: 10px;
+    }
+    footer button {
+      flex: 0 1 auto; white-space: nowrap;
+      padding: 12px 14px; letter-spacing: 0.08em;
+    }
+    #help { padding: 0 18px; }
+  }
+  @media (max-width: 360px) {
+    footer button { padding: 11px 11px; font-size: 11.5px; letter-spacing: 0.05em; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
     .grain, h1, #wx { animation: none !important; }
