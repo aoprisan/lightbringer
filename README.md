@@ -34,6 +34,18 @@ its own along anything that can carry it (oil, paper, rumor).
 
 Unbanked light dies at dawn; only light connected to an awakened soul survives.
 
+### Two ways to play
+
+The default is the **contemplative night** — turn-based, the city breathing once
+per act. There is also a real-time **Lamplighter Run**, where you *become* the
+flame and walk the streets while the Keepers hunt you. Switch between them from
+the **Lamplighter Run / Classic night** link in the header (the choice is
+remembered). Both run the same underlying simulation.
+
+Across runs the game keeps a quiet **legacy** — the furthest night you reached,
+the brightest morning you held, the most hearths you settled — shown on the
+title and the end screen so each new flame has something to outdo.
+
 ## Tech
 
 A single TypeScript module rendering layered SVG (deep indigo world, light in

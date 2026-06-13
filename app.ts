@@ -773,6 +773,85 @@ function freshGame(): GameState {
   return g;
 }
 
+// ---------- Legacy: a record across runs ----------
+// A lifetime tally kept in its OWN localStorage key, apart from the save — so it
+// survives "Begin again", carries between the classic and Lamplighter shells,
+// and never forces a save-version bump. It records the carrier's deepest runs:
+// the furthest night reached, the brightest morning held, and the most hearths
+// settled. Read on the intro to give a returning carrier something to outdo, and
+// folded in exactly once — when a run ends.
+const LEGACY_KEY = "lightbringer.legacy.v1";
+
+interface Legacy {
+  runs: number;        // runs carried to their end
+  bestNight: number;   // furthest night reached
+  bestLit: number;     // most lights carried into a morning
+  bestPct: number;     // brightest morning, as a percent of the city
+  bestHearths: number; // most hearths settled in a single run
+}
+
+function emptyLegacy(): Legacy {
+  return { runs: 0, bestNight: 0, bestLit: 0, bestPct: 0, bestHearths: 0 };
+}
+
+function loadLegacy(): Legacy {
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (raw) {
+      const r = JSON.parse(raw) as Partial<Legacy>;
+      return {
+        runs: r.runs || 0,
+        bestNight: r.bestNight || 0,
+        bestLit: r.bestLit || 0,
+        bestPct: r.bestPct || 0,
+        bestHearths: r.bestHearths || 0,
+      };
+    }
+  } catch (_) { /* storage may be unavailable; the record is best-effort */ }
+  return emptyLegacy();
+}
+
+// Which lifetime bests a just-ended run newly bettered, so the end screen can
+// mark them. (lit and pct move together, but a smaller, denser city can beat the
+// percent without the count — track both.)
+interface LegacyBeat { night: boolean; lit: boolean; pct: boolean; hearths: boolean; }
+
+// Fold a finished run into the lifetime record and persist it. Returns the saved
+// legacy (already including this run) and the bests this run set.
+function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat } {
+  const s = litStats(g);
+  const pct = s.total ? Math.round((s.lit / s.total) * 100) : 0;
+  const prev = loadLegacy();
+  const beat: LegacyBeat = {
+    night: g.night > prev.bestNight,
+    lit: s.lit > prev.bestLit,
+    pct: pct > prev.bestPct,
+    hearths: s.hearths > prev.bestHearths,
+  };
+  const legacy: Legacy = {
+    runs: prev.runs + 1,
+    bestNight: Math.max(prev.bestNight, g.night),
+    bestLit: Math.max(prev.bestLit, s.lit),
+    bestPct: Math.max(prev.bestPct, pct),
+    bestHearths: Math.max(prev.bestHearths, s.hearths),
+  };
+  try { localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy)); } catch (_) { /* best-effort */ }
+  return { legacy, beat };
+}
+
+// The legacy block for the overlays (pure string, no DOM). With nothing recorded
+// yet it stays silent. `beat` (passed on an end screen) marks the fresh bests.
+function legacyHtml(l: Legacy, beat?: LegacyBeat): string {
+  if (l.runs <= 0) return "";
+  const mark = (on?: boolean) => (on ? ` <span class="legacy-new">new best</span>` : "");
+  const runs = `${l.runs} ${l.runs === 1 ? "run" : "runs"}`;
+  return `<div class="legacy"><div class="legacy-head">Carried across ${runs}</div><dl>` +
+    `<div><dt>Furthest night</dt><dd>${l.bestNight}${mark(beat?.night)}</dd></div>` +
+    `<div><dt>Brightest morning</dt><dd>${l.bestPct}% · ${l.bestLit} lights${mark(beat && (beat.pct || beat.lit))}</dd></div>` +
+    `<div><dt>Most hearths kept</dt><dd>${l.bestHearths}${mark(beat?.hearths)}</dd></div>` +
+    `</dl></div>`;
+}
+
 // One breath of the city: light spreads a step, awakened souls kindle, the
 // Keepers advance and snuff. This is the single unit of simulation time —
 // the turn-based shell runs exactly one per player action (or deliberate Wait),
@@ -1561,13 +1640,15 @@ function start(): void {
     g.phase = "end";
     g.player = undefined; // no avatar on the morning-after board
     saveGame(g);
+    const { legacy, beat } = recordRun(g); // fold this run into the lifetime record
     draw(true);
     const after = litStats(g);
     showOverlay(
       "The flame gutters out",
-      after.lit > 0
+      (after.lit > 0
         ? `The Keepers ran you down — but ${after.lit} lights still burn without you, ${Math.round((after.lit / after.total) * 100)}% of the city, held by ${after.awakened} awakened souls.<br><br><em>That is the only victory there was. Ora pro nobis, Lucifer.</em>`
-        : `The Keepers ran you down, and the city is dark again.<br><br><em>Begin again. The morning is patient.</em>`,
+        : `The Keepers ran you down, and the city is dark again.<br><br><em>Begin again. The morning is patient.</em>`) +
+        legacyHtml(legacy, beat),
       "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
     );
   }
@@ -1671,6 +1752,15 @@ function start(): void {
   const modeToggle = document.getElementById("mode-toggle");
   if (modeToggle) modeToggle.addEventListener("click", () => setMode(!actionMode));
 
+  // The persistent header switch — the one entry point a returning carrier can
+  // see without opening the rules. Its label names the shell it would take you
+  // to, and the choice is remembered across launches (setMode reloads into it).
+  const modeSwitch = document.getElementById("mode-switch");
+  if (modeSwitch) {
+    modeSwitch.textContent = actionMode ? "Classic night" : "Lamplighter Run";
+    modeSwitch.addEventListener("click", () => setMode(!actionMode));
+  }
+
   function openRules(): void { rules.classList.add("show"); }
   function closeRules(): void { rules.classList.remove("show"); }
   rulesBtn.addEventListener("click", openRules);
@@ -1715,13 +1805,15 @@ function start(): void {
     if (g.maxFlame <= 0) {
       g.phase = "end";
       saveGame(g);
+      const { legacy, beat } = recordRun(g); // fold this run into the lifetime record
       draw(true); // render the city in dawn light, only survivors gold
       const pct = Math.round((after.lit / after.total) * 100);
       showOverlay(
         "The carrier is spent",
-        after.lit > 0
+        (after.lit > 0
           ? `Your flame is gone. But ${after.lit} lights still burn without you — ${pct}% of the city, held by ${after.awakened} awakened souls${after.hearths > 0 ? `, ${after.hearths} of them settled hearths that will keep the flame` : ``}.<br><br>That is the only victory there was.<br><br><em>Ora pro nobis, Lucifer.</em>`
-          : `Your flame is gone, and the city is dark. Nothing you lit outlived you.<br><br><em>Begin again. The morning is patient.</em>`,
+          : `Your flame is gone, and the city is dark. Nothing you lit outlived you.<br><br><em>Begin again. The morning is patient.</em>`) +
+          legacyHtml(legacy, beat),
         "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
       );
       return;
@@ -1788,7 +1880,8 @@ function start(): void {
       draw(true);
       const after = litStats(g);
       showOverlay("The flame gutters out",
-        `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>`,
+        `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>` +
+          legacyHtml(loadLegacy()),
         "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); });
     } else {
       g.phase = "night";
@@ -1808,7 +1901,8 @@ function start(): void {
       `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">` +
       `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
       `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. Lay a false light to draw a Keeper off its post. The carrier burns: each night your flame is smaller. You will not finish the city.</em>`,
+      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. Lay a false light to draw a Keeper off its post. The carrier burns: each night your flame is smaller. You will not finish the city.</em>` +
+      legacyHtml(loadLegacy()),
       "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
       "Try the Lamplighter Run ▸", () => setMode(true),
     );
@@ -1817,7 +1911,8 @@ function start(): void {
     draw(true);
     const after = litStats(g);
     showOverlay("The carrier is spent",
-      `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>`,
+      `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>` +
+        legacyHtml(loadLegacy()),
       "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); });
   } else {
     // Awakened souls kept working while the app was closed.
@@ -1862,6 +1957,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
     generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
     stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, isHearth, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
+    loadLegacy, recordRun, emptyLegacy,
   };
 } else {
   start();

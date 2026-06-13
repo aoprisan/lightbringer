@@ -206,14 +206,17 @@
     color: var(--ink-dim); opacity: 0.5; transition: opacity .2s ease, color .2s ease;
   }
   #reset:hover { opacity: 1; color: var(--gold); }
-  /* "Rules" — same quiet header treatment as the reset link. */
-  #rules-btn {
+  /* "Rules" and the mode switch — same quiet header treatment as the reset link. */
+  #rules-btn, #mode-switch {
     pointer-events: auto;
     font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
     border-color: transparent; background: none; box-shadow: none;
     color: var(--ink-dim); opacity: 0.5; transition: opacity .2s ease, color .2s ease;
   }
-  #rules-btn:hover { opacity: 1; color: var(--gold); }
+  #rules-btn:hover, #mode-switch:hover { opacity: 1; color: var(--gold); }
+  /* The mode switch leans warmer — it offers another way to play, not a chore. */
+  #mode-switch { color: var(--gold); opacity: 0.62; }
+  #mode-switch:hover { color: var(--gold-bright); }
 
   /* The rule of the game, read as an illuminated page you can open by hand. */
   #rules {
@@ -327,6 +330,27 @@
   #ov-body em { color: var(--gold-bright); font-style: italic; }
   #ov-body .districts { display: inline-block; margin: 8px 0; font-size: 13.5px;
     letter-spacing: 0.04em; color: var(--ink-dim); line-height: 1.95; }
+  /* The lifetime legacy: what the carrier has carried across runs. A quiet
+     gilt-ruled ledger beneath the night's words. */
+  #ov-body .legacy {
+    margin: 22px auto 0; max-width: 340px; padding-top: 16px;
+    border-top: 1px solid rgba(232,179,75,0.22);
+  }
+  #ov-body .legacy-head {
+    font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--gold); opacity: 0.8; margin-bottom: 9px;
+  }
+  #ov-body .legacy dl { margin: 0; }
+  #ov-body .legacy dl > div {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; font-size: 13.5px; line-height: 1.9;
+  }
+  #ov-body .legacy dt { color: var(--ink-dim); letter-spacing: 0.04em; }
+  #ov-body .legacy dd { margin: 0; color: var(--gold-bright); white-space: nowrap; }
+  #ov-body .legacy-new {
+    font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--cold); margin-left: 7px; font-style: normal;
+  }
   .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
   #ov-btn { border-color: rgba(232,179,75,0.55); color: var(--gold);
     box-shadow: inset 0 0 14px rgba(232,179,75,0.1), 0 0 16px rgba(232,179,75,0.18); }
@@ -368,7 +392,7 @@
 <body>
   <header>
     <h1>The Light&#8209;Bringer</h1>
-    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="rules-btn" title="How to play">Rules</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="mode-switch" title="Switch between the contemplative night and the real-time Lamplighter Run">Lamplighter Run</button><button id="rules-btn" title="How to play">Rules</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
   </header>
 
   <div id="citywrap">

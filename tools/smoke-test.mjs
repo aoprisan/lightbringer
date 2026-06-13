@@ -208,5 +208,24 @@ gb.tick = 0;
 lb.stepKeepers(gb);
 ok(gb.flame === hp2, "i-frames spare the carrier a second immediate blow");
 
+// 15. Legacy: a cross-run record kept apart from the save, folded in once per
+// run and never below a previous best.
+store.delete("lightbringer.legacy.v1");
+ok(lb.loadLegacy().runs === 0, "an untouched legacy starts empty");
+const gl = lb.freshGame();
+gl.night = 4;
+const a4 = gl.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+lb.awaken(gl, a4.id);
+const r1 = lb.recordRun(gl);
+ok(r1.legacy.runs === 1 && r1.legacy.bestNight === 4, "recordRun folds a run into the legacy");
+ok(r1.beat.night === true, "a first run beats the (empty) night record");
+ok(lb.loadLegacy().bestNight === 4, "the legacy persists to storage");
+// A shallower run bumps the run count but never lowers a best.
+const gl2 = lb.freshGame();
+gl2.night = 2;
+const r2 = lb.recordRun(gl2);
+ok(r2.legacy.runs === 2 && r2.legacy.bestNight === 4, "a shallower run cannot lower a best");
+ok(r2.beat.night === false, "and does not claim the night best");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
