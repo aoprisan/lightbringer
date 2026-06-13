@@ -139,6 +139,41 @@ ok(home.lit === true, "a dark dwelling in the ring kindles alight");
 ok(s9.litCount === 1, "lighting a dwelling counts toward the relit tally");
 ok(s9.hero.hp === 40 + K.DWELLING_HEAL, `lighting a dwelling mends the hero (40 -> ${s9.hero.hp})`);
 
+// 12. Fences are walls — the hero cannot pass through one.
+const sf = pg.buildArena(pg.levelById("old-city"));
+for (const e of sf.shades) e.wakeAt = 1e9; // no swarm to jostle the hero
+ok(sf.fences.length > 0, `the city is strung with fences (${sf.fences.length})`);
+sf.solids = []; sf.pathways = []; // isolate the fence; no boost to muddy the math
+const fen = sf.fences[0];
+const fmx = (fen.x1 + fen.x2) / 2, fmy = (fen.y1 + fen.y2) / 2;     // midpoint
+const fdx = fen.x2 - fen.x1, fdy = fen.y2 - fen.y1, fl = Math.hypot(fdx, fdy) || 1;
+const nx = -fdy / fl, ny = fdx / fl;                               // unit normal
+sf.hero.x = fmx + nx * (K.HERO_RADIUS + K.FENCE_HALF + 40);        // just off one side
+sf.hero.y = fmy + ny * (K.HERO_RADIUS + K.FENCE_HALF + 40);
+run(sf, 1200, { x: -nx, y: -ny });                                 // shove into the fence
+const fcd = pg.closestOnSegment(sf.hero.x, sf.hero.y, fen.x1, fen.y1, fen.x2, fen.y2).d;
+ok(fcd >= K.HERO_RADIUS + K.FENCE_HALF - 1, `the hero is stopped at a fence (d=${fcd | 0} >= ${K.HERO_RADIUS + K.FENCE_HALF})`);
+
+// 13. Pathways are lanes — the hero runs faster while travelling one.
+const sp = pg.buildArena(pg.levelById("old-city"));
+for (const e of sp.shades) e.wakeAt = 1e9;
+ok(sp.pathways.length > 0, `the city is laced with pathways (${sp.pathways.length})`);
+sp.solids = []; sp.fences = []; sp.pathways = []; // baseline: no lane under the hero
+sp.hero.x = 100; sp.hero.y = 100;
+const baseX = sp.hero.x;
+run(sp, 500, { x: 1, y: 0 });
+const baseDist = sp.hero.x - baseX;
+// Same walk, but with a straight lane laid under the hero's path.
+const sp2 = pg.buildArena(pg.levelById("old-city"));
+for (const e of sp2.shades) e.wakeAt = 1e9;
+sp2.solids = []; sp2.fences = [];
+sp2.pathways = [{ x1: 80, y1: 100, x2: 900, y2: 100 }];
+sp2.hero.x = 100; sp2.hero.y = 100;
+const pathX = sp2.hero.x;
+run(sp2, 500, { x: 1, y: 0 });
+const pathDist = sp2.hero.x - pathX;
+ok(pathDist > baseDist + 1, `the hero runs faster on a pathway (${baseDist | 0} -> ${pathDist | 0})`);
+
 // 11. Legacy: clears and deaths fold into a private key, best time never worsens.
 store.delete("pentagram.legacy.v1");
 ok(pg.loadPgLegacy().runs === 0, "an untouched legacy starts empty");
