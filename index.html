@@ -245,6 +245,15 @@
     color: var(--ink-dim); opacity: 0.6;
   }
   #rules-close:hover { opacity: 1; color: var(--gold); }
+  /* The in-app mode toggle inside the Rules panel — the entry point that needs
+     no URL editing, so action mode is reachable on a phone. */
+  .mode-toggle {
+    display: inline-block; margin-top: 2px; padding: 9px 16px;
+    border: 1px solid rgba(255, 216, 122, 0.4); border-radius: 6px;
+    background: rgba(255, 216, 122, 0.06); color: var(--gold-bright);
+    font: inherit; font-size: 14.5px; letter-spacing: 0.03em; cursor: pointer;
+  }
+  .mode-toggle:hover { background: rgba(255, 216, 122, 0.13); border-color: var(--gold); }
   #rules-title {
     font-size: 20px; font-weight: 400; letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--gold); text-shadow: 0 0 18px rgba(232,179,75,0.35);
