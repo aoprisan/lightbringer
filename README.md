@@ -2,6 +2,11 @@
 
 A contemplative inversion game — an installable browser **PWA**, playable offline.
 
+### ▶ [**Play it now → aoprisan.github.io/lightbringer**](https://aoprisan.github.io/lightbringer/)
+
+No install required — it runs in the browser. On mobile, use *Add to Home Screen*
+to install it as an offline app.
+
 > The world has been taught that the light burns. An order of Keepers maintains
 > the Veil: a sanctioned dimness in which people live safe, obedient,
 > half-asleep. You are the heretic who carries a stolen flame. The "demonic"
@@ -28,6 +33,18 @@ its own along anything that can carry it (oil, paper, rumor).
   rendered only from the lights that survived.
 
 Unbanked light dies at dawn; only light connected to an awakened soul survives.
+
+### Two ways to play
+
+The default is the **contemplative night** — turn-based, the city breathing once
+per act. There is also a real-time **Lamplighter Run**, where you *become* the
+flame and walk the streets while the Keepers hunt you. Switch between them from
+the **Lamplighter Run / Classic night** link in the header (the choice is
+remembered). Both run the same underlying simulation.
+
+Across runs the game keeps a quiet **legacy** — the furthest night you reached,
+the brightest morning you held, the most hearths you settled — shown on the
+title and the end screen so each new flame has something to outdo.
 
 ## Tech
 
@@ -77,6 +94,7 @@ publishes on every push to `main`.
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via
 *Actions → Deploy to GitHub Pages → Run workflow*) and the PWA goes live at
-`https://<user>.github.io/<repo>/`.
+`https://<user>.github.io/<repo>/` — for this repository,
+[`https://aoprisan.github.io/lightbringer/`](https://aoprisan.github.io/lightbringer/).
 
 *Ora pro nobis, Lucifer.*
