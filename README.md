@@ -2,6 +2,11 @@
 
 A contemplative inversion game — an installable browser **PWA**, playable offline.
 
+### ▶ [**Play it now → aoprisan.github.io/lightbringer**](https://aoprisan.github.io/lightbringer/)
+
+No install required — it runs in the browser. On mobile, use *Add to Home Screen*
+to install it as an offline app.
+
 > The world has been taught that the light burns. An order of Keepers maintains
 > the Veil: a sanctioned dimness in which people live safe, obedient,
 > half-asleep. You are the heretic who carries a stolen flame. The "demonic"
@@ -77,6 +82,7 @@ publishes on every push to `main`.
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via
 *Actions → Deploy to GitHub Pages → Run workflow*) and the PWA goes live at
-`https://<user>.github.io/<repo>/`.
+`https://<user>.github.io/<repo>/` — for this repository,
+[`https://aoprisan.github.io/lightbringer/`](https://aoprisan.github.io/lightbringer/).
 
 *Ora pro nobis, Lucifer.*
