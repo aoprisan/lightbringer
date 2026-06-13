@@ -1,0 +1,4 @@
+# art/ashfold/dwelling-dark.png — GENERATE THIS FIRST
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo #0B0E1A, slate blues, charcoal stone; warm candle-gold #F5C66B, ember orange for any light. Soft painterly edges, no outlines, no photorealism. View: three-quarter top-down about 60°, light from the object's own flame only. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A small humble medieval row-house with a steep roof and timber frame — but fire-scarred: the timbers charred coal-black, the thatch roof scorched thin and patchy, walls streaked with soot, the whole thing leaning a little. Completely unlit, dead and cold. Cold blue-grey and charcoal only, almost a silhouette, a thin line of moonlight on the burnt ridge. Dry and burnt-out.

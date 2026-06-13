@@ -1,0 +1,4 @@
+# art/ashfold/conduit.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; warm gold #F5C66B / ember for any light. Soft edges, no outlines, no photorealism. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A narrow ash-choked medieval alley seen from above: an open stone gutter running through a cramped passage between charred walls, slick with spilled lamp-oil and drifting cinders, scorched message-strings and burnt laundry-lines sagging overhead. Dark and dry, the faintest dull ember-reflection along the oily channel hinting it would carry fire instantly. Flammable, expectant.

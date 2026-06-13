@@ -1,0 +1,4 @@
+# art/drowned/ground.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo #0B0E1A, slate blues, charcoal stone; warm candle-gold #F5C66B for any light. Soft painterly edges, no outlines, no photorealism. View: top-down. Single subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+Seamless tileable texture of shallow black FLOODWATER over drowned medieval cobbles seen from straight above at night: still dark water with faint ripples, patches of green-black algae and silt, a half-submerged iron drain grate, broken reflections of the indigo sky scattered across the surface. Very dark, low contrast, wet sheen, no focal point, no bright light source, edges must tile seamlessly. 1024×1024.

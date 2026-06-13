@@ -1,0 +1,4 @@
+# art/glassworks/press.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; cold steel-blue glints, warm gold #F5C66B for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A glass-and-brick medieval print-shop, slightly larger than a dwelling: wide doors ajar, a heavy printing press in shadow, printed pages pinned behind glazed leaded panes that catch cold reflections, a yard scattered with paper and glittering glass cullet. Unlit, ink-stained, precise and reflective, expectant.

@@ -1,0 +1,4 @@
+# art/vesper/press.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; cold steel-blue, warm gold #F5C66B / faint gilt for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A clandestine monastic scriptorium-press, slightly larger than a cell: a low arched door ajar, a heavy printing press hidden in shadow among reading-lecterns, illuminated manuscript pages and psalters with faint gold leaf pinned and scattered around it, ink and gilt. Unlit, secret, ecclesiastical, expectant — and dangerous to light.

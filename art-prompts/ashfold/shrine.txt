@@ -1,0 +1,4 @@
+# art/ashfold/shrine.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; warm gold #F5C66B / ember for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A small soot-stained open-air street shrine: a weathered stone niche with a carved figure blackened and worn featureless, melted old candle stubs fused together by past heat, scorched votive chains, flowers dried to ash. Dark, but the fused wax and chains catch a faint dull ember gleam. Intimate, devotional, scorched.

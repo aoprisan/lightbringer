@@ -1,0 +1,4 @@
+# art/vesper/ground.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo #0B0E1A, slate blues, charcoal stone; cold steel-blue accents, warm candle-gold #F5C66B for any light. Soft painterly edges, no outlines, no photorealism. View: top-down. Single subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+Seamless tileable texture of a monastic cloister courtyard floor seen from straight above at night: austere worn flagstones laid in a strict grid, a faint inlaid stone cross or labyrinth pattern barely catching cold light, cold grey stone swept bare. Extremely low contrast, severe and devotional, no focal point, no warm light source, edges must tile seamlessly. 1024×1024.

@@ -1,0 +1,4 @@
+# art/glassworks/ground.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt illuminated-manuscript feel. Palette: deep night indigo #0B0E1A, slate blues, charcoal stone; cold steel-blue glints, warm candle-gold #F5C66B for any true light. Soft painterly edges, no outlines, no photorealism. View: top-down. Single subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+Seamless tileable texture of a glassmakers' yard floor seen from straight above at night: dark slate flagstones strewn with crushed glass cullet and fine sand that catch countless tiny cold steel-blue glints, a faint dusting of pale kiln-ash. Low contrast so it reads as background, the glints small and scattered, no focal point, no warm light source, edges must tile seamlessly. 1024×1024.

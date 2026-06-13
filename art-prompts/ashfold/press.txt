@@ -1,0 +1,4 @@
+# art/ashfold/press.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; warm gold #F5C66B / ember for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A burnt medieval print-shop, slightly larger than a dwelling: scorched workshop doors ajar, a heavy charred wooden printing press visible inside in shadow, half-burnt printed pages curling and ash-edged pinned and scattered around the doorway, soot over everything. Unlit, ink-and-cinder-stained, expectant and flammable.

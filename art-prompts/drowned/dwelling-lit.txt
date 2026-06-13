@@ -1,0 +1,3 @@
+# art/drowned/dwelling-lit.png — IMAGE-EDIT of dwelling-dark
+
+Edit this image: the same flooded row-house, now lit from within. Warm candle-gold spilling from one upper window and casting a long shimmering gold reflection down the black water in front of it. The lower house stays dark and wet — only the light and its mirror-image on the water are warm. Keep the exact same silhouette, roof angle, waterline and position. Flat solid #0B0E1A background, no text, 1024×1024.

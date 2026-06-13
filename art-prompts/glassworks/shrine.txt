@@ -1,0 +1,4 @@
+# art/glassworks/shrine.png
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; cold steel-blue glints, warm gold #F5C66B for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A small glassmakers' open-air street shrine: a niche figure of clouded glass worn featureless, tiers of melted candle stubs behind a cracked glass pane, votive chains strung with little glass beads, dried flowers. Dark, but the glass figure and beads catch a faint cold gleam. Intimate, devotional, brittle.

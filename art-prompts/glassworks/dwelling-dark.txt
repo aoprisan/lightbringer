@@ -1,0 +1,4 @@
+# art/glassworks/dwelling-dark.png — GENERATE THIS FIRST
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blues, charcoal; cold steel-blue glass glints, warm gold #F5C66B for any light. Soft edges, no outlines, no photorealism. View: three-quarter top-down ~60°, light from the object's own flame only. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A small medieval glassworker's row-house, steep tiled roof, timber frame, but its windows are many small leaded glass panes (not wooden shutters) reflecting cold indigo, and a small unlit blown-glass lantern hangs dark by the door. Completely unlit and asleep. Cold blue-grey, almost a silhouette, faint cold glints catching along the leaded glass and the dark lantern.

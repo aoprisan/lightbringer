@@ -1,0 +1,4 @@
+# art/vesper/dwelling-dark.png — GENERATE THIS FIRST
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blues, charcoal; cold steel-blue, warm gold #F5C66B for any light. Soft edges, no outlines, no photorealism. View: three-quarter top-down ~60°, light from the object's own flame only. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A small monastic cell-house, steep tiled roof, austere stone walls, one tall narrow barred window, a heavy iron-studded door, and an empty iron lamp-bracket beside it. Completely unlit and asleep. Cold blue-grey, almost a silhouette, severe, a thin line of moonlight on the roof ridge.

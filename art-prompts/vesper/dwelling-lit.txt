@@ -1,0 +1,3 @@
+# art/vesper/dwelling-lit.png — IMAGE-EDIT of dwelling-dark
+
+Edit this image: the same monastic cell, now lit from within. Warm candle-gold glowing through the one tall narrow barred window and seeping under the studded door, a faint warm pool of light on the bare flagstones — a single forbidden candle in a watched cell. The stone stays cold and dark; only the light is warm. Keep the exact same silhouette, window and position. Flat solid #0B0E1A background, no text, 1024×1024.
