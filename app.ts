@@ -882,7 +882,11 @@ function freshGame(level: LevelDef = LEVELS[0]): GameState {
     lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
     decoySpent: false,
   };
-  for (const n of g.nodes) if (n.kind === "shrine") reveal(g, n.id, 1);
+  // The city begins wholly dark: nothing is revealed until the carrier lights it,
+  // so the frescoes stay under the whitewash (uncovered as the city lights, never
+  // at the start) and no node reads as already burning. Shrines still show as a
+  // faint landmark while unrevealed (see render), and lighting one uncovers its
+  // fresco and its quarter in play.
   return g;
 }
 
