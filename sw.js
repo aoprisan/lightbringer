@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v28";
+const CACHE = "lightbringer-v29";
 
 const ASSETS = [
   "./",
@@ -44,7 +44,12 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    // `cache: "reload"` makes each precache fetch bypass the browser's HTTP
+    // cache, so a new SW version stores the freshly-deployed files — not the
+    // stale copies the browser may still be holding from before the deploy.
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -56,10 +61,38 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Cache-first for our own GET requests; fall back to the network and cache it.
+// The app shell — the page and the compiled app.js — is the *code*, and it
+// changes on every deploy. Pinning it cache-first means a shipped fix stays
+// invisible behind the old cached copy until the cache version retires it (and
+// even then only after every tab closes). So the shell is network-first: when
+// online the newest code always wins, and the cache is only the offline
+// fallback. Everything else (art, icons, fonts) is large and slow-changing, so
+// it stays cache-first — that is what makes the game playable offline at all.
+function isShell(url) {
+  return url.pathname === "/" || url.pathname.endsWith("/") ||
+    url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js");
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== "GET" || url.origin !== self.location.origin) return;
+
+  if (isShell(url)) {
+    // Network-first: freshest code wins; the cache catches us when offline.
+    event.respondWith(
+      fetch(req).then((res) => {
+        if (res && res.status === 200 && res.type === "basic") {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      }).catch(() => caches.match(req).then((hit) => hit || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // Cache-first for the heavy, stable assets; fall back to the network and cache it.
   event.respondWith(
     caches.match(req).then((hit) => {
       if (hit) return hit;
