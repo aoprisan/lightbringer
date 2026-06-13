@@ -25,6 +25,10 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `08c-city-drowned.txt` | City card — The Drowned Quarter (`art/city-drowned.jpg`) |
 | `08d-city-glassworks.txt` | City card — The Glassworks (`art/city-glassworks.jpg`) |
 | `08e-city-vesper.txt` | City card — Vesper Row (`art/city-vesper.jpg`) |
+| `09a-sprites-ashfold.txt` | Per-city sprite set — Ashfold (`art/ashfold/*.png`) |
+| `09b-sprites-drowned.txt` | Per-city sprite set — The Drowned Quarter (`art/drowned/*.png`) |
+| `09c-sprites-glassworks.txt` | Per-city sprite set — The Glassworks (`art/glassworks/*.png`) |
+| `09d-sprites-vesper.txt` | Per-city sprite set — Vesper Row (`art/vesper/*.png`) |
 
 Aspect ratios and transparent-background notes are already written into each
 prompt where they apply.
@@ -34,3 +38,15 @@ choose-a-city intro (`g.level.art`). They are strictly optional — the picker
 falls back to text alone when a card is absent, so these are **not** listed in
 `sw.js` `ASSETS`. Drop the generated `art/city-*.jpg` files in and they appear;
 no code change needed.
+
+The `09*` files re-skin the **built world per city** so the boards actually look
+different — ground + the four dwelling states + conduit + press + shrine, eight
+sprites each, on the same silhouettes as the base set. The **Keepers, the
+player-lantern, the veil-scar, and the flame-spark stay shared** across all
+cities (universal forces), so each city only needs those eight. Each set drops
+into a city subfolder: `art/ashfold/`, `art/drowned/`, `art/glassworks/`,
+`art/vesper/` (The Old City keeps the base `art/*.png`). These DO need a small
+loader change — the render must try `art/<cityId>/<name>.png` and fall back to
+`art/<name>.png` — and once shipped, every file must be added to `sw.js` `ASSETS`
+with a `CACHE` bump. Until that wiring lands the sprites sit unused; the game
+stays fully playable on the shared base set.
