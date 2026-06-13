@@ -113,18 +113,46 @@ run(s7, 500, still); // hero stands; chaser should close in
 const d1 = Math.hypot(chaser.x - s7.hero.x, chaser.y - s7.hero.y);
 ok(d1 < d0, `a woken shade closes on the hero (${d0 | 0} -> ${d1 | 0})`);
 
-// 9. Legacy: clears and deaths fold into a private key, best time never worsens.
+// 9. Solid structures block the hero — walking into one never passes through.
+const s8 = pg.buildArena(pg.levelById("old-city"));
+for (const e of s8.shades) e.wakeAt = 1e9; // no swarm to jostle the hero
+ok(s8.solids.length > 0, `the city has solid structures (${s8.solids.length})`);
+const wall = s8.solids[0];
+const wr = K.OBSTACLE_RADIUS[wall.kind];
+s8.hero.x = wall.x - (K.HERO_RADIUS + wr + 30); // just outside, to its left
+s8.hero.y = wall.y;
+run(s8, 1000, { x: 1, y: 0 }); // shove straight into it for a second
+const dWall = Math.hypot(s8.hero.x - wall.x, s8.hero.y - wall.y);
+ok(dWall >= K.HERO_RADIUS + wr - 1, `the hero is stopped at a solid's edge (d=${dWall | 0} >= ${K.HERO_RADIUS + wr})`);
+
+// 10. A dark dwelling caught in the charged ring lights and mends the hero.
+const s9 = pg.buildArena(pg.levelById("old-city"));
+for (const e of s9.shades) e.wakeAt = 1e9;
+s9.solids = []; // isolate: nothing nudges the hero off its mark
+// Light only the one dwelling we place; pre-light the rest so they don't fire.
+const home = s9.scenery.find((n) => n.kind === "dwelling");
+for (const n of s9.scenery) if (n.kind === "dwelling" && n !== home) n.lit = true;
+home.lit = false; home.x = s9.hero.x + 30; home.y = s9.hero.y;
+s9.hero.hp = 40; // wounded, so the mend is visible
+run(s9, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 2, still);
+ok(home.lit === true, "a dark dwelling in the ring kindles alight");
+ok(s9.litCount === 1, "lighting a dwelling counts toward the relit tally");
+ok(s9.hero.hp === 40 + K.DWELLING_HEAL, `lighting a dwelling mends the hero (40 -> ${s9.hero.hp})`);
+
+// 11. Legacy: clears and deaths fold into a private key, best time never worsens.
 store.delete("pentagram.legacy.v1");
 ok(pg.loadPgLegacy().runs === 0, "an untouched legacy starts empty");
 const lv = pg.levelById("old-city");
-const l1 = pg.recordClear(lv, 5000);
+const l1 = pg.recordClear(lv, 5000, 4);
 ok(l1.runs === 1 && l1.clears === 1 && l1.best["old-city"] === 5000, "recordClear folds a cleansing");
+ok(l1.dwellingsLit === 4, "recordClear folds dwellings relit");
 const l2 = pg.recordClear(lv, 8000);
 ok(l2.best["old-city"] === 5000, "a slower clear cannot worsen the best");
 const l3 = pg.recordClear(lv, 3000);
 ok(l3.best["old-city"] === 3000, "a faster clear sets a new best");
-const l4 = pg.recordDeath();
+const l4 = pg.recordDeath(2);
 ok(l4.runs === 4 && l4.clears === 3, "a death bumps runs but not clears");
+ok(l4.dwellingsLit === 6, "a death still folds dwellings relit (4 + 2)");
 ok(pg.loadPgLegacy().best["old-city"] === 3000, "the legacy persists to storage");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);

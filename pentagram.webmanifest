@@ -1,7 +1,7 @@
 {
-  "name": "Pentagram — a Light-Bringer descent",
-  "short_name": "Pentagram",
-  "description": "An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; clear every shade.",
+  "name": "The Burning Vigil — a Light-Bringer descent",
+  "short_name": "Burning Vigil",
+  "description": "An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; weave around solid structures, light the dark dwellings, and clear every shade.",
   "start_url": "./pentagram.html",
   "scope": "./",
   "display": "standalone",

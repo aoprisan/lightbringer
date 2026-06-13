@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Pentagram — a Light-Bringer spinoff</title>
-<meta name="description" content="An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; clear every shade.">
+<title>The Burning Vigil — a Light-Bringer spinoff</title>
+<meta name="description" content="An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; weave around solid structures, light the dark dwellings, and clear every shade.">
 
 <!-- PWA -->
 <link rel="manifest" href="./pentagram.webmanifest">
@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Pentagram">
+<meta name="apple-mobile-web-app-title" content="The Burning Vigil">
 <meta name="mobile-web-app-capable" content="yes">
 
 <style>
@@ -96,6 +96,7 @@
   .stats span { white-space: nowrap; }
   #cityname { color: var(--gold-bright); letter-spacing: 0.1em; }
   #foes { color: var(--cold); }
+  #lights { color: var(--gold); }
   .hpbar {
     width: 132px; height: 9px; border: 1px solid rgba(255,106,60,0.5);
     border-radius: 4px; background: rgba(40,10,10,0.55); overflow: hidden;
@@ -233,10 +234,11 @@
 </head>
 <body>
   <header>
-    <h1>Pentagram</h1>
+    <h1>The Burning Vigil</h1>
     <div class="stats">
       <span id="cityname"></span>
       <span id="foes"></span>
+      <span id="lights"></span>
       <div class="hpbar"><div id="hp"></div></div>
       <button id="reset" title="Return to the city select">Choose city</button>
     </div>
@@ -254,7 +256,7 @@
 
   <div id="toast"></div>
 
-  <div id="help">Move with the joystick or WASD to dodge. Stand still to inscribe the pentagram — it burns the shades around you.</div>
+  <div id="help">Move with the joystick or WASD to dodge and weave around the presses and shrines. Stand still to inscribe the pentagram — it burns the shades and lights the dark dwellings around you.</div>
 
   <div id="overlay" class="hidden">
     <div id="ov-panel">
