@@ -123,7 +123,7 @@ const IDLE_CAP_TICKS = 600;        // most "while you were away" ticks we simula
 // unless action mode is on (build flag, or the `?action` query param). The sim
 // functions gain avatar-aware branches that are all guarded on `g.player`, so
 // the turn-based game and the headless test are untouched.
-const ACTION_MODE = false;         // build default; ?action turns it on at runtime
+const ACTION_MODE = true;          // build default; ?action=0 turns it off at runtime
 const ACTION_PREF_KEY = "lightbringer.mode.action"; // sticky choice, so mobile/PWA keep it
 const ACTION_STEP_MS = 170;        // wall-clock ms per city breath when clocked (~TICK_MS/5)
 const PLAYER_SPEED = 260;          // avatar travel, world units per second
@@ -1266,9 +1266,12 @@ function start(): void {
     actionMode = actionQuery[1] !== "0"; // ?action / ?action=1 → on, ?action=0 → off
     try { localStorage.setItem(ACTION_PREF_KEY, actionMode ? "1" : "0"); } catch { /* ignore */ }
   } else {
-    let stored = false;
-    try { stored = localStorage.getItem(ACTION_PREF_KEY) === "1"; } catch { /* ignore */ }
-    actionMode = ACTION_MODE || stored;
+    // An explicit stored choice (either way) wins; only with no stored preference
+    // at all do we fall back to the build default. This keeps the in-app toggle
+    // meaningful in both directions even when the default is run mode.
+    let stored: string | null = null;
+    try { stored = localStorage.getItem(ACTION_PREF_KEY); } catch { /* ignore */ }
+    actionMode = stored === null ? ACTION_MODE : stored === "1";
   }
   // Remember the mode and reload into it — the same save carries across, so a
   // night in progress simply switches shells.
