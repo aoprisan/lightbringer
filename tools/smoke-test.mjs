@@ -182,5 +182,31 @@ ok(soul2.nights === soul.nights && lb.isHearth(soul2), "a hearth's age round-tri
 lb.snuff(gh, soul);
 ok(soul.nights === 0 && !lb.isHearth(soul), "snuffing a settled soul ends its hearth-age");
 
+// 14. Action mode: a Keeper hunts the carrier itself, and a blow within reach
+// drains flame. All avatar behaviour is gated on g.player, so every assertion
+// above ran with no avatar and is unaffected.
+const ga = lb.freshGame();
+const ka = ga.nodes.find((n) => n.kind === "keeper");
+ga.player = { x: ka.x + 150, y: ka.y, vx: 0, vy: 0, hurt: 0 }; // seen, out of reach
+ga.tick = 1; // not a snuff tick — distance alone must spare the carrier
+const flameBefore = ga.flame;
+lb.stepKeepers(ga);
+ok(ka.px > ka.x, `a Keeper leaves its post to hunt the carrier (drifted ${(ka.px - ka.x) | 0})`);
+ok(ga.flame === flameBefore, "but spends no flame until it reaches the carrier");
+// Now stand the carrier on the Keeper's hand on a snuff tick: a blow lands.
+const gb = lb.freshGame();
+const kb = gb.nodes.find((n) => n.kind === "keeper");
+gb.player = { x: kb.x, y: kb.y, vx: 0, vy: 0, hurt: 0 };
+gb.tick = 0; // a snuff tick
+const hp = gb.flame;
+lb.stepKeepers(gb);
+ok(gb.flame === hp - 1, `a Keeper within reach drains the carrier's flame (${hp} -> ${gb.flame})`);
+ok(gb.player.hurt > 0 && gb.playerHit === true, "a blow sets i-frames and the playerHit flag");
+// i-frames spare a second blow on the very next snuff tick.
+const hp2 = gb.flame;
+gb.tick = 0;
+lb.stepKeepers(gb);
+ok(gb.flame === hp2, "i-frames spare the carrier a second immediate blow");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

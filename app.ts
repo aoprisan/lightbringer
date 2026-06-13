@@ -61,6 +61,19 @@ interface GameState extends City {
   veilThickened: boolean;
   lostSoul: boolean; // an awakened soul was snuffed since the last draw
   decoySpent: boolean; // a Keeper searched a false light since the last draw
+  player?: Player; // the avatar, in action mode only — transient, never persisted
+  playerHit?: boolean; // a Keeper caught the avatar since the last draw (action mode)
+}
+
+// The carrier as a body abroad in the streets — only in action mode. The avatar
+// is never a node and never persisted; the turn-based shell never creates one,
+// so every sim path guards on `g.player` and behaves exactly as before without it.
+interface Player {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hurt: number; // remaining i-frame ms after a Keeper's touch (0 = vulnerable)
 }
 
 interface District {
@@ -102,6 +115,24 @@ const RAIN_SNUFF_DELAY = 2;        // extra ticks between snuffs in the rain
 const PRESS_VEIL_BLOCK = 1.2;      // a street scarred past this refuses the press's word
 
 const IDLE_CAP_TICKS = 600;        // most "while you were away" ticks we simulate
+
+// ---------- Action mode ("The Lamplighter Run") ----------
+// An optional real-time shell layered over the very same turn-based sim: you
+// drive a flame avatar, the city breathes on a clock instead of per tap, and
+// the Keepers hunt you rather than only the light. Everything below is inert
+// unless action mode is on (build flag, or the `?action` query param). The sim
+// functions gain avatar-aware branches that are all guarded on `g.player`, so
+// the turn-based game and the headless test are untouched.
+const ACTION_MODE = false;         // build default; ?action turns it on at runtime
+const ACTION_STEP_MS = 170;        // wall-clock ms per city breath when clocked (~TICK_MS/5)
+const PLAYER_SPEED = 260;          // avatar travel, world units per second
+const PLAYER_RADIUS = 14;          // avatar body, for draw and hit tests
+const KINDLE_RADIUS = 120;         // auto-kindle reach around a stationary avatar
+const KINDLE_COOLDOWN_MS = 260;    // minimum gap between auto-kindles (the "fire rate")
+const MOVE_KINDLE_MAXSPEED = 40;   // avatar must be slower than this (units/s) to auto-kindle
+const HIT_FLAME_COST = 1;          // flame lost when a Keeper catches the avatar
+const HIT_IFRAMES_MS = 900;        // grace after a hit, no further damage
+const KEEPER_PLAYER_LEASH = 900;   // a Keeper chasing the avatar ranges far past its post
 
 const COND: Record<NodeKind, number> = {
   conduit: 0.5,   // oil, paper, rumor — carries light fast
@@ -452,7 +483,15 @@ function stepKeepers(g: GameState): void {
       const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
       if (d2 <= radius2 && d2 < decoyD2) { decoyD2 = d2; target = n; }
     }
-    if (!target) {
+    // In action mode the carrier walks the streets in the flesh. A Keeper with
+    // no false light to chase breaks for the avatar before any standing flame —
+    // and commits, ranging far past its usual leash to run the intruder down.
+    let huntingPlayer = false;
+    if (!target && g.player &&
+        (g.player.x - k.x) ** 2 + (g.player.y - k.y) ** 2 <= radius2) {
+      huntingPlayer = true;
+    }
+    if (!target && !huntingPlayer) {
       let targetAwake = false;
       for (const n of g.nodes) {
         if (n.state !== "lit" && n.state !== "awakened") continue;
@@ -466,20 +505,24 @@ function stepKeepers(g: GameState): void {
         }
       }
     }
-    if (target) {
-      const dx = target.x - k.px, dy = target.y - k.py;
+    if (target || huntingPlayer) {
+      const tx = huntingPlayer ? g.player!.x : target!.x;
+      const ty = huntingPlayer ? g.player!.y : target!.y;
+      const leash = huntingPlayer ? KEEPER_PLAYER_LEASH : KEEPER_LEASH;
+      const dx = tx - k.px, dy = ty - k.py;
       const d = Math.hypot(dx, dy);
       if (d > 1) {
         const step = Math.min(speed, d);
         k.px += (dx / d) * step;
         k.py += (dy / d) * step;
       }
-      // The leash: a Keeper never abandons its post entirely.
+      // The leash: a Keeper never abandons its post entirely — but it strays far
+      // when the quarry is the carrier itself.
       const ax = k.px - k.x, ay = k.py - k.y;
       const ad = Math.hypot(ax, ay);
-      if (ad > KEEPER_LEASH) {
-        k.px = k.x + (ax / ad) * KEEPER_LEASH;
-        k.py = k.y + (ay / ad) * KEEPER_LEASH;
+      if (ad > leash) {
+        k.px = k.x + (ax / ad) * leash;
+        k.py = k.y + (ay / ad) * leash;
       }
     } else {
       const dx = k.x - k.px, dy = k.y - k.py;
@@ -503,6 +546,20 @@ function stepKeepers(g: GameState): void {
         if (d2 <= KEEPER_SNUFF_REACH ** 2 && d2 < decoyPreyD2) { decoyPreyD2 = d2; decoyPrey = n; }
       }
       if (decoyPrey) { decoyPrey.decoy = 0; g.decoySpent = true; continue; }
+      // The hand falls on the carrier if it can reach: flame is spent (flame is
+      // the avatar's life in action mode), but the avatar is no node, so no scar
+      // is left. A brief grace (i-frames) spares it repeated blows, and the blow
+      // shoves it clear of the Keeper.
+      if (g.player && g.player.hurt <= 0 &&
+          (g.player.x - k.px) ** 2 + (g.player.y - k.py) ** 2 <= KEEPER_SNUFF_REACH ** 2) {
+        g.flame = Math.max(0, g.flame - HIT_FLAME_COST);
+        g.player.hurt = HIT_IFRAMES_MS;
+        g.playerHit = true;
+        const pd = Math.hypot(g.player.x - k.px, g.player.y - k.py) || 1;
+        g.player.x += ((g.player.x - k.px) / pd) * 24;
+        g.player.y += ((g.player.y - k.py) / pd) * 24;
+        continue; // this Keeper's hand is spent on the carrier this tick
+      }
       let prey: CityNode | null = null;
       let preyAwake = false;
       for (const n of g.nodes) {
@@ -1043,6 +1100,38 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
 
     layer.appendChild(grp);
   }
+
+  // The carrier itself, when abroad in the flesh (action mode). Drawn last, over
+  // everything: a faint dashed ring for the auto-kindle reach, a warm halo, the
+  // lantern (sprite or a glowing core), and a red flash through the hit-grace.
+  if (g.player) {
+    const p = g.player;
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: KINDLE_RADIUS, fill: "none", stroke: "#ffd87a",
+      "stroke-width": 1, "stroke-opacity": 0.12, "stroke-dasharray": "4 8",
+    }));
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: 34, fill: "url(#haloAwake)", opacity: 0.9,
+    }));
+    if (sprites.has("player-lantern")) {
+      layer.appendChild(spriteImage("player-lantern", p.x, p.y, 44, 1));
+    } else {
+      layer.appendChild(el("circle", {
+        cx: p.x, cy: p.y, r: PLAYER_RADIUS, fill: "#fff3d2",
+        stroke: "#ffe9b0", "stroke-width": 2, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      layer.appendChild(el("circle", {
+        cx: p.x, cy: p.y, r: PLAYER_RADIUS, fill: "#fff3d2",
+        stroke: "#ffe9b0", "stroke-width": 2,
+      }));
+    }
+    if (p.hurt > 0) {
+      layer.appendChild(el("circle", {
+        cx: p.x, cy: p.y, r: PLAYER_RADIUS + 6, fill: "none",
+        stroke: "#ff6b6b", "stroke-width": 2.5, opacity: 0.8,
+      }));
+    }
+  }
 }
 
 // ---------- Game shell ----------
@@ -1076,6 +1165,13 @@ function start(): void {
   const frescoImg = byId("fresco-img") as HTMLImageElement;
   const frescoCap = byId("fresco-cap");
   const wx = byId("wx");
+  const stickEl = byId("stick");
+  const stickKnob = byId("stick-knob");
+
+  // Action mode: a real-time shell over the very same sim, toggled by the build
+  // flag or the ?action query param (so we can A/B without recompiling).
+  const actionMode = ACTION_MODE ||
+    (typeof location !== "undefined" && /[?&]action(\b|=|$)/.test(location.search));
 
   const loaded = loadGame();
   let g: GameState = loaded ? loaded.g : freshGame();
@@ -1119,14 +1215,41 @@ function start(): void {
   let tap: { x: number; y: number; t: number; id: number } | null = null;
   let pinch: { d: number; k: number; wx: number; wy: number } | null = null;
 
+  // Action-mode input: a floating virtual joystick (touch) and WASD/arrows
+  // (desktop) both feed one normalized move vector that the RAF loop reads.
+  const STICK_MAX = 60; // px from origin for full tilt
+  const move = { x: 0, y: 0 };
+  const keys = new Set<string>();
+  let stick: { id: number; ox: number; oy: number; moved: boolean } | null = null;
+  function showStick(sx: number, sy: number): void {
+    stickEl.style.left = sx + "px";
+    stickEl.style.top = sy + "px";
+    stickEl.style.display = "block";
+    stickKnob.style.transform = "translate(-50%, -50%)";
+  }
+  function moveKnob(dx: number, dy: number): void {
+    const mag = Math.hypot(dx, dy);
+    const r = mag ? Math.min(STICK_MAX, mag) / mag : 0;
+    stickKnob.style.transform = `translate(calc(-50% + ${dx * r}px), calc(-50% + ${dy * r}px))`;
+  }
+  function hideStick(): void { stickEl.style.display = "none"; }
+
   svg.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     svg.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
-      tap = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
+      if (actionMode) {
+        stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, moved: false };
+        move.x = 0; move.y = 0;
+        showStick(e.clientX, e.clientY);
+      } else {
+        tap = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
+      }
     } else {
       tap = null;
+      stick = null;
+      hideStick();
       if (pointers.size === 2) {
         const [p1, p2] = [...pointers.values()];
         const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
@@ -1143,11 +1266,21 @@ function start(): void {
     const p = pointers.get(e.pointerId);
     if (!p) return;
     if (pointers.size === 1) {
-      cam.x += e.clientX - p.x;
-      cam.y += e.clientY - p.y;
-      if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 9) tap = null;
-      clampCam();
-      applyCam();
+      if (actionMode && stick && stick.id === e.pointerId) {
+        const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+        const mag = Math.hypot(dx, dy);
+        if (mag > 8) stick.moved = true;
+        const r = mag ? Math.min(1, mag / STICK_MAX) : 0;
+        move.x = mag ? (dx / mag) * r : 0;
+        move.y = mag ? (dy / mag) * r : 0;
+        moveKnob(dx, dy);
+      } else if (!actionMode) {
+        cam.x += e.clientX - p.x;
+        cam.y += e.clientY - p.y;
+        if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 9) tap = null;
+        clampCam();
+        applyCam();
+      }
     }
     p.x = e.clientX;
     p.y = e.clientY;
@@ -1165,6 +1298,13 @@ function start(): void {
   function endPointer(e: PointerEvent): void {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
+    if (stick && stick.id === e.pointerId) {
+      // A quick touch that never tilted the stick is an awaken-tap at that spot.
+      if (!stick.moved && actionMode) actionTapAt(e.clientX, e.clientY);
+      stick = null;
+      move.x = 0; move.y = 0;
+      hideStick();
+    }
     if (tap && tap.id === e.pointerId) {
       if (Date.now() - tap.t < 500) tapAt(e.clientX, e.clientY);
       tap = null;
@@ -1184,6 +1324,17 @@ function start(): void {
   }, { passive: false });
   window.addEventListener("resize", () => { clampCam(); applyCam(); });
 
+  // Desktop movement in action mode: WASD / arrow keys feed the same vector.
+  const MOVE_KEYS = ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
+  if (actionMode) {
+    window.addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
+    });
+    window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
+    window.addEventListener("blur", () => keys.clear());
+  }
+
   // A tap acts on the nearest node within thumb's reach — generous when
   // zoomed out, where the nodes themselves are a few pixels wide. (Nodes sit
   // at least MIN_DIST apart in world units, so the nearest match is unique.)
@@ -1198,6 +1349,25 @@ function start(): void {
       if (d2 <= bd) { bd = d2; best = n; }
     }
     if (best) onTap(best.id);
+  }
+
+  // Action mode: a tap that didn't drive the stick awakens the dwelling nearest
+  // the touch — the carrier's one deliberate, flame-priced investment.
+  function actionTapAt(sx: number, sy: number): void {
+    if (g.phase !== "night") return;
+    const wx2 = (sx - cam.x) / cam.k, wy2 = (sy - cam.y) / cam.k;
+    const reach = Math.min(60, Math.max(26, 40 / cam.k));
+    let best: CityNode | null = null;
+    let bd = reach * reach;
+    for (const n of g.nodes) {
+      if (n.kind !== "dwelling" || n.state === "snuffed") continue;
+      const d2 = (n.x - wx2) ** 2 + (n.y - wy2) ** 2;
+      if (d2 <= bd) { bd = d2; best = n; }
+    }
+    if (!best) return;
+    if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦ — your life runs low.`); return; }
+    if (awaken(g, best.id)) { g.flame -= AWAKEN_COST; }
+    else showToast("Only a dwelling — a person — can be awakened.");
   }
 
   fitCam();
@@ -1278,6 +1448,102 @@ function start(): void {
     stepCity(g);
     saveGame(g);
     draw();
+  }
+
+  // ----- Action mode: the real-time shell over the same sim -----
+  function spawnPlayer(): void {
+    g.player = { x: W / 2, y: H / 2, vx: 0, vy: 0, hurt: 0 };
+  }
+  function centerCam(wx2: number, wy2: number): void {
+    const vw = svg.clientWidth, vh = svg.clientHeight;
+    cam.x = vw / 2 - wx2 * cam.k;
+    cam.y = vh / 2 - wy2 * cam.k;
+    clampCam();
+    applyCam();
+  }
+  let lastFrame = 0;
+  let stepAcc = 0;
+  let saveAcc = 0;
+  let kindleCd = 0;
+  let running = false;
+  function actionFrame(now: number): void {
+    if (!running) return;
+    if (g.phase === "end") { running = false; return; }
+    if (!lastFrame) lastFrame = now;
+    let dt = now - lastFrame; lastFrame = now;
+    if (dt > 100) dt = 100; // a backgrounded tab must not lurch the city forward
+    const p = g.player!;
+
+    // Keyboard feeds the move vector while the stick is idle.
+    if (!stick) {
+      let mx = 0, my = 0;
+      if (keys.has("a") || keys.has("arrowleft")) mx -= 1;
+      if (keys.has("d") || keys.has("arrowright")) mx += 1;
+      if (keys.has("w") || keys.has("arrowup")) my -= 1;
+      if (keys.has("s") || keys.has("arrowdown")) my += 1;
+      const m = Math.hypot(mx, my);
+      move.x = m ? mx / m : 0;
+      move.y = m ? my / m : 0;
+    }
+    p.vx = move.x * PLAYER_SPEED;
+    p.vy = move.y * PLAYER_SPEED;
+    p.x = Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, p.x + p.vx * dt / 1000));
+    p.y = Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, p.y + p.vy * dt / 1000));
+    if (p.hurt > 0) p.hurt = Math.max(0, p.hurt - dt);
+
+    // The weapon: stand still and the lantern kindles the nearest dark ground.
+    kindleCd -= dt;
+    if (g.phase === "night" && Math.hypot(p.vx, p.vy) < MOVE_KINDLE_MAXSPEED && kindleCd <= 0) {
+      let best: CityNode | null = null;
+      let bd = KINDLE_RADIUS ** 2;
+      for (const n of g.nodes) {
+        if (n.kind === "keeper" || n.state !== "dark") continue;
+        const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
+        if (d2 <= bd) { bd = d2; best = n; }
+      }
+      if (best) { kindle(g, best.id); kindleCd = KINDLE_COOLDOWN_MS; }
+    }
+
+    // The city breathes on the clock — the same stepCity the turn-based shell
+    // drives per tap, just timed (and capped so a long frame can't spiral).
+    if (g.phase === "night") {
+      stepAcc += dt;
+      let breaths = 0;
+      while (stepAcc >= ACTION_STEP_MS && breaths < 8) { stepCity(g); stepAcc -= ACTION_STEP_MS; breaths++; }
+      if (stepAcc > ACTION_STEP_MS) stepAcc = ACTION_STEP_MS;
+    }
+
+    centerCam(p.x, p.y);
+    draw();
+
+    saveAcc += dt;
+    if (saveAcc >= 1000) { saveGame(g); saveAcc = 0; }
+
+    // Flame is the avatar's life; when it gutters out, the run is over.
+    if (g.phase === "night" && g.flame <= 0) { actionGameOver(); return; }
+
+    requestAnimationFrame(actionFrame);
+  }
+  function startAction(): void {
+    if (running) return;
+    running = true;
+    lastFrame = 0;
+    requestAnimationFrame(actionFrame);
+  }
+  function actionGameOver(): void {
+    running = false;
+    g.phase = "end";
+    g.player = undefined; // no avatar on the morning-after board
+    saveGame(g);
+    draw(true);
+    const after = litStats(g);
+    showOverlay(
+      "The flame gutters out",
+      after.lit > 0
+        ? `The Keepers ran you down — but ${after.lit} lights still burn without you, ${Math.round((after.lit / after.total) * 100)}% of the city, held by ${after.awakened} awakened souls.<br><br><em>That is the only victory there was. Ora pro nobis, Lucifer.</em>`
+        : `The Keepers ran you down, and the city is dark again.<br><br><em>Begin again. The morning is patient.</em>`,
+      "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
+    );
   }
 
   function onTap(id: number): void {
@@ -1471,7 +1737,32 @@ function start(): void {
   // sim unattended, converting wall-clock absence into breaths at TICK_MS each.
 
   // ----- First-paint: intro, or "while you were away" -----
-  if (!loaded) {
+  if (actionMode) {
+    // Auto-kindle and tap-to-awaken replace the kindle/awaken/wait footer;
+    // End-the-night stays. Hide the turn-based help line, spawn the avatar.
+    modeBtn.style.display = "none";
+    waitBtn.style.display = "none";
+    const help = document.getElementById("help");
+    if (help) help.style.display = "none";
+    spawnPlayer();
+    if (g.phase === "end") {
+      g.player = undefined;
+      draw(true);
+      const after = litStats(g);
+      showOverlay("The flame gutters out",
+        `${after.lit} lights still burn — ${Math.round((after.lit / after.total) * 100)}% of the city.<br><br><em>Ora pro nobis, Lucifer.</em>`,
+        "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); });
+    } else {
+      g.phase = "night";
+      centerCam(g.player!.x, g.player!.y);
+      draw();
+      showOverlay(
+        "The Lamplighter Run",
+        `You are the flame now. Move with the stick — or <em>WASD</em> — and <em>stand still</em> to kindle the dark around you. Tap a dwelling to awaken a soul (${AWAKEN_COST}✦). The Keepers no longer wait: they leave their posts to hunt you. Your ✦ is your life — when it gutters out, the run ends.`,
+        "Run", () => { overlay.classList.add("hidden"); startAction(); }
+      );
+    }
+  } else if (!loaded) {
     g.phase = "intro";
     showOverlay(
       "The Light-Bringer",

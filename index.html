@@ -82,6 +82,21 @@
   #wx.wind { opacity: 0.16; background-image: url("./art/wind-overlay.png"); animation: wxWind 2.6s linear infinite; }
   @keyframes wxRain { from { background-position: 0 0; } to { background-position: -64px 512px; } }
   @keyframes wxWind { from { background-position: 0 0; } to { background-position: 512px 0; } }
+  /* Action mode: a floating virtual joystick, placed where the thumb lands.
+     Positioned by left/top in JS; the negative margins centre it on that point. */
+  #stick {
+    position: fixed; z-index: 6; display: none; width: 120px; height: 120px;
+    margin-left: -60px; margin-top: -60px; border-radius: 50%;
+    border: 1.5px solid rgba(255, 216, 122, 0.35);
+    background: radial-gradient(circle, rgba(255, 216, 122, 0.07), transparent 70%);
+    pointer-events: none;
+  }
+  #stick-knob {
+    position: absolute; left: 50%; top: 50%; width: 48px; height: 48px;
+    border-radius: 50%; transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255, 233, 176, 0.5), rgba(232, 179, 75, 0.2));
+    border: 1.5px solid rgba(255, 233, 176, 0.6);
+  }
   /* The player's lantern-hand, shown for a breath where the flame was given. */
   .lantern-mark { animation: lanternFade 1.1s ease-out forwards; pointer-events: none; }
   @keyframes lanternFade {
@@ -355,6 +370,8 @@
   <div class="grain"></div>
   <div class="vignette"></div>
   <div id="wx"></div>
+
+  <div id="stick"><div id="stick-knob"></div></div>
 
   <div id="toast"></div>
 
