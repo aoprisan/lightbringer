@@ -20,6 +20,17 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `06e-fresco-sunrise.txt` | Fresco — sunrise over a sleeping city |
 | `07a-texture-vellum-whitewash.txt` | Texture — vellum / whitewash grain |
 | `07b-texture-ink-veil.txt` | Texture — ink veil (thickening dark) |
+| `08a-city-old.txt` | City card — The Old City (`art/city-old.jpg`) |
+| `08b-city-ashfold.txt` | City card — Ashfold (`art/city-ashfold.jpg`) |
+| `08c-city-drowned.txt` | City card — The Drowned Quarter (`art/city-drowned.jpg`) |
+| `08d-city-glassworks.txt` | City card — The Glassworks (`art/city-glassworks.jpg`) |
+| `08e-city-vesper.txt` | City card — Vesper Row (`art/city-vesper.jpg`) |
 
 Aspect ratios and transparent-background notes are already written into each
 prompt where they apply.
+
+The `08*` city cards are the **establishing illustration for each city** on the
+choose-a-city intro (`g.level.art`). They are strictly optional — the picker
+falls back to text alone when a card is absent, so these are **not** listed in
+`sw.js` `ASSETS`. Drop the generated `art/city-*.jpg` files in and they appear;
+no code change needed.

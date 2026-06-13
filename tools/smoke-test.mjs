@@ -227,5 +227,46 @@ const r2 = lb.recordRun(gl2);
 ok(r2.legacy.runs === 2 && r2.legacy.bestNight === 4, "a shallower run cannot lower a best");
 ok(r2.beat.night === false, "and does not claim the night best");
 
+// 16. Cities (levels): hand-tuned maps that reroll generation + economy under
+// the same rules. The default freshGame() is The Old City; other ids reshape
+// the map and round-trip through the save.
+ok(Array.isArray(lb.LEVELS) && lb.LEVELS.length >= 3, `cities are defined (${lb.LEVELS.length})`);
+ok(new Set(lb.LEVELS.map((l) => l.id)).size === lb.LEVELS.length, "city ids are unique");
+ok(lb.LEVELS.every((l) => l.districts.length === 5), "every city has five quarters");
+ok(lb.levelById("old-city") && !lb.levelById("nope"), "levelById resolves known ids only");
+
+const gOld = lb.freshGame();
+ok(gOld.level && gOld.level.id === "old-city", "freshGame() defaults to The Old City");
+ok(gOld.flame === gOld.level.startFlame, "a city's start flame seeds the night");
+
+// A distinct city reshapes the board: its own start flame, quarter names, and
+// (for a tinder city like Ashfold) a more conductive, more pressed map.
+const ash = lb.levelById("ashfold");
+const gAsh = lb.freshGame(ash);
+ok(gAsh.level.id === "ashfold", "freshGame(level) walks the chosen city");
+ok(gAsh.flame === ash.startFlame, `the chosen city's flame seeds the night (${gAsh.flame})`);
+ok(lb.districtStats(gAsh).every((d, i) => d.name === ash.districts[i].name),
+  "districtStats reads the chosen city's quarters");
+const ashKinds = {};
+for (const n of gAsh.nodes) ashKinds[n.kind] = (ashKinds[n.kind] || 0) + 1;
+ok(ashKinds.press >= 1 && ashKinds.keeper >= 1, "the chosen city seeds presses and keepers");
+
+// The keeper radius helper honours the city's base reach.
+const gw = lb.freshGame(lb.levelById("glassworks"));
+const kw = gw.nodes.find((n) => n.kind === "keeper");
+const reach = lb.keeperRadius(gw, kw);
+ok(reach <= gw.level.keeperRadius * 1.001, `a keeper's reach starts at its city's base (${reach | 0})`);
+
+// The city id round-trips through the save, rebuilding its quarters on load.
+lb.saveGame(gAsh);
+const reAsh = lb.loadGame();
+ok(reAsh && reAsh.g.level.id === "ashfold", "the city id round-trips through the save");
+ok(reAsh.g.level.districts[0].name === ash.districts[0].name, "load rebuilds the city's quarters");
+
+// Weather temperament: night 1 is still in any city; later nights respect the sky.
+ok(lb.rollWeather(1, ash).kind === "still", "night 1 is still in any city");
+const drown = lb.levelById("drowned");
+ok(["still", "wind", "rain"].includes(lb.rollWeather(5, drown).kind), "a city rolls a valid sky");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

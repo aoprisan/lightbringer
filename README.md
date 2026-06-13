@@ -42,6 +42,21 @@ flame and walk the streets while the Keepers hunt you. Switch between them from
 the **Lamplighter Run / Classic night** link in the header (the choice is
 remembered). Both run the same underlying simulation.
 
+### Five cities to carry the flame into
+
+On a fresh start you choose a **city** — each the same rules under different
+dials, so each is a distinct puzzle, not a different game:
+
+- **The Old City** — where you first stole the flame; an even, indifferent watch.
+- **Ashfold** — dry tinder under a near-constant wind; the fire runs fast and far,
+  and turns on you just as fast.
+- **The Drowned Quarter** — flooded, sparse, rain-drowned; the fire crawls and
+  every light stands alone. A city of patience and hearths.
+- **The Glassworks** — bright, brittle, crowded, scarce of flame, and thick with a
+  quick watch. A city of precision and decoys.
+- **Vesper Row** *(unlocks once you carry a flame to night 4)* — the watched city,
+  where the fire will not run and you must place every light by hand.
+
 Across runs the game keeps a quiet **legacy** — the furthest night you reached,
 the brightest morning you held, the most hearths you settled — shown on the
 title and the end screen so each new flame has something to outdo.

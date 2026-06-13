@@ -48,6 +48,7 @@ interface City {
 }
 
 interface GameState extends City {
+  level: LevelDef; // which city this run walks — resolved from its id, never null
   night: number;
   maxFlame: number;
   flame: number;
@@ -143,10 +144,13 @@ const COND: Record<NodeKind, number> = {
   keeper: 0.0,
 };
 
-const SAVE_KEY = "lightbringer.save.v4";
+const SAVE_KEY = "lightbringer.save.v5";
 
 // ---------- Districts ----------
-// Five quarters, found by nearest fixed anchor so clusters look organic.
+// Five quarters, found by nearest fixed anchor so clusters look organic. Every
+// city keeps these same five anchors (balanced map coverage); only the quarter
+// NAMES change per city, for flavour. DISTRICTS is The Old City's set and the
+// default a save falls back to.
 const DISTRICTS: District[] = [
   { name: "The Lower Nave", x: 300, y: 230 },
   { name: "Ashfold", x: 720, y: 360 },
@@ -155,14 +159,115 @@ const DISTRICTS: District[] = [
   { name: "The Drowned Quarter", x: 500, y: 1180 },
 ];
 
-function districtOf(x: number, y: number): number {
+// Re-skin the five anchors with a city's own quarter names (same positions).
+function quarters(...names: [string, string, string, string, string]): District[] {
+  return DISTRICTS.map((d, i) => ({ name: names[i], x: d.x, y: d.y }));
+}
+
+function districtOf(x: number, y: number, districts: District[]): number {
   let best = 0;
   let bd = Infinity;
-  for (let i = 0; i < DISTRICTS.length; i++) {
-    const d = (DISTRICTS[i].x - x) ** 2 + (DISTRICTS[i].y - y) ** 2;
+  for (let i = 0; i < districts.length; i++) {
+    const d = (districts[i].x - x) ** 2 + (districts[i].y - y) ** 2;
     if (d < bd) { bd = d; best = i; }
   }
   return best;
+}
+
+// ---------- Cities (levels) ----------
+// The one procedural map is now one of several hand-tuned CITIES the carrier may
+// choose to walk into. A LevelDef is a pure bundle of generation + economy
+// overrides: it changes how generateCity() seeds the map and how a night begins,
+// but every rule (spread, Keepers, dawn, hearths, the carrier's burn) is
+// unchanged. So each city is a different *puzzle in the same language* — denser
+// or sparser, more conductive or more watched, windier or rain-drowned — with no
+// new mechanic and no broken invariant. The Old City is the original generation,
+// kept exactly; the rest lean the same dials in distinct directions.
+interface LevelDef {
+  id: string;
+  name: string;        // the city's name (distinct from its five quarters)
+  epigraph: string;    // a line shown beneath it on the choose-a-city card
+  art?: string;        // optional establishing image (art/city-*.jpg); silent-fail
+  nodeCount: number;   // how many places the city holds
+  minDist: number;     // closest two places sit — larger means sparser/sprawling
+  conduitFrac: number; // share of places that are conduits (fire runs along them)
+  pressCount: number;  // printing presses — word made many
+  shrineCount: number; // street shrines — each lights its whole quarter
+  keeperCount: number; // Keepers seeded at dusk (the Veil may still breed more)
+  keeperSpacing: number;// closest two seeded Keepers sit
+  keeperRadius: number;// base sensing radius for this city's watch
+  startFlame: number;  // the flame a night begins with
+  sky: { wind: number; rain: number }; // weather temperament (rest is still air)
+  districts: District[];
+  unlockNight?: number; // furthest-night legacy needed to unlock (0/undef = open)
+}
+
+const LEVELS: LevelDef[] = [
+  {
+    id: "old-city",
+    name: "The Old City",
+    epigraph: "Where you first stole the flame. The watch is even, the streets remember nothing.",
+    art: "art/city-old.jpg",
+    nodeCount: NODE_COUNT, minDist: MIN_DIST,
+    conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
+    keeperCount: 6, keeperSpacing: 360, keeperRadius: KEEPER_RADIUS,
+    startFlame: START_FLAME,
+    sky: { wind: 0.35, rain: 0.30 },
+    districts: DISTRICTS,
+  },
+  {
+    id: "ashfold",
+    name: "Ashfold",
+    epigraph: "They burned it once to teach it fear. It is dry tinder, and it remembers fire.",
+    art: "art/city-ashfold.jpg",
+    nodeCount: 130, minDist: 64,
+    conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
+    keeperCount: 7, keeperSpacing: 320, keeperRadius: 240,
+    startFlame: 14,
+    sky: { wind: 0.62, rain: 0.05 },
+    districts: quarters("The Cinder Yards", "Embergate", "The Tanneries", "Smokefell", "The Black Quay"),
+  },
+  {
+    id: "drowned",
+    name: "The Drowned Quarter",
+    epigraph: "The water took the low streets. What light remains here, remains alone — and patient.",
+    art: "art/city-drowned.jpg",
+    nodeCount: 104, minDist: 86,
+    conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
+    keeperCount: 4, keeperSpacing: 420, keeperRadius: 300,
+    startFlame: 11,
+    sky: { wind: 0.10, rain: 0.62 },
+    districts: quarters("The Sunk Nave", "Tidewall", "The Weir", "Greylethe", "Mussel Row"),
+  },
+  {
+    id: "glassworks",
+    name: "The Glassworks",
+    epigraph: "Everything here is bright and breaks. The watch is thick and quick. Be precise.",
+    art: "art/city-glassworks.jpg",
+    nodeCount: 134, minDist: 66,
+    conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
+    keeperCount: 9, keeperSpacing: 270, keeperRadius: 170,
+    startFlame: 10,
+    sky: { wind: 0.30, rain: 0.20 },
+    districts: quarters("The Kilns", "Prism Row", "The Annealing", "Cullet Yard", "The Lantern Houses"),
+  },
+  {
+    id: "vesper",
+    name: "Vesper Row",
+    epigraph: "The watch is thickest where the faithful sleep. The fire will not run for you here — place every light by hand.",
+    art: "art/city-vesper.jpg",
+    nodeCount: 124, minDist: 70,
+    conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
+    keeperCount: 11, keeperSpacing: 250, keeperRadius: 230,
+    startFlame: 12,
+    sky: { wind: 0.25, rain: 0.25 },
+    districts: quarters("The Cloisters", "Matins", "The Long Watch", "Compline", "The Pale"),
+    unlockNight: 4,
+  },
+];
+
+function levelById(id: string): LevelDef | undefined {
+  return LEVELS.find((l) => l.id === id);
 }
 
 // ---------- Weather ----------
@@ -170,16 +275,17 @@ function districtOf(x: number, y: number): number {
 // starves what stands against it; rain slows the flame — and the Keepers'
 // patrols with it. Night 1 is always still: the baseline the others bend.
 
-function rollWeather(night: number): Weather {
+function rollWeather(night: number, level: LevelDef = LEVELS[0]): Weather {
   if (night <= 1) return { kind: "still", wx: 0, wy: 0 };
   const r = Math.random();
-  if (r < 0.35) return { kind: "still", wx: 0, wy: 0 };
-  if (r < 0.7) {
+  const { wind, rain } = level.sky;
+  if (r < wind) {
     const dirs: [number, number][] = [[0, 1], [0, -1], [-1, 0], [1, 0]];
     const [wx, wy] = dirs[Math.floor(Math.random() * dirs.length)];
     return { kind: "wind", wx, wy };
   }
-  return { kind: "rain", wx: 0, wy: 0 };
+  if (r < wind + rain) return { kind: "rain", wx: 0, wy: 0 };
+  return { kind: "still", wx: 0, wy: 0 };
 }
 
 // Compass word for where the wind comes FROM (a "north wind" runs southward).
@@ -227,38 +333,39 @@ const FRESCO_ART: Record<number, string> = {
 
 // ---------- City generation ----------
 
-function generateCity(): City {
+function generateCity(level: LevelDef): City {
   const nodes: CityNode[] = [];
   let guard = 0;
-  while (nodes.length < NODE_COUNT && guard++ < 20000) {
+  while (nodes.length < level.nodeCount && guard++ < 20000) {
     const x = 60 + Math.random() * (W - 120);
     const y = 60 + Math.random() * (H - 120);
-    if (nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > MIN_DIST ** 2)) {
-      nodes.push(makeNode(nodes.length, x, y, "dwelling"));
+    if (nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2)) {
+      nodes.push(makeNode(nodes.length, x, y, "dwelling", level.districts));
     }
   }
 
-  // Assign kinds: conduits (rumor/oil), a few presses, shrines, spread-out Keepers.
+  // Assign kinds: conduits (rumor/oil), a few presses, shrines, spread-out
+  // Keepers — counts and spacing are the city's, so each map reads differently.
   const shuffled = [...nodes].sort(() => Math.random() - 0.5);
-  shuffled.slice(0, Math.floor(nodes.length * 0.16)).forEach((n) => (n.kind = "conduit"));
-  shuffled.slice(Math.floor(nodes.length * 0.16), Math.floor(nodes.length * 0.16) + 4)
-    .forEach((n) => (n.kind = "press"));
-  shuffled.slice(-5).forEach((n) => (n.kind = "shrine"));
+  const nConduit = Math.floor(nodes.length * level.conduitFrac);
+  shuffled.slice(0, nConduit).forEach((n) => (n.kind = "conduit"));
+  shuffled.slice(nConduit, nConduit + level.pressCount).forEach((n) => (n.kind = "press"));
+  shuffled.slice(-level.shrineCount).forEach((n) => (n.kind = "shrine"));
 
   const keepers: CityNode[] = [];
   for (const n of shuffled) {
     if (n.kind !== "dwelling") continue;
-    if (keepers.every((k) => (k.x - n.x) ** 2 + (k.y - n.y) ** 2 > 360 ** 2)) {
+    if (keepers.every((k) => (k.x - n.x) ** 2 + (k.y - n.y) ** 2 > level.keeperSpacing ** 2)) {
       n.kind = "keeper";
       keepers.push(n);
-      if (keepers.length >= 6) break;
+      if (keepers.length >= level.keeperCount) break;
     }
   }
 
   return finalizeCity(nodes);
 }
 
-function makeNode(id: number, x: number, y: number, kind: NodeKind): CityNode {
+function makeNode(id: number, x: number, y: number, kind: NodeKind, districts: District[]): CityNode {
   return {
     id, x, y, kind,
     px: x, py: y,        // patrol position; non-Keepers never leave home
@@ -269,7 +376,7 @@ function makeNode(id: number, x: number, y: number, kind: NodeKind): CityNode {
     veil: 0,             // thickening dark left by snuffing
     decoy: 0,            // breaths a false light still burns here (0 = none)
     nights: 0,           // dawns held as an awakened soul
-    district: districtOf(x, y),
+    district: districtOf(x, y, districts),
   };
 }
 
@@ -452,12 +559,13 @@ function stepAwakened(g: GameState): void {
 // the strategy. Kept as a pure helper so render() can draw the very ring the
 // simulation enforces; the two must never drift apart.
 function keeperRadius(g: GameState, k: CityNode): number {
+  const base = g.level.keeperRadius; // each city sets the watch's base reach
   let localVeil = 0;
   for (const n of g.nodes) {
     const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
-    if (d2 <= (KEEPER_RADIUS * 1.4) ** 2) localVeil += n.veil;
+    if (d2 <= (base * 1.4) ** 2) localVeil += n.veil;
   }
-  return KEEPER_RADIUS * (1 + Math.min(0.6, localVeil * 0.05));
+  return base * (1 + Math.min(0.6, localVeil * 0.05));
 }
 
 // Keepers patrol. A Keeper's post sees the worst light within its ring — an
@@ -645,7 +753,7 @@ function litStats(g: GameState): LitStats {
 interface DistrictStat { name: string; lit: number; total: number; }
 
 function districtStats(g: GameState): DistrictStat[] {
-  const out: DistrictStat[] = DISTRICTS.map((d) => ({ name: d.name, lit: 0, total: 0 }));
+  const out: DistrictStat[] = g.level.districts.map((d) => ({ name: d.name, lit: 0, total: 0 }));
   for (const n of g.nodes) {
     if (n.kind === "keeper") continue;
     out[n.district].total++;
@@ -689,6 +797,7 @@ function applyDawn(g: GameState): { faded: number } {
 
 interface SaveData {
   v: number;
+  level: string; // which city this run walks (LevelDef id)
   night: number;
   maxFlame: number;
   flame: number;
@@ -703,7 +812,8 @@ interface SaveData {
 function saveGame(g: GameState): void {
   try {
     const data: SaveData = {
-      v: 4,
+      v: 5,
+      level: g.level.id,
       night: g.night, maxFlame: g.maxFlame, flame: g.flame,
       tick: g.tick, phase: g.phase,
       shownFrescoes: g.shownFrescoes,
@@ -727,10 +837,13 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     if (!raw) return null;
     data = JSON.parse(raw) as SaveData;
   } catch (_) { return null; }
-  if (!data || data.v !== 4 || !Array.isArray(data.nodes)) return null;
+  if (!data || data.v !== 5 || !Array.isArray(data.nodes)) return null;
 
+  // Resolve the city this run walked; an unknown id falls back to The Old City,
+  // whose quarters/economy then drive the rebuild.
+  const level = levelById(data.level) ?? LEVELS[0];
   const nodes = data.nodes.map((r, id) => {
-    const n = makeNode(id, r[0], r[1], r[2]);
+    const n = makeNode(id, r[0], r[1], r[2], level.districts);
     n.state = r[3];
     n.brightness = r[4] / 100;
     n.revealed = !!r[5];
@@ -744,7 +857,7 @@ function loadGame(): { g: GameState; savedAt: number } | null {
   const { edges, adj } = finalizeCity(nodes);
   const w = data.weather;
   const g: GameState = {
-    nodes, edges, adj,
+    nodes, edges, adj, level,
     night: data.night, maxFlame: data.maxFlame, flame: data.flame,
     weather: Array.isArray(w) && (w[0] === "still" || w[0] === "wind" || w[0] === "rain")
       ? { kind: w[0], wx: w[1] || 0, wy: w[2] || 0 }
@@ -758,12 +871,12 @@ function loadGame(): { g: GameState; savedAt: number } | null {
   return { g, savedAt: data.savedAt || Date.now() };
 }
 
-function freshGame(): GameState {
-  const { nodes, edges, adj } = generateCity();
+function freshGame(level: LevelDef = LEVELS[0]): GameState {
+  const { nodes, edges, adj } = generateCity(level);
   const g: GameState = {
-    nodes, edges, adj,
-    night: 1, maxFlame: START_FLAME, flame: START_FLAME,
-    weather: rollWeather(1),
+    nodes, edges, adj, level,
+    night: 1, maxFlame: level.startFlame, flame: level.startFlame,
+    weather: rollWeather(1, level),
     mode: "kindle", phase: "night", tick: 0,
     shownFrescoes: [], pendingFresco: null,
     lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
@@ -1544,7 +1657,7 @@ function start(): void {
     g.playerHit = false; // the hit-flash is driven by player.hurt; clear the per-draw flag
     if (g.veilThickened) {
       g.veilThickened = false;
-      const d = g.lastSnuffDistrict >= 0 ? DISTRICTS[g.lastSnuffDistrict].name : "the city";
+      const d = g.lastSnuffDistrict >= 0 ? g.level.districts[g.lastSnuffDistrict].name : "the city";
       showToast(`The Veil thickens over ${d}. A new Keeper wakes.`);
     }
   }
@@ -1707,7 +1820,7 @@ function start(): void {
     `<h3>Reading the board</h3>` +
     `<dl>` +
     `<dt><span class="swatch" style="background:var(--gold-bright)"></span>✦ Flame</dt>` +
-    `<dd>Your fuel, and it is finite. You begin a night with ${START_FLAME}✦ and spend it to kindle and to awaken.</dd>` +
+    `<dd>Your fuel, and it is finite. You begin a night with this city's measure (${g.level.startFlame}✦) and spend it to kindle and to awaken.</dd>` +
     `<dt>Kindle — ${KINDLE_COST}✦</dt>` +
     `<dd>Light a place. From there light spreads on its own along conduits and printing presses — the swift carriers of word and fire. Light a <em>press</em> itself and its whole line of carriers catches in one breath.</dd>` +
     `<dt>Awaken — ${AWAKEN_COST}✦</dt>` +
@@ -1738,8 +1851,8 @@ function start(): void {
     `<h3>The only victory</h3>` +
     `<p>When your flame is finally spent, what the awakened souls still hold is everything that outlived you. Bank light in souls, set where the Keepers cannot reach, and carry as much of the city into the morning as you can.</p>` +
 
-    `<h3>The five quarters</h3>` +
-    `<p class="districts2">${DISTRICTS.map((d) => d.name).join("<br>")}</p>` +
+    `<h3>The five quarters of ${g.level.name}</h3>` +
+    `<p class="districts2">${g.level.districts.map((d) => d.name).join("<br>")}</p>` +
 
     // The mode toggle: the one entry point that needs no URL editing, so action
     // mode is reachable on a phone (and an installed PWA, which never carries the
@@ -1841,7 +1954,7 @@ function start(): void {
       "Carry on", () => {
         g.night += 1;
         g.flame = nightFlame; // maxFlame, warmed by what the hearths return
-        g.weather = rollWeather(g.night); // a new sky for the new night
+        g.weather = rollWeather(g.night, g.level); // a new sky for the new night
         g.phase = "night";
         overlay.classList.add("hidden");
         saveGame(g);
@@ -1869,6 +1982,87 @@ function start(): void {
   // action (or Wait) via breathe(); only the idle catch-up below still runs the
   // sim unattended, converting wall-clock absence into breaths at TICK_MS each.
 
+  // ----- Choose-a-city: on a fresh start the carrier picks which city to walk
+  // into. Each is the same rules under different dials (density, conduction, the
+  // watch, the sky), so it is a new puzzle, not a new game. Picking rerolls the
+  // not-yet-begun city in place (g is reassigned); a returning carrier keeps the
+  // city their save already carries. The hardest city opens once the legacy shows
+  // a deep enough run. -----
+  const introLegacy = loadLegacy();
+  function cityOpen(lv: LevelDef): boolean {
+    return !lv.unlockNight || introLegacy.bestNight >= lv.unlockNight;
+  }
+  function cityPickerHtml(selId: string): string {
+    return `<div class="cities">` + LEVELS.map((lv) => {
+      const locked = !cityOpen(lv);
+      const cls = `city${lv.id === selId ? " sel" : ""}${locked ? " locked" : ""}`;
+      const line = locked
+        ? `Carry a flame to night ${lv.unlockNight} to open this city`
+        : lv.epigraph;
+      return `<button class="${cls}" data-city="${lv.id}"${locked ? " disabled" : ""}>` +
+        `<span class="city-name">${lv.name}</span>` +
+        `<span class="city-line">${line}</span></button>`;
+    }).join("") + `</div>`;
+  }
+  function wireCityPicker(onPick: (lv: LevelDef) => void): void {
+    document.querySelectorAll<HTMLButtonElement>("#ov-body .city").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const lv = levelById(btn.dataset.city || "");
+        if (lv && cityOpen(lv)) onPick(lv);
+      });
+    });
+    // The establishing card, if its art exists (art/city-*.jpg); fails silently.
+    const img = document.querySelector<HTMLImageElement>("#ov-body .city-art");
+    if (img) img.onerror = () => { img.style.display = "none"; };
+  }
+
+  // The classic night's intro, rebuilt whenever the city choice changes so the
+  // card art, epigraph highlight, and button label track the selection.
+  function showClassicIntro(): void {
+    const card = g.level.art
+      ? `<img class="city-art" src="${g.level.art}" alt="">`
+      : `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">`;
+    showOverlay(
+      "The Light-Bringer",
+      card +
+      `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
+      `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
+      `<em>Choose a city to carry it into:</em>` +
+      cityPickerHtml(g.level.id) +
+      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight. Awaken a dwelling and it carries the light while you are away. The carrier burns: each night your flame is smaller. You will not finish the city.</em>` +
+      legacyHtml(introLegacy),
+      `Carry the flame into ${g.level.name}`,
+      () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
+      "Try the Lamplighter Run ▸", () => setMode(true),
+    );
+    wireCityPicker((lv) => { g = freshGame(lv); showClassicIntro(); draw(); });
+    draw();
+  }
+
+  // The Lamplighter Run's intro, with the same picker. Choosing a city rerolls
+  // the map and re-spawns the avatar at its heart, ready to run.
+  function showActionIntro(): void {
+    const card = g.level.art ? `<img class="city-art" src="${g.level.art}" alt="">` : "";
+    showOverlay(
+      "The Lamplighter Run",
+      card +
+      `You are the flame now. Move with the stick — or <em>WASD</em> — and <em>stand still</em> to kindle the dark around you. Tap a dwelling to awaken a soul (${AWAKEN_COST}✦). The Keepers no longer wait: they leave their posts to hunt you. Your ✦ is your life — when it gutters out, the run ends.<br><br>` +
+      `<em>Choose a city to run:</em>` +
+      cityPickerHtml(g.level.id),
+      `Run ${g.level.name}`,
+      () => { overlay.classList.add("hidden"); startAction(); },
+      "The classic night ▸", () => setMode(false),
+    );
+    wireCityPicker((lv) => {
+      g = freshGame(lv);
+      spawnPlayer();
+      g.phase = "night";
+      centerCam(g.player!.x, g.player!.y);
+      showActionIntro();
+      draw();
+    });
+  }
+
   // ----- First-paint: intro, or "while you were away" -----
   if (actionMode) {
     // Auto-kindle and tap-to-awaken replace the kindle/awaken/wait footer;
@@ -1890,26 +2084,11 @@ function start(): void {
       g.phase = "night";
       centerCam(g.player!.x, g.player!.y);
       draw();
-      showOverlay(
-        "The Lamplighter Run",
-        `You are the flame now. Move with the stick — or <em>WASD</em> — and <em>stand still</em> to kindle the dark around you. Tap a dwelling to awaken a soul (${AWAKEN_COST}✦). The Keepers no longer wait: they leave their posts to hunt you. Your ✦ is your life — when it gutters out, the run ends.`,
-        "Run", () => { overlay.classList.add("hidden"); startAction(); },
-        "The classic night ▸", () => setMode(false),
-      );
+      showActionIntro();
     }
   } else if (!loaded) {
     g.phase = "intro";
-    showOverlay(
-      "The Light-Bringer",
-      `<img class="ov-sigil" src="art/keeper-sigil.png" alt="A Keeper's sigil" width="96" height="96">` +
-      `The world has been taught that the light burns. The Keepers maintain the Veil — a sanctioned dimness in which people live safe, obedient, half-asleep.<br><br>` +
-      `You carry a stolen flame. Every place you kindle becomes visible — and visibility is what the Veil cannot survive.<br><br>` +
-      `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight — they leave their posts to hunt what they see. Awaken a dwelling and it carries the light while you are away — but a waking soul shines where they can see. Lay a false light to draw a Keeper off its post. The carrier burns: each night your flame is smaller. You will not finish the city.</em>` +
-      legacyHtml(loadLegacy()),
-      "Carry the flame", () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
-      "Try the Lamplighter Run ▸", () => setMode(true),
-    );
-    draw();
+    showClassicIntro();
   } else if (g.phase === "end") {
     draw(true);
     const after = litStats(g);
@@ -1961,6 +2140,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
     stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, isHearth, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
     loadLegacy, recordRun, emptyLegacy,
+    LEVELS, levelById,
   };
 } else {
   start();
