@@ -1,0 +1,17 @@
+{
+  "name": "Pentagram — a Light-Bringer descent",
+  "short_name": "Pentagram",
+  "description": "An action descent in the world of The Light-Bringer. Stand still to inscribe a burning pentagram; clear every shade.",
+  "start_url": "./pentagram.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080a14",
+  "theme_color": "#ff6a3c",
+  "categories": ["games"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

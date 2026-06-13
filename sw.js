@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v32";
+const CACHE = "lightbringer-v33";
 
 const ASSETS = [
   "./",
@@ -11,6 +11,7 @@ const ASSETS = [
   // same art and cities). Network-first like the rest of the shell (see isShell).
   "./pentagram.html",
   "./pentagram.js",
+  "./pentagram.webmanifest",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
