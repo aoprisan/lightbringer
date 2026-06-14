@@ -36,6 +36,12 @@ function perfectStroke(segs, step = 0.05) {
   }
   return pts;
 }
+// A pristine trace of a single seal strand (node a → node b).
+function strandStroke(seal, e) { return perfectStroke([pg.edgeSegment(seal, e)], 0.04); }
+// Bind every strand of a warden's seal, one clean stroke each.
+function bindSeal(s) {
+  for (const e of [...s.boss.seal.edges]) pg.submitTrace(s, strandStroke(s.boss.seal, e));
+}
 
 // 1. Cities + arena generation
 ok(Array.isArray(pg.LEVELS) && pg.LEVELS.length >= 3, `cities are defined (${pg.LEVELS.length})`);
@@ -94,14 +100,12 @@ run(s5, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 12, still);
 ok(s5.shades.every((e) => e.dead), "all shades fall when stacked on the sigil");
 ok(s5.phase === "boss" && s5.boss && s5.boss.hp > 0, "clearing the host raises the Veilwarden");
 ok(pg.clearedPct(s5) === 1, "cleared percentage reaches 100%");
-// Trace the pentagram cleanly until the warden falls.
-const stroke5 = perfectStroke(pg.sealSegments(s5.boss.seal));
-let g5 = 0;
-while (s5.phase === "boss" && g5++ < 20) pg.submitTrace(s5, stroke5);
-ok(s5.phase === "won", "tracing the warden down wins the descent");
+// Bind every strand of the warden's seal cleanly until it breaks.
+bindSeal(s5);
+ok(s5.phase === "won", "binding the whole seal wins the descent");
 // Once won, the duel is inert.
 const hpAfter = s5.boss.hp;
-pg.stepBoss(s5, 100); pg.submitTrace(s5, stroke5);
+pg.stepBoss(s5, 100); pg.submitTrace(s5, strandStroke(s5.boss.seal, s5.boss.seal.edges[0]));
 ok(s5.boss.hp === hpAfter, "a won duel does not keep simulating");
 
 // 7. Contact damage + i-frames; enough touches bring the hero down (lost).
@@ -376,20 +380,27 @@ ok(qEdge > 0 && qEdge < 0.4, `tracing only one edge is gated low by coverage (${
 const noisy = fullTrace.map((p) => ({ x: p.x + (Math.random() - 0.5) * tolG * 0.6, y: p.y + (Math.random() - 0.5) * tolG * 0.6 }));
 ok(pg.traceScore(noisy, segG, tolG) > 0.5, "a faithful but jittery trace still scores well");
 
-// 21. The Veilwarden duel — a city-scaled boss, a perfect trace burns it, a poor
-//     trace barely marks it, and its snuff wears down an exhausted hero.
+// 21. The Veilwarden duel — a city-scaled boss bound strand by strand: a clean
+//     strand binds and lowers the meter, a stray one does nothing, and its snuff
+//     wears down an exhausted hero.
 const sb = pg.buildArena(pg.levelById("vesper"));
 pg.startBoss(sb);
 const expectHp = Math.round(K.BOSS_HP * pg.difficultyMult(pg.levelById("vesper")));
 ok(sb.phase === "boss" && sb.boss.maxHp === expectHp, `startBoss raises a city-scaled warden (${sb.boss.maxHp})`);
-// A perfect trace deals near the full BOSS_TRACE_DMG; a sloppy one far less.
-const segB = pg.sealSegments(sb.boss.seal);
+// A clean strand binds (status "bound") and lowers the binding meter.
+const e0 = sb.boss.seal.edges[0];
 const hpA = sb.boss.hp;
-const qPerf = pg.submitTrace(sb, perfectStroke(segB));
-ok(qPerf > 0.85 && hpA - sb.boss.hp > K.BOSS_TRACE_DMG * 0.8, `a clean trace burns the warden deep (q=${qPerf.toFixed(2)})`);
+const r0 = pg.submitTrace(sb, strandStroke(sb.boss.seal, e0));
+ok(r0.status === "bound" && r0.quality > 0.85, `a clean strand binds (q=${r0.quality.toFixed(2)})`);
+ok(e0.done && sb.boss.hp < hpA, "binding a strand lights it and lowers the meter");
+// Re-tracing a bound strand reports "already" and does not lower the meter further.
+const hpAlready = sb.boss.hp;
+const rAgain = pg.submitTrace(sb, strandStroke(sb.boss.seal, e0));
+ok(rAgain.status === "already" && sb.boss.hp === hpAlready, "a strand already held does not bind twice");
+// A stroke that misses the nodes binds nothing and does no damage.
 const hpB = sb.boss.hp;
-pg.submitTrace(sb, junk); // a stroke nowhere near the template
-ok(sb.boss.hp === hpB, "a trace that misses the template does no damage");
+const rMiss = pg.submitTrace(sb, junk);
+ok(rMiss.status === "offnode" && sb.boss.hp === hpB, "a stroke off the seal's nodes binds nothing");
 // The warden's snuff drains the hero over time, and enough of it fells you.
 const sb2 = pg.buildArena(pg.levelById("old-city"));
 pg.startBoss(sb2);
@@ -399,36 +410,38 @@ ok(sb2.hero.hp < hpStart, "the warden's snuff drains the hero over time");
 sb2.hero.hp = K.BOSS_BITE_DMG; // one snuff from death
 for (let t = 0; t < K.BOSS_BITE_MS * 1.2; t += 16) pg.stepBoss(sb2, 16);
 ok(sb2.phase === "lost", "the warden wears an exhausted hero down to a fall");
-// The drawn template and the scorer share geometry: a perfect trace clears full health.
+// Binding every strand breaks the warden and empties the meter.
 const sb3 = pg.buildArena(pg.levelById("old-city"));
 pg.startBoss(sb3);
-const strokeB3 = perfectStroke(pg.sealSegments(sb3.boss.seal));
-let g3 = 0;
-while (sb3.phase === "boss" && g3++ < 30) pg.submitTrace(sb3, strokeB3);
-ok(sb3.phase === "won", "enough clean traces break the warden");
+bindSeal(sb3);
+ok(sb3.phase === "won" && sb3.boss.hp === 0, "binding the whole seal breaks the warden");
 
-// 22. Goetic seals — each warden's seal is a unique, deterministic line-glyph;
-//     it rebuilds identically from the city id and a perfect trace scores high.
+// 22. Goetic seals — each warden's seal is a unique, deterministic node-and-edge
+//     star; it rebuilds identically from the city id and is cleanly bindable.
 const sealA1 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
 const sealA2 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
 const sealB1 = pg.makeSeal(0, 0, 150, pg.hashSeed("vesper"));
-ok(sealA1.spine.length > 12, `a seal is an intricate glyph (${sealA1.spine.length} nodes)`);
-ok(sealA1.terminals.length === 3, "a seal marks head, foot and heart with terminal dots");
-ok(JSON.stringify(sealA1.spine) === JSON.stringify(sealA2.spine),
+ok(sealA1.nodes.length >= K.SEAL_NODES_MIN && sealA1.edges.length >= 3,
+  `a seal is a node-and-edge figure (${sealA1.nodes.length} nodes, ${sealA1.edges.length} strands)`);
+ok(JSON.stringify(sealA1) === JSON.stringify(sealA2),
   "a city's seal is deterministic — it rebuilds identically");
-ok(JSON.stringify(sealA1.spine) !== JSON.stringify(sealB1.spine),
+ok(JSON.stringify(sealA1.edges) !== JSON.stringify(sealB1.edges) || JSON.stringify(sealA1.nodes) !== JSON.stringify(sealB1.nodes),
   "different cities raise different seals");
-ok(sealA1.spine.every((p) => Math.hypot(p.x, p.y) <= 150 + 1e-6),
+ok(sealA1.nodes.every((p) => Math.hypot(p.x, p.y) <= 150 + 1e-6),
   "every seal node sits within the containment circle");
-ok(pg.sealSegments(sealA1).length === sealA1.spine.length - 1, "the spine is an open polyline of segments");
+ok(pg.sealSegments(sealA1).length === sealA1.edges.length, "the seal yields one segment per strand");
 const tolS = 150 * K.TRACE_TOL_FRAC;
-ok(pg.traceScore(perfectStroke(pg.sealSegments(sealA1)), pg.sealSegments(sealA1), tolS) > 0.85,
-  "a clean trace of a seal scores high");
-// Every city's warden raises a buildable, traceable seal (no degenerate glyph).
+ok(pg.traceScore(strandStroke(sealA1, sealA1.edges[0]), [pg.edgeSegment(sealA1, sealA1.edges[0])], tolS) > 0.85,
+  "a clean strand trace scores high");
+// nearestNode snaps a near-miss to a node but rejects a far point.
+const n0 = sealA1.nodes[0];
+ok(pg.nearestNode(sealA1, { x: n0.x + 4, y: n0.y - 4 }, 150 * K.SEAL_SNAP_FRAC) === 0, "a near point snaps to its node");
+ok(pg.nearestNode(sealA1, { x: 9000, y: 9000 }, 150 * K.SEAL_SNAP_FRAC) === -1, "a far point snaps to no node");
+// Every city's warden raises a seal whose every strand binds cleanly (no degenerate glyph).
 for (const lv of pg.LEVELS) {
   const seal = pg.makeSeal(0, 0, 150, pg.hashSeed(lv.id));
-  const q = pg.traceScore(perfectStroke(pg.sealSegments(seal)), pg.sealSegments(seal), tolS);
-  ok(q > 0.85, `${lv.id}'s seal is cleanly traceable (q=${q.toFixed(2)})`);
+  const worst = Math.min(...seal.edges.map((e) => pg.traceScore(strandStroke(seal, e), [pg.edgeSegment(seal, e)], tolS)));
+  ok(worst >= K.SEAL_EDGE_DONE, `${lv.id}'s seal binds cleanly (worst strand q=${worst.toFixed(2)})`);
 }
 
 // 23. Frescoes — the hero's body reaching an un-walked place uncovers them.
