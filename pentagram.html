@@ -229,6 +229,10 @@
     font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--ink-dim); margin-left: 7px;
   }
+  #ov-body .ptype-swatch {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    margin-right: 7px; vertical-align: middle;
+  }
   .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
   button {
     font-family: inherit; font-size: 12.5px; letter-spacing: 0.16em; text-transform: uppercase;
@@ -259,6 +263,7 @@
     <h1>The Burning Vigil</h1>
     <div class="stats">
       <span id="cityname"></span>
+      <span id="sigil"></span>
       <span id="foes"></span>
       <span id="lights"></span>
       <div class="hpbar"><div id="hp"></div></div>

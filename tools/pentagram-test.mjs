@@ -257,6 +257,7 @@ const sn = pg.buildArena(pg.levelById("old-city"));
 for (const e of sn.shades) park(e, 5, 5);
 run(sn, sn.fxCharge + 60, still);
 ok(sn.novaFired === true, "the Wrath erupts in a nova at full charge");
+ok(sn.novas.length > 0, "the Wrath's nova leaves a visible eruption ring");
 
 // 16. Unlock economy: cost is deducted, ownership persists, the unaffordable can't buy.
 store.delete(LEGACY_KEY);
