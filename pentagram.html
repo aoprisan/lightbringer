@@ -207,6 +207,28 @@
     font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--cold); margin-left: 7px; font-style: normal;
   }
+  /* Sigil selector — buttons mirror the city list, with a chosen + locked look. */
+  #ov-body .ptypes {
+    display: flex; flex-direction: column; gap: 8px;
+    margin: 6px auto 0; max-width: 400px; text-align: left;
+  }
+  #ov-body .ptype {
+    display: block; width: 100%; padding: 10px 13px; cursor: pointer;
+    border: 1px solid rgba(255,106,60,0.22); border-radius: 6px;
+    background: rgba(255,106,60,0.03); font: inherit; color: var(--ink);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #ov-body .ptype:hover:not(:disabled) { border-color: rgba(255,106,60,0.5); background: rgba(255,106,60,0.08); }
+  #ov-body .ptype.sel { border-color: rgba(106,168,232,0.55); background: rgba(106,168,232,0.07); }
+  #ov-body .ptype:disabled { cursor: default; opacity: 0.55; }
+  #ov-body .ptype-verb {
+    display: block; margin-top: 6px; font-size: 9.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ember);
+  }
+  #ov-body .ptype-cost {
+    font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-dim); margin-left: 7px;
+  }
   .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
   button {
     font-family: inherit; font-size: 12.5px; letter-spacing: 0.16em; text-transform: uppercase;
@@ -257,7 +279,7 @@
 
   <div id="toast"></div>
 
-  <div id="help">Move with the joystick or WASD to dodge and weave around the presses and shrines. Stand still to inscribe the pentagram — it burns the shades and lights the dark dwellings around you.</div>
+  <div id="help">Move with the joystick or WASD to dodge and weave around the presses and shrines. The shades lurk until you come near — stand still to inscribe the pentagram, which burns them and lights the dark dwellings around you. Clear a city to bank embers, and spend them on new sigils.</div>
 
   <div id="overlay" class="hidden">
     <div id="ov-panel">

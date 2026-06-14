@@ -24,6 +24,25 @@
 type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
 type Phase = "fight" | "won" | "lost";
 
+// A shade lurks (wanders) around its post until the hero comes near, then gives
+// chase. Aggro is sticky — once roused it never settles back to wandering.
+type ShadeState = "wander" | "chase";
+
+// A pentagram type's signature power. The default sigil has "none".
+type PentaPower = "none" | "chain" | "scorch" | "nova";
+
+// One unlockable sigil. A stat lean (multipliers over the base PENTA_* tuning)
+// plus one signature power; `cost` is the embers to unlock it (0 = always owned).
+interface PentaType {
+  id: string; name: string; desc: string; cost: number;
+  radiusMul: number; chargeMul: number; pulseMul: number; dmgMul: number;
+  power: PentaPower;
+}
+
+// A scorched patch of ground the Quick Ember leaves behind — burns shades that
+// stand on it until it cools. Live-play terrain, never persisted.
+interface Scorch { x: number; y: number; until: number }
+
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
 // dwelling can `lit` once the sigil's ring catches it.
@@ -44,7 +63,10 @@ interface Shade {
   x: number; y: number; vx: number; vy: number;
   hp: number; maxHp: number;
   dead: boolean;
-  wakeAt: number; // ms into the run before this shade rises and gives chase
+  state: ShadeState;   // wanders its post until the hero is near, then chases
+  wanderAngle: number; // current drift heading, radians
+  wanderTimer: number; // ms until it re-rolls a wander heading
+  homeX: number; homeY: number; // its keeper-post anchor (the leash centre)
 }
 
 interface Penta {
@@ -54,6 +76,7 @@ interface Penta {
 
 interface PgState {
   level: LevelDef;
+  w: number; h: number;  // this arena's world size (W/H scaled by level.sizeScale)
   scenery: ArenaNode[];
   solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
   fences: Segment[];     // low walls the hero/shades must weave around
@@ -61,9 +84,17 @@ interface PgState {
   hero: Hero;
   shades: Shade[];
   penta: Penta;
+  type: PentaType;       // the equipped sigil (resolved from the legacy at build)
+  fxRadius: number;      // effective PENTA_* values = base × the type's muls
+  fxCharge: number;
+  fxPulse: number;
+  fxDmg: number;
+  scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  novaFired: boolean;    // has the Wrath's nova fired for this charge-up
   pulseAcc: number; // ms accumulated toward the next damage pulse
-  elapsed: number;  // ms since the descent began (clear time + wake timing)
+  elapsed: number;  // ms since the descent began (clear time)
   kills: number;
+  hits: number;         // times a shade has landed a blow (flawless-clear bonus)
   total: number;        // the finite host: clear them all to win
   dwellingsTotal: number; // dark dwellings the city began with
   litCount: number;     // how many the sigil has kindled (secondary objective)
@@ -76,8 +107,10 @@ interface Move { x: number; y: number } // normalized input vector, -1..1 each
 // The design surface. Balance changes should be constant changes here, the same
 // ethos as app.ts's tuning block.
 
-const W = 1000;
-const H = 1400;
+// Base arena size. A descent enlarges this by its city's `sizeScale`, so the
+// host is spread across a place you sweep rather than a single corridor rush.
+const W = 1500;
+const H = 2000;
 
 // The hero.
 const HERO_SPEED = 260;          // travel, world units per second (reused from app)
@@ -102,7 +135,16 @@ const SHADE_RADIUS = 18;
 const SHADE_CONTACT_DMG = 10;    // hero HP lost per touch (gated by i-frames)
 const SHADE_SEP = 34;            // shades push apart within this range, so they swarm
 const SHADE_PER_KEEPER = 3;      // how many shades each keeper-post raises
-const SHADE_WAKE_STAGGER = 700;  // ms between successive waves rising from a post
+
+// Aggro & wander. A shade lurks near its post until the hero comes within
+// AGGRO_RADIUS, then chases — and never settles again (sticky). Until roused it
+// drifts on its own, kept near home by the leash, so the city feels inhabited
+// rather than rushing you all at once from spawn.
+const AGGRO_RADIUS = 360;        // hero within this of a wanderer rouses it to chase
+const SHADE_WANDER_SPEED = 38;   // idle drift, units/s (≈1/3 chase speed)
+const SHADE_WANDER_RETARGET_MS = 1400; // re-roll a wander heading this often
+const SHADE_LEASH = 240;         // a wanderer steers home if it drifts past this
+const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a clear always ends
 
 // Obstacles — the city's built structures stand solid; the hero and shades must
 // weave around them. Only presses and shrines block; dwellings/conduits are
@@ -126,7 +168,58 @@ const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
 
+// Scoring — a clear banks a score (and embers, the unlock currency). Tuned for
+// relationships, not magnitudes: faster pays, a relit/unscathed city pays, and a
+// harder city multiplies it all. These are the design surface for the economy.
+const SCORE_PER_SHADE = 100;     // base, per shade in the host
+const SCORE_TARGET_PER_SHADE = 1800; // ms per shade you're "expected" to take
+const SCORE_SPEED_PER_SEC = 20;  // points per second cleared under that target
+const SCORE_DWELLINGS_MAX = 300; // full points for a fully-relit city
+const SCORE_SURVIVAL_MAX = 200;  // full points for full HP at the clear
+const SCORE_UNTOUCHED = 250;     // flawless bonus (no blow landed all descent)
+const SCORE_EMBERS_DIV = 10;     // embers earned = score / this (min 1)
+
+// Pentagram-power tuning (the signature tricks; see PENTA_TYPES).
+const CHAIN_RADIUS = 70;         // Pyre: a kill arcs to other shades within this
+const CHAIN_FRAC = 0.6;          // …for this fraction of the sigil's damage
+const SCORCH_MS = 1400;          // Quick Ember: how long a burnt patch lingers
+const SCORCH_DPS = 26;           // …damage per second to shades standing on it
+const SCORCH_RADIUS = 60;        // …reach of a burnt patch
+const SCORCH_MAX = 6;            // …cap on simultaneous patches
+const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
+
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
+
+// ---------- Pentagram types (unlockable sigils) ----------
+// Each leans the base PENTA_* dials and adds one signature power. "The Vigil" is
+// the steady starter (cost 0, always owned). The rest cost embers, banked from
+// clears. Tune these here — the roster is the design surface for progression.
+const PENTA_TYPES: PentaType[] = [
+  {
+    id: "vigil", name: "The Vigil", cost: 0,
+    desc: "The steady sigil you began with. No lean, no trick — even reach, even bite.",
+    radiusMul: 1, chargeMul: 1, pulseMul: 1, dmgMul: 1, power: "none",
+  },
+  {
+    id: "pyre", name: "The Pyre", cost: 120,
+    desc: "A wide, hungry ring that bites harder but inscribes slower. A kill arcs to the shades around it.",
+    radiusMul: 1.25, chargeMul: 1.3, pulseMul: 1, dmgMul: 1.15, power: "chain",
+  },
+  {
+    id: "ember", name: "The Quick Ember", cost: 160,
+    desc: "A tight, fast sigil — short reach, rapid pulses — that leaves scorched ground burning behind you.",
+    radiusMul: 0.8, chargeMul: 0.7, pulseMul: 0.7, dmgMul: 0.85, power: "scorch",
+  },
+  {
+    id: "wrath", name: "The Wrath", cost: 240,
+    desc: "When fully inscribed it erupts, hurling the swarm back in a searing nova.",
+    radiusMul: 1.05, chargeMul: 1.1, pulseMul: 1.1, dmgMul: 1, power: "nova",
+  },
+];
+
+function pentaTypeById(id: string): PentaType {
+  return PENTA_TYPES.find((t) => t.id === id) || PENTA_TYPES[0];
+}
 
 // ---------- Cities (levels) ----------
 // The same hand-tuned cities the parent game offers, trimmed to just the
@@ -148,6 +241,7 @@ interface LevelDef {
   keeperSpacing: number;
   fenceCount: number;  // low walls woven between neighbouring posts (cover)
   pathwayCount: number; // open lanes the hero runs swift along
+  sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
 }
 
 const LEVELS: LevelDef[] = [
@@ -159,7 +253,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 8, pathwayCount: 6,
+    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9,
   },
   {
     id: "ashfold",
@@ -169,7 +263,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 6, pathwayCount: 9,
+    fenceCount: 6, pathwayCount: 9, sizeScale: 1.0,
   },
   {
     id: "drowned",
@@ -179,7 +273,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 11, pathwayCount: 3,
+    fenceCount: 11, pathwayCount: 3, sizeScale: 1.15,
   },
   {
     id: "glassworks",
@@ -189,7 +283,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 13, pathwayCount: 5,
+    fenceCount: 13, pathwayCount: 5, sizeScale: 1.0,
   },
   {
     id: "vesper",
@@ -199,7 +293,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 9, pathwayCount: 4,
+    fenceCount: 9, pathwayCount: 4, sizeScale: 1.1,
   },
 ];
 
@@ -213,12 +307,16 @@ function levelById(id: string): LevelDef | undefined {
 // combat never spreads light along streets). Each city reads the same as it does
 // in the parent game; the keeper nodes become the shade spawn-points.
 
-function generateCity(level: LevelDef): ArenaNode[] {
+function generateCity(
+  level: LevelDef,
+  w = W * (level.sizeScale ?? 1),
+  h = H * (level.sizeScale ?? 1),
+): ArenaNode[] {
   const nodes: ArenaNode[] = [];
   let guard = 0;
   while (nodes.length < level.nodeCount && guard++ < 20000) {
-    const x = 60 + Math.random() * (W - 120);
-    const y = 60 + Math.random() * (H - 120);
+    const x = 60 + Math.random() * (w - 120);
+    const y = 60 + Math.random() * (h - 120);
     if (nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2)) {
       nodes.push({ x, y, kind: "dwelling" });
     }
@@ -310,18 +408,20 @@ function pushOut(s: PgState, x: number, y: number, radius: number): { x: number;
     x = c.x + (dx / d) * rr;
     y = c.y + (dy / d) * rr;
   }
-  return { x: clamp(x, radius, W - radius), y: clamp(y, radius, H - radius) };
+  return { x: clamp(x, radius, s.w - radius), y: clamp(y, radius, s.h - radius) };
 }
 
 // Build a fresh descent: dress the city, drop the hero at its heart, and raise a
 // finite host of shades from each keeper-post in staggered waves.
 function buildArena(level: LevelDef): PgState {
-  const scenery = generateCity(level);
+  const w = Math.round(W * (level.sizeScale ?? 1));
+  const h = Math.round(H * (level.sizeScale ?? 1));
+  const scenery = generateCity(level, w, h);
   // Fences hug close neighbours (short walls); pathways span quarters (long lanes).
   const fences = weaveSegments(scenery, level.fenceCount, level.minDist * 0.9, level.minDist * 2.0);
   const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
-    x: W / 2, y: H / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
+    x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
   };
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
@@ -329,21 +429,32 @@ function buildArena(level: LevelDef): PgState {
     for (let j = 0; j < SHADE_PER_KEEPER; j++) {
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
+      const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
+      const y = clamp(post.y + Math.sin(a) * r, SHADE_RADIUS, h - SHADE_RADIUS);
       shades.push({
-        x: clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, W - SHADE_RADIUS),
-        y: clamp(post.y + Math.sin(a) * r, SHADE_RADIUS, H - SHADE_RADIUS),
-        vx: 0, vy: 0, hp: SHADE_HP, maxHp: SHADE_HP, dead: false,
-        wakeAt: j * SHADE_WAKE_STAGGER, // wave j rises after j staggers
+        x, y, vx: 0, vy: 0, hp: SHADE_HP, maxHp: SHADE_HP, dead: false,
+        state: "wander",
+        wanderAngle: Math.random() * Math.PI * 2,
+        wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
+        homeX: post.x, homeY: post.y, // the leash centre it drifts around
       });
     }
   }
+  // Resolve the equipped sigil and bake its stat lean into effective constants.
+  const type = pentaTypeById(loadPgLegacy().equipped);
   return {
-    level, scenery,
+    level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     fences, pathways,
     hero, shades,
     penta: { charge: 0, angle: 0 },
-    pulseAcc: 0, elapsed: 0, kills: 0, total: shades.length,
+    type,
+    fxRadius: PENTA_RADIUS * type.radiusMul,
+    fxCharge: PENTA_CHARGE_MS * type.chargeMul,
+    fxPulse: PENTA_PULSE_MS * type.pulseMul,
+    fxDmg: PENTA_DMG * type.dmgMul,
+    scorch: [], novaFired: false,
+    pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0,
     phase: "fight",
@@ -364,24 +475,79 @@ function clearedPct(s: PgState): number {
   return s.total ? s.kills / s.total : 1;
 }
 
-// Risen shades chase the hero, separating from one another so a crowd swarms
-// instead of stacking into one point.
+// How much a city multiplies a clear's score. Leans on the difficulty the data
+// already encodes — the host size (keeperCount) and the ground to cover
+// (sizeScale) — normalized so The Old City sits near 1.0 and Vesper near 1.5.
+function difficultyMult(level: LevelDef): number {
+  const km = level.keeperCount / 6;       // 1.0 at old-city, ~1.83 at vesper
+  const sm = level.sizeScale ?? 1;        // bigger ground = more hunting
+  return +(0.6 + 0.4 * km * sm).toFixed(2);
+}
+
+interface ScoreBreakdown {
+  base: number; speed: number; dwellings: number; survival: number;
+  untouched: number; mult: number; total: number; embers: number;
+}
+
+// Score a finished descent. Pure — reads only the state, so the harness can
+// drive it. Faster pays, a relit and unscathed city pays, and a harder city
+// multiplies the lot; embers (the unlock currency) are a tenth of the score.
+function scoreRun(s: PgState): ScoreBreakdown {
+  const base = s.total * SCORE_PER_SHADE;
+  const targetMs = s.total * SCORE_TARGET_PER_SHADE;
+  const speed = Math.max(0, Math.round(((targetMs - s.elapsed) / 1000) * SCORE_SPEED_PER_SEC));
+  const dwellings = s.dwellingsTotal
+    ? Math.round((s.litCount / s.dwellingsTotal) * SCORE_DWELLINGS_MAX) : 0;
+  const survival = Math.round((s.hero.hp / s.hero.maxHp) * SCORE_SURVIVAL_MAX);
+  const untouched = s.hits === 0 ? SCORE_UNTOUCHED : 0;
+  const mult = difficultyMult(s.level);
+  const total = Math.round((base + speed + dwellings + survival + untouched) * mult);
+  const embers = Math.max(1, Math.round(total / SCORE_EMBERS_DIV));
+  return { base, speed, dwellings, survival, untouched, mult, total, embers };
+}
+
+// Shades wander their post until the hero comes near (sticky aggro), then chase,
+// separating from one another so a crowd swarms instead of stacking into a point.
+// Once only a handful remain, the rest rouse so a clear always reaches its end.
 function stepShades(s: PgState, dt: number): void {
   const h = s.hero;
+  const cleanup = aliveShades(s) <= s.total * CLEANUP_AGGRO_FRAC;
   for (const e of s.shades) {
-    if (e.dead || s.elapsed < e.wakeAt) continue;
-    let sx = h.x - e.x, sy = h.y - e.y;
-    const d = Math.hypot(sx, sy) || 1;
-    sx /= d; sy /= d;
-    for (const o of s.shades) {
-      if (o === e || o.dead || s.elapsed < o.wakeAt) continue;
-      const ox = e.x - o.x, oy = e.y - o.y;
-      const od = Math.hypot(ox, oy);
-      if (od > 0 && od < SHADE_SEP) { sx += (ox / od) * 0.7; sy += (oy / od) * 0.7; }
+    if (e.dead) continue;
+
+    // Rouse on proximity (or the cleanup sweep). Aggro never settles back.
+    if (e.state === "wander") {
+      if (cleanup || (h.x - e.x) ** 2 + (h.y - e.y) ** 2 <= AGGRO_RADIUS ** 2) {
+        e.state = "chase";
+      }
     }
-    const m = Math.hypot(sx, sy) || 1;
-    e.vx = (sx / m) * SHADE_SPEED;
-    e.vy = (sy / m) * SHADE_SPEED;
+
+    let dx: number, dy: number, speed: number;
+    if (e.state === "chase") {
+      dx = h.x - e.x; dy = h.y - e.y;
+      const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      // Separation among fellow chasers, so a crowd packs rather than overlaps.
+      for (const o of s.shades) {
+        if (o === e || o.dead || o.state !== "chase") continue;
+        const ox = e.x - o.x, oy = e.y - o.y, od = Math.hypot(ox, oy);
+        if (od > 0 && od < SHADE_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
+      }
+      const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
+      speed = SHADE_SPEED;
+    } else {
+      // Wander: drift along the heading, re-rolling on a timer; steer home if the
+      // leash is taut so a wanderer never strays far from its post.
+      e.wanderTimer -= dt;
+      if (e.wanderTimer <= 0) {
+        e.wanderAngle += (Math.random() - 0.5) * 1.6;
+        e.wanderTimer = SHADE_WANDER_RETARGET_MS * (0.5 + Math.random());
+      }
+      const lx = e.x - e.homeX, ly = e.y - e.homeY;
+      if (lx * lx + ly * ly > SHADE_LEASH ** 2) e.wanderAngle = Math.atan2(-ly, -lx);
+      dx = Math.cos(e.wanderAngle); dy = Math.sin(e.wanderAngle);
+      speed = SHADE_WANDER_SPEED;
+    }
+    e.vx = dx * speed; e.vy = dy * speed;
     const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
   }
@@ -391,22 +557,65 @@ function stepShades(s: PgState, dt: number): void {
 // risen shade within its ring for PENTA_DMG scaled by how fully it is inscribed,
 // and kindles any dark dwelling the ring has caught (mending the hero a little).
 function stepPentagram(s: PgState, dt: number): void {
-  s.pulseAcc += dt;
-  while (s.pulseAcc >= PENTA_PULSE_MS) {
-    s.pulseAcc -= PENTA_PULSE_MS;
-    if (s.penta.charge <= 0) continue;
-    const r2 = PENTA_RADIUS ** 2;
-    const dmg = PENTA_DMG * s.penta.charge;
-    for (const e of s.shades) {
-      if (e.dead || s.elapsed < e.wakeAt) continue;
-      if ((e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2 <= r2) {
-        e.hp -= dmg;
-        if (e.hp <= 0) { e.dead = true; s.kills++; }
+  const hero = s.hero;
+  const kill = (e: Shade): void => { e.dead = true; s.kills++; };
+
+  // Scorched ground (Quick Ember): burn shades on a live patch every frame, then
+  // retire patches that have cooled. Runs continuously, not just on a pulse.
+  if (s.scorch.length) {
+    const sdmg = (SCORCH_DPS * dt) / 1000;
+    const sr2 = SCORCH_RADIUS ** 2;
+    for (const p of s.scorch) {
+      if (p.until <= s.elapsed) continue;
+      for (const e of s.shades) {
+        if (e.dead) continue;
+        if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= sr2) {
+          e.hp -= sdmg;
+          if (e.hp <= 0) kill(e);
+        }
       }
     }
+    s.scorch = s.scorch.filter((p) => p.until > s.elapsed);
+  }
+
+  s.pulseAcc += dt;
+  while (s.pulseAcc >= s.fxPulse) {
+    s.pulseAcc -= s.fxPulse;
+    if (s.penta.charge <= 0) continue;
+    const r2 = s.fxRadius ** 2;
+    const dmg = s.fxDmg * s.penta.charge;
+    const justKilled: Shade[] = [];
+    for (const e of s.shades) {
+      if (e.dead) continue;
+      if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
+        e.state = "chase"; // a pulse that catches a wanderer rouses it
+        e.hp -= dmg;
+        if (e.hp <= 0) { kill(e); justKilled.push(e); }
+      }
+    }
+    // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
+    if (s.type.power === "chain" && justKilled.length) {
+      const cr2 = CHAIN_RADIUS ** 2, cdmg = dmg * CHAIN_FRAC;
+      for (const k of justKilled) {
+        for (const e of s.shades) {
+          if (e.dead) continue;
+          if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
+            e.state = "chase";
+            e.hp -= cdmg;
+            if (e.hp <= 0) kill(e);
+          }
+        }
+      }
+    }
+    // Scorch (Quick Ember): each pulse stamps the ground under the hero.
+    if (s.type.power === "scorch") {
+      s.scorch.push({ x: hero.x, y: hero.y, until: s.elapsed + SCORCH_MS });
+      if (s.scorch.length > SCORCH_MAX) s.scorch.shift();
+    }
+    // Dwellings caught in the ring kindle, mending the hero.
     for (const n of s.scenery) {
       if (n.kind !== "dwelling" || n.lit) continue;
-      if ((n.x - s.hero.x) ** 2 + (n.y - s.hero.y) ** 2 <= r2) {
+      if ((n.x - hero.x) ** 2 + (n.y - hero.y) ** 2 <= r2) {
         n.lit = true;
         s.litCount++;
         s.hero.hp = Math.min(s.hero.maxHp, s.hero.hp + DWELLING_HEAL);
@@ -436,24 +645,47 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
-  // Stand still and the sigil inscribes itself; move and it fades.
+  // Stand still and the sigil inscribes itself; move and it fades. The equipped
+  // type's charge lean is baked into s.fxCharge.
   if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
-    s.penta.charge = Math.min(1, s.penta.charge + dt / PENTA_CHARGE_MS);
+    s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
   } else {
-    s.penta.charge = Math.max(0, s.penta.charge - dt / PENTA_CHARGE_MS);
+    s.penta.charge = Math.max(0, s.penta.charge - dt / s.fxCharge);
   }
   s.penta.angle = (s.penta.angle + dt * PENTA_SPIN) % 360;
 
   stepShades(s, dt);
   stepPentagram(s, dt);
 
-  // Contact: a risen shade on the hero, outside i-frames, bites and is shoved off.
+  // Nova (Wrath): the first full inscription erupts, hurling chasers back in a
+  // searing ring. It re-arms once the charge has dropped (move, then re-still).
+  if (s.type.power === "nova") {
+    if (s.penta.charge >= 1 && !s.novaFired) {
+      const nr2 = s.fxRadius ** 2;
+      for (const e of s.shades) {
+        if (e.dead) continue;
+        if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= nr2) {
+          e.hp -= s.fxDmg * 2;
+          if (e.hp <= 0) { e.dead = true; s.kills++; continue; }
+          const dx = e.x - h.x, dy = e.y - h.y, d = Math.hypot(dx, dy) || 1;
+          const p = pushOut(s, e.x + (dx / d) * NOVA_PUSH, e.y + (dy / d) * NOVA_PUSH, SHADE_RADIUS);
+          e.x = p.x; e.y = p.y;
+        }
+      }
+      s.novaFired = true;
+    } else if (s.penta.charge < 0.5) {
+      s.novaFired = false;
+    }
+  }
+
+  // Contact: a shade on the hero, outside i-frames, bites and is shoved off.
   if (h.hurt <= 0) {
     const reach = (HERO_RADIUS + SHADE_RADIUS) ** 2;
     for (const e of s.shades) {
-      if (e.dead || s.elapsed < e.wakeAt) continue;
+      if (e.dead) continue;
       if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= reach) {
         h.hp -= SHADE_CONTACT_DMG;
+        s.hits++;
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -605,9 +837,22 @@ function render(s: PgState, layer: SVGGElement): void {
   // Ground — the city's tiled floor (or solid gloom if the art isn't loaded).
   const hasGround = sprites.has("ground");
   layer.appendChild(el("rect", {
-    x: 0, y: 0, width: W, height: H,
+    x: 0, y: 0, width: s.w, height: s.h,
     fill: hasGround ? "url(#groundPat)" : "#0a0c16", opacity: hasGround ? 0.5 : 1,
   }));
+
+  // Scorched ground (Quick Ember) — faint embered patches that fade as they cool.
+  for (const p of s.scorch) {
+    const life = Math.max(0, (p.until - s.elapsed) / SCORCH_MS);
+    if (life <= 0) continue;
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: SCORCH_RADIUS, fill: "url(#penta)", opacity: 0.18 * life,
+    }));
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: SCORCH_RADIUS, fill: "none",
+      stroke: "#ff7a3c", "stroke-width": 1.5, opacity: 0.35 * life,
+    }));
+  }
 
   // Pathways — open lanes drawn on the ground beneath the built world: a pale
   // worn road with a faint warm centre line, so the swift routes read at a glance.
@@ -673,7 +918,7 @@ function render(s: PgState, layer: SVGGElement): void {
   // turns slowly, and burns through a soft glow.
   const h = s.hero;
   if (s.penta.charge > 0) {
-    const r = PENTA_RADIUS * (0.7 + 0.3 * s.penta.charge);
+    const r = s.fxRadius * (0.7 + 0.3 * s.penta.charge);
     const op = 0.25 + 0.65 * s.penta.charge;
     layer.appendChild(el("circle", { cx: h.x, cy: h.y, r, fill: "url(#penta)", opacity: op * 0.6 }));
     layer.appendChild(el("circle", {
@@ -691,12 +936,12 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
-  // Shades — Keepers risen. Risen ones draw full; not-yet-woken lurk faint.
+  // Shades — Keepers risen. Roused ones draw full; wanderers lurk faint.
   const shadeKey = sprites.has("keeper-patrol")
     ? "keeper-patrol" : sprites.has("keeper-node") ? "keeper-node" : null;
   for (const e of s.shades) {
     if (e.dead) continue;
-    const op = s.elapsed >= e.wakeAt ? 1 : 0.3;
+    const op = e.state === "chase" ? 1 : 0.55;
     if (shadeKey) {
       layer.appendChild(spriteImage(shadeKey, e.x, e.y, 44, op));
     } else {
@@ -707,7 +952,7 @@ function render(s: PgState, layer: SVGGElement): void {
         fill: "#1b2740", stroke: "#9fc4e8", "stroke-width": 2, opacity: op,
       }));
     }
-    if (op === 1 && e.hp < e.maxHp) {
+    if (e.state === "chase" && e.hp < e.maxHp) {
       const bw = 30, frac = Math.max(0, e.hp / e.maxHp);
       const by = e.y - SHADE_RADIUS - 11;
       layer.appendChild(el("rect", { x: e.x - bw / 2, y: by, width: bw, height: 3, fill: "#2a0c0c", opacity: 0.85 }));
@@ -741,18 +986,31 @@ function render(s: PgState, layer: SVGGElement): void {
 interface PgLegacy {
   runs: number; clears: number; best: Record<string, number>;
   dwellingsLit: number; // lifetime dwellings kindled across all descents
+  embers: number;       // unlock currency, banked from clears
+  unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
+  equipped: string;     // the sigil id currently equipped
 }
 
-function emptyPgLegacy(): PgLegacy { return { runs: 0, clears: 0, best: {}, dwellingsLit: 0 }; }
+function emptyPgLegacy(): PgLegacy {
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil" };
+}
 
 function loadPgLegacy(): PgLegacy {
   try {
     const raw = localStorage.getItem(PG_LEGACY_KEY);
     if (!raw) return emptyPgLegacy();
     const l = JSON.parse(raw) as Partial<PgLegacy>;
+    // New fields default for old saves (no key bump). Validate sigil ids against
+    // the roster so a removed/renamed type can never dangle into a crash.
+    const owned = new Set<string>(["vigil"]);
+    if (Array.isArray(l.unlocked)) {
+      for (const id of l.unlocked) if (pentaTypeById(id).id === id) owned.add(id);
+    }
+    const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "vigil";
     return {
       runs: l.runs || 0, clears: l.clears || 0, best: l.best || {},
       dwellingsLit: l.dwellingsLit || 0,
+      embers: l.embers || 0, unlocked: [...owned], equipped,
     };
   } catch { return emptyPgLegacy(); }
 }
@@ -761,11 +1019,33 @@ function savePgLegacy(l: PgLegacy): void {
   try { localStorage.setItem(PG_LEGACY_KEY, JSON.stringify(l)); } catch { /* ignore */ }
 }
 
-function recordClear(level: LevelDef, ms: number, lit = 0): PgLegacy {
+function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++; l.clears++;
   l.dwellingsLit += lit;
+  l.embers += embers;
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
+  savePgLegacy(l);
+  return l;
+}
+
+// Buy a sigil if it is owned-less and affordable: deduct its cost and add it to
+// the carrier's roster. A no-op (returns the legacy unchanged) otherwise.
+function unlockType(id: string): PgLegacy {
+  const l = loadPgLegacy();
+  const t = pentaTypeById(id);
+  if (t.id !== id || l.unlocked.includes(id) || l.embers < t.cost) return l;
+  l.embers -= t.cost;
+  l.unlocked.push(id);
+  savePgLegacy(l);
+  return l;
+}
+
+// Equip a sigil the carrier owns. A no-op for an unowned id.
+function equipType(id: string): PgLegacy {
+  const l = loadPgLegacy();
+  if (!l.unlocked.includes(id)) return l;
+  l.equipped = id;
   savePgLegacy(l);
   return l;
 }
@@ -816,14 +1096,16 @@ function start(): void {
   }
   function clampCam(): void {
     const vw = svg.clientWidth, vh = svg.clientHeight;
+    const aw = s ? s.w : W, ah = s ? s.h : H;
     cam.k = Math.min(maxK, Math.max(minK, cam.k));
-    const mw = W * cam.k, mh = H * cam.k;
+    const mw = aw * cam.k, mh = ah * cam.k;
     cam.x = mw <= vw ? (vw - mw) / 2 : Math.min(0, Math.max(vw - mw, cam.x));
     cam.y = mh <= vh ? (vh - mh) / 2 : Math.min(0, Math.max(vh - mh, cam.y));
   }
   function setupZoom(): void {
     const vw = svg.clientWidth, vh = svg.clientHeight, m = Math.min(vw, vh);
-    minK = m / 1000;          // zoomed out: most of the city visible
+    const aw = s ? s.w : W;
+    minK = m / aw;            // zoomed out: the whole (enlarged) city fits
     maxK = Math.max(1.6, m / 320);
     cam.k = Math.min(maxK, Math.max(minK, m / 640)); // ~640 world units across
   }
@@ -928,10 +1210,27 @@ function start(): void {
   }
   loadSprites(repaint);
 
+  const ARROWS = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"];
   function hud(): void {
     if (!s) return;
     hpFill.style.width = Math.max(0, (s.hero.hp / s.hero.maxHp) * 100) + "%";
-    foesEl.textContent = `${aliveShades(s)} / ${s.total} shades`;
+    const alive = aliveShades(s);
+    let foes = `${alive} / ${s.total} shades`;
+    // When only a handful remain, point toward the nearest so the last few of a
+    // big map aren't a blind hunt.
+    if (alive > 0 && alive <= 3) {
+      let best: Shade | null = null, bd = Infinity;
+      for (const e of s.shades) {
+        if (e.dead) continue;
+        const d = (e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2;
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (best) {
+        const ang = Math.atan2(best.y - s.hero.y, best.x - s.hero.x);
+        foes += ` ${ARROWS[(((Math.round(ang / (Math.PI / 4))) % 8) + 8) % 8]}`;
+      }
+    }
+    foesEl.textContent = foes;
     lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
     cityEl.textContent = s.level.name;
   }
@@ -1010,17 +1309,32 @@ function start(): void {
     if (!s) return;
     const ms = s.elapsed;
     const lit = s.litCount, total = s.dwellingsTotal;
-    const l = recordClear(s.level, ms, lit);
+    const sc = scoreRun(s);
+    const l = recordClear(s.level, ms, lit, sc.embers);
     const best = l.best[s.level.id];
     const relit = lit >= total && total > 0
       ? `You relit every dwelling — <em>${total}</em>. The city is whole again.`
       : `You relit <em>${lit}</em> of ${total} dwellings.`;
+    const row = (label: string, val: string) =>
+      `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    const breakdown =
+      `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
+      row("Host cleared", `${sc.base}`) +
+      row("Speed", `${sc.speed}`) +
+      row("Dwellings relit", `${sc.dwellings}`) +
+      row("Survival", `${sc.survival}`) +
+      (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
+      row("City difficulty", `×${sc.mult}`) +
+      row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
+      row("Embers earned", `+${sc.embers} <span class="legacy-new">${l.embers} banked</span>`) +
+      `</dl></div>`;
     showOverlay(
       "The city is cleansed",
       `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them, ` +
       `in <em>${fmtTime(ms)}</em>.<br><br>` +
       `${relit}<br><br>` +
-      (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`),
+      (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`) +
+      breakdown,
       "Descend again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
@@ -1058,6 +1372,31 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // Sigils — the unlockable pentagrams. Each clear banks embers; spend them
+    // here to own a sigil, then equip it for your next descent.
+    html +=
+      `<div class="legacy"><div class="legacy-head">` +
+      `Sigils <span class="legacy-new">${l.embers} embers</span></div></div>` +
+      `<div class="ptypes">`;
+    for (const t of PENTA_TYPES) {
+      const owned = l.unlocked.includes(t.id);
+      const equipped = l.equipped === t.id;
+      const afford = l.embers >= t.cost;
+      let badge: string, act: string, disabled = false;
+      if (equipped) { badge = ` <span class="legacy-new">equipped</span>`; act = ""; disabled = true; }
+      else if (owned) { badge = ""; act = "equip"; }
+      else if (afford) { badge = ` <span class="legacy-new">${t.cost} embers</span>`; act = "unlock"; }
+      else { badge = ` <span class="ptype-cost">${t.cost} embers</span>`; act = ""; disabled = true; }
+      const verb = act === "equip" ? "Equip" : act === "unlock" ? "Unlock" : equipped ? "Equipped" : "Locked";
+      html +=
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<span class="city-name">${t.name}${badge}</span>` +
+        `<span class="city-line">${t.desc}</span>` +
+        `<span class="ptype-verb">${verb}</span></button>`;
+    }
+    html += `</div>`;
+
     if (l.runs > 0) {
       html +=
         `<div class="legacy"><div class="legacy-head">Your descents</div><dl>` +
@@ -1072,6 +1411,15 @@ function start(): void {
       b.onclick = () => {
         const lv = levelById(b.dataset.id || "");
         if (lv) startCity(lv);
+      };
+    });
+    overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
+      const id = b.dataset.id || "", act = b.dataset.act || "";
+      if (!act) return;
+      b.onclick = () => {
+        if (act === "unlock") { unlockType(id); equipType(id); }
+        else if (act === "equip") equipType(id);
+        showPicker(); // re-render so the new ownership/equip state shows
       };
     });
   }
@@ -1125,14 +1473,17 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
-    aliveShades, clearedPct, LEVELS, levelById,
+    aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
     weaveSegments, closestOnSegment,
-    loadPgLegacy, recordClear, recordDeath, emptyPgLegacy,
+    loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
+    PENTA_TYPES, pentaTypeById,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS, HERO_SPEED,
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
-      SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER, SHADE_WAKE_STAGGER,
+      SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
+      AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
       OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      SCORCH_RADIUS, SCORCH_MAX,
     },
   };
 } else {
