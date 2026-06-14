@@ -268,5 +268,103 @@ ok(lb.rollWeather(1, ash).kind === "still", "night 1 is still in any city");
 const drown = lb.levelById("drowned");
 ok(["still", "wind", "rain"].includes(lb.rollWeather(5, drown).kind), "a city rolls a valid sky");
 
+// 17. Terrain: barriers reshape the map. A canal damps the fire that crosses it;
+// a wall damps it harder AND severs the dawn's flood-fill and the avatar's path.
+const tNodes = [
+  { x: 100, y: 100 }, { x: 300, y: 100 }, // a pair straddling x=200
+].map((p, id) => ({ id, x: p.x, y: p.y, kind: "dwelling" }));
+const plainCity = lb.finalizeCity(tNodes.map((n) => ({ ...n })), []);
+const canalCity = lb.finalizeCity(tNodes.map((n) => ({ ...n })), [{ x1: 200, y1: 0, x2: 200, y2: 400 }]);
+const wallCity = lb.finalizeCity(tNodes.map((n) => ({ ...n })), [{ x1: 200, y1: 0, x2: 200, y2: 400, wall: true }]);
+ok(canalCity.edges[0].conductivity < plainCity.edges[0].conductivity, "a canal damps the fire that crosses it");
+ok(wallCity.edges[0].conductivity < canalCity.edges[0].conductivity, "a wall damps it harder than a canal");
+
+// segIntersect / closestOnSegment sanity
+ok(lb.segIntersect(0, 0, 10, 0, 5, -5, 5, 5), "segIntersect: crossing segments cross");
+ok(!lb.segIntersect(0, 0, 10, 0, 0, 5, 10, 5), "segIntersect: parallel segments do not");
+ok(Math.abs(lb.closestOnSegment(5, 5, 0, 0, 10, 0).d - 5) < 1e-9, "closestOnSegment finds the perpendicular foot");
+
+// wallBetween reads the run's walls: true across a wall, false across a canal.
+const gWall = lb.freshGame(lb.levelById("glassworks"));
+ok(gWall.barriers.length > 0 && gWall.barriers.some((b) => b.wall), "the walled city carries its walls");
+const aw = { x: 470, y: 400 }, bw = { x: 560, y: 400 }; // straddle the Glassworks wall near x~500
+gWall.nodes[0].x = aw.x; gWall.nodes[0].y = aw.y;
+gWall.nodes[1].x = bw.x; gWall.nodes[1].y = bw.y;
+ok(lb.wallBetween(gWall, 0, 1), "wallBetween is true across a wall");
+const gCanal = lb.freshGame(lb.levelById("drowned"));
+ok(gCanal.barriers.length > 0 && gCanal.barriers.every((b) => !b.wall), "the drowned city carries only canals");
+gCanal.nodes[0].x = 100; gCanal.nodes[0].y = 540;
+gCanal.nodes[1].x = 100; gCanal.nodes[1].y = 640; // straddle a canal — but it is no wall
+ok(!lb.wallBetween(gCanal, 0, 1), "wallBetween is false across a canal");
+
+// The core proof: a node lit behind a wall, with no awakened soul on its side,
+// fades at dawn — while the identical geometry without the wall survives.
+function dawnAcross(barriers) {
+  const nodes = [{ id: 0, x: 100, y: 400 }, { id: 1, x: 300, y: 400 }].map((p) => ({
+    id: p.id, x: p.x, y: p.y, px: p.x, py: p.y, kind: "dwelling",
+    state: "dark", brightness: 0, revealed: true, heat: 0, veil: 0, decoy: 0, nights: 0, district: 0,
+  }));
+  const city = lb.finalizeCity(nodes, barriers);
+  const g = { ...lb.freshGame(), nodes: city.nodes, edges: city.edges, adj: city.adj, barriers };
+  lb.awaken(g, 0);          // a soul on the LEFT only
+  lb.kindle(g, 1);          // a bare light on the RIGHT
+  lb.applyDawn(g);
+  return g.nodes[1].state;  // does the right-hand light survive?
+}
+ok(dawnAcross([]) === "lit", "without a wall, a connected light survives the dawn");
+ok(dawnAcross([{ x1: 200, y1: 0, x2: 200, y2: 800, wall: true }]) === "dark", "a wall severs the dawn — the far light fades");
+
+// pushOut shoves a body off a wall, and is a no-op away from one.
+const gp = lb.freshGame(lb.levelById("glassworks"));
+const onWall = lb.pushOut(gp, 500, 400, 14); // near the Glassworks wall at x~500..540
+ok(Math.hypot(onWall.x - 500, onWall.y - 400) > 0, "pushOut moves a body off a wall");
+const gpClear = lb.freshGame(); // The Old City has no barriers
+const clear = lb.pushOut(gpClear, 500, 400, 14);
+ok(clear.x === 500 && clear.y === 400, "pushOut is a no-op where there are no walls");
+
+// 18. Perks: a meta-layer that bends the carrier's dials, resolved via perkMods.
+const gBare = lb.freshGame();
+const baseMods = lb.perkMods(gBare);
+ok(baseMods.startFlameBonus === 0 && baseMods.keeperRadiusMul === 1, "a bare flame resolves to default dials");
+gBare.perk = "dim-watch";
+ok(lb.perkMods(gBare).keeperRadiusMul < 1 && lb.perkMods(gBare).startFlameBonus < 0, "a tradeoff perk applies both its plus and its minus");
+
+// deep-lungs raises the flame a night begins with.
+const ash18 = lb.levelById("ashfold");
+const plainFlame = lb.freshGame(ash18, "").maxFlame;
+ok(lb.freshGame(ash18, "deep-lungs").maxFlame === plainFlame + 2, "deep-lungs swells the starting flame");
+
+// dim-watch shrinks the keeper's sensed ring.
+const gDim = lb.freshGame(lb.levelById("glassworks"), "dim-watch");
+const gNorm = lb.freshGame(lb.levelById("glassworks"), "");
+const kd = gDim.nodes.find((n) => n.kind === "keeper");
+const kn = gNorm.nodes.find((n) => n.kind === "keeper");
+ok(lb.keeperRadius(gDim, kd) < lb.keeperRadius(gNorm, kn) * 1.001, "dim-watch quiets the watch's reach");
+
+// 19. Embers: recordRun banks a capped amount and persists it; perks buy from it.
+store.delete("lightbringer.legacy.v1");
+const gE = lb.freshGame();
+gE.night = 3;
+const aE = gE.nodes.find((n) => n.kind === "dwelling" && n.state === "dark");
+lb.awaken(gE, aE.id);
+const rE = lb.recordRun(gE);
+ok(typeof rE.earned === "number" && rE.earned > 0, `recordRun banks embers (${rE.earned})`);
+ok(rE.earned <= 12, "embers are capped per run");
+ok(lb.loadLegacy().embers === rE.earned, "the embers persist to the legacy");
+
+// saveLegacy round-trips ownership and the equipped perk.
+const lg = lb.loadLegacy();
+lg.embers = 50; lg.perksOwned = ["deep-lungs"]; lg.perkEquipped = "deep-lungs";
+lb.saveLegacy(lg);
+const lg2 = lb.loadLegacy();
+ok(lg2.embers === 50 && lg2.perksOwned.includes("deep-lungs") && lg2.perkEquipped === "deep-lungs", "saveLegacy round-trips embers and owned perks");
+// loadGame re-derives the equipped perk from the legacy (no save bump).
+const gPk = lb.freshGame();
+lb.saveGame(gPk);
+ok(lb.loadGame().g.perk === "deep-lungs", "loadGame re-derives the equipped perk from the legacy");
+// an unowned equipped id is rejected on load (defends against tampering).
+const lg3 = lb.loadLegacy(); lg3.perkEquipped = "not-a-perk"; lb.saveLegacy(lg3);
+ok(lb.loadLegacy().perkEquipped === "", "an unowned/unknown equipped perk falls back to bare flame");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
