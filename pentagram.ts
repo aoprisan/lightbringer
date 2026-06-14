@@ -995,10 +995,13 @@ function render(s: PgState, layer: SVGGElement): void {
   for (const e of s.shades) {
     if (e.dead) continue;
     const op = e.state === "chase" ? 1 : 0.55;
-    // Fresh blow: the shade recoils brighter and a white burst flares over it,
-    // fading across SHADE_HIT_MS. Reads at a glance that the sigil is biting.
+    // Fresh blow: the shade recoils brighter and a burst flares over it, fading
+    // across SHADE_HIT_MS. Each sigil's hit reads in its own colour and shape —
+    // Vigil's warm pop, the Pyre's hungry double-flare, the Quick Ember's snappy
+    // spark, the Wrath's hollow violet ring — so the bite matches the brand.
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / SHADE_HIT_MS) : 0;
-    const sz = 44 * (1 + 0.18 * flash); // a small recoil pop on impact
+    const recoil = flash * (s.type.power === "chain" ? 0.26 : s.type.power === "scorch" ? 0.12 : 0.18);
+    const sz = 44 * (1 + recoil); // a small recoil pop on impact, leaned per sigil
     if (shadeKey) {
       layer.appendChild(spriteImage(shadeKey, e.x, e.y, sz, op));
     } else {
@@ -1010,11 +1013,34 @@ function render(s: PgState, layer: SVGGElement): void {
       }));
     }
     if (flash > 0) {
-      layer.appendChild(el("circle", {
-        cx: e.x, cy: e.y, r: SHADE_RADIUS * (0.9 + 0.5 * (1 - flash)),
-        fill: "#fff6e0", opacity: 0.7 * flash,
-        ...(LOW_FX ? {} : { filter: "url(#bloom)" }),
-      }));
+      const grow = 1 - flash; // 0 at impact → 1 as it fades, so the burst expands
+      const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+      if (s.type.power === "nova") {
+        // Wrath: a hollow violet ring erupting outward — echoes its nova.
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS * (0.8 + 1.0 * grow),
+          fill: "none", stroke: s.type.ring, "stroke-width": 3,
+          opacity: 0.8 * flash, ...fx,
+        }));
+      } else if (s.type.power === "chain") {
+        // Pyre: a hungry double-flare — a bright core inside a wider ring.
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS * (0.9 + 0.7 * grow),
+          fill: "none", stroke: s.type.ring, "stroke-width": 3, opacity: 0.7 * flash, ...fx,
+        }));
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS * (0.7 + 0.3 * grow),
+          fill: s.type.star, opacity: 0.75 * flash, ...fx,
+        }));
+      } else {
+        // Vigil & Quick Ember: a filled burst in the sigil's bright hue. The
+        // Ember's is tighter and snappier, the Vigil's a softer warm pop.
+        const tight = s.type.power === "scorch";
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS * (tight ? 0.7 + 0.35 * grow : 0.9 + 0.5 * grow),
+          fill: s.type.star, opacity: (tight ? 0.8 : 0.7) * flash, ...fx,
+        }));
+      }
     }
     if (e.state === "chase" && e.hp < e.maxHp) {
       const bw = 30, frac = Math.max(0, e.hp / e.maxHp);
