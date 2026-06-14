@@ -681,15 +681,27 @@ const FRESCOES: string[] = [
   "Two flames see farther than one, and fear each other less.",
 ];
 
-// A few frescoes have painted art (the rest reveal as text alone), reusing the
-// parent's jpgs — already in sw.js ASSETS, so they show offline too. Keyed by
-// index into FRESCOES, matching app.ts.
+// Each fresco can carry painted art (`art/fresco-*.jpg`), reusing the parent's
+// jpgs; a line whose art is not generated yet shows text alone. Drop-in — the
+// corner card only reveals the image once it actually loads. Matches app.ts.
 const FRESCO_ART: Record<number, string> = {
   0: "art/fresco-sun.jpg",
+  1: "art/fresco-mercy.jpg",
+  2: "art/fresco-prayer.jpg",
   3: "art/fresco-veil.jpg",
   4: "art/fresco-press.jpg",
   5: "art/fresco-child.jpg",
+  6: "art/fresco-window.jpg",
+  7: "art/fresco-carrier.jpg",
+  8: "art/fresco-passing.jpg",
+  9: "art/fresco-wick.jpg",
   10: "art/fresco-morning.jpg",
+  11: "art/fresco-lamps.jpg",
+  12: "art/fresco-secret.jpg",
+  13: "art/fresco-scrape.jpg",
+  14: "art/fresco-windows.jpg",
+  15: "art/fresco-ember.jpg",
+  16: "art/fresco-two-flames.jpg",
 };
 
 function maybeFresco(s: PgState, n: ArenaNode): void {
@@ -1245,6 +1257,9 @@ function start(): void {
   const cityEl = byId("cityname");
   const sigilEl = byId("sigil");
   const toastEl = byId("toast");
+  const frescoCard = byId("fresco");
+  const frescoImg = byId("fresco-img") as HTMLImageElement;
+  const frescoCap = byId("fresco-cap");
   const stickEl = byId("stick");
   const stickKnob = byId("stick-knob");
 
@@ -1455,32 +1470,32 @@ function start(): void {
 
     if (s.phase === "won") { running = false; onWin(); return; }
     if (s.phase === "lost") { running = false; onLost(); return; }
-    // A fresco uncovered this frame freezes the descent until the carrier reads it.
-    if (s.pendingFresco) {
-      const text = s.pendingFresco;
-      s.pendingFresco = null;
-      running = false;
-      showFresco(text);
-      return;
-    }
+    // A fresco uncovered this frame drifts into the corner — it never pauses the
+    // descent (that killed the flow); it lingers, then fades on its own.
+    if (s.pendingFresco) { showFresco(s.pendingFresco); s.pendingFresco = null; }
     requestAnimationFrame(pgFrame);
   }
 
-  // A revealed fresco pauses the fight (the overlay is modal, so input is frozen)
-  // and shows the painted fragment; "Carry on" resumes the descent where it stood.
-  function resumeFight(): void {
-    if (!s || s.phase !== "fight" || running) return;
-    hideOverlay();
-    running = true; lastFrame = 0; // reset dt so the pause doesn't lurch the fight
-    requestAnimationFrame(pgFrame);
-  }
+  // A revealed fresco: a small illuminated card in the corner that does NOT pause
+  // the fight. The painting is drop-in — reveal the image only once it loads, so a
+  // not-yet-generated jpg shows as text alone rather than a broken frame. It
+  // ignores pointer events (never eats a move) and fades on its own timer.
+  let frescoTimer: number | undefined;
   function showFresco(text: string): void {
     const idx = FRESCOES.indexOf(text);
     const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
-    const img = art
-      ? `<img src="${art}" alt="" decoding="async" style="display:block;width:100%;max-width:420px;border-radius:6px;margin:0 auto 16px;">`
-      : "";
-    showOverlay("Beneath the whitewash", `${img}<em>${text}</em>`, "Carry on", resumeFight);
+    frescoCap.textContent = text;
+    frescoImg.hidden = true;
+    if (art) {
+      frescoImg.onload = (): void => { frescoImg.hidden = false; };
+      frescoImg.onerror = (): void => { frescoImg.hidden = true; };
+      frescoImg.src = art;
+    } else {
+      frescoImg.removeAttribute("src");
+    }
+    frescoCard.classList.add("show");
+    if (frescoTimer) window.clearTimeout(frescoTimer);
+    frescoTimer = window.setTimeout(() => frescoCard.classList.remove("show"), 6500);
   }
 
   function startCity(level: LevelDef): void {

@@ -133,6 +133,33 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* A revealed fresco — a small illuminated card tucked in the corner. It does
+     NOT pause the descent: it fades in, lingers, and fades on its own, and
+     ignores pointer events so it never swallows a move. */
+  #fresco {
+    position: fixed; left: calc(14px + env(safe-area-inset-left));
+    bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 6;
+    width: 236px; max-width: 62vw;
+    padding: 11px 13px; border-radius: 3px;
+    background: linear-gradient(180deg, rgba(17,20,42,0.94), rgba(8,10,20,0.94));
+    border: 1px solid rgba(255,106,60,0.32);
+    box-shadow: 0 0 30px rgba(255,106,60,0.16);
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  #fresco.show { opacity: 1; transform: translateY(0); }
+  #fresco figure { margin: 0; }
+  #fresco img { display: block; width: 100%; height: auto; border-radius: 2px; margin-bottom: 9px; }
+  #fresco img[hidden] { display: none; }
+  #fresco .eyebrow {
+    display: block; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-dim); opacity: 0.85; margin-bottom: 5px;
+  }
+  #fresco figcaption {
+    font-style: italic; font-size: 12.5px; line-height: 1.5;
+    color: var(--gold-bright); letter-spacing: 0.02em;
+  }
+
   #help {
     position: fixed; bottom: calc(18px + env(safe-area-inset-bottom)); left: 0; right: 0; z-index: 4;
     text-align: center; font-size: 11.5px; letter-spacing: 0.06em; line-height: 1.6;
@@ -283,6 +310,13 @@
   <div id="stick"><div id="stick-knob"></div></div>
 
   <div id="toast"></div>
+
+  <div id="fresco">
+    <figure>
+      <img id="fresco-img" alt="" decoding="async" hidden>
+      <figcaption><span class="eyebrow">Beneath the whitewash</span><span id="fresco-cap"></span></figcaption>
+    </figure>
+  </div>
 
   <div id="help">Move with the joystick or WASD to dodge and weave around the presses and shrines. The shades lurk until you come near — stand still to inscribe the pentagram, which burns them and lights the dark dwellings around you. Clear a city to bank embers, and spend them on new sigils.</div>
 

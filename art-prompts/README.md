@@ -18,6 +18,18 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `06c-fresco-child-and-candle.txt` | Fresco — child reaching for a candle |
 | `06d-fresco-veil-curtain.txt` | Fresco — veil as a lifted curtain |
 | `06e-fresco-sunrise.txt` | Fresco — sunrise over a sleeping city |
+| `06f-fresco-mercy-veiled-candle.txt` | Fresco — mercy as a veiled candle (`art/fresco-mercy.jpg`) |
+| `06g-fresco-prayer-to-the-morning-star.txt` | Fresco — prayer to the morning star (`art/fresco-prayer.jpg`) |
+| `06h-fresco-the-one-lit-window.txt` | Fresco — the one lit window (`art/fresco-window.jpg`) |
+| `06i-fresco-the-carrier-burns.txt` | Fresco — the carrier burns (`art/fresco-carrier.jpg`) |
+| `06j-fresco-the-passing-of-the-flame.txt` | Fresco — the passing of the flame (`art/fresco-passing.jpg`) |
+| `06k-fresco-oil-and-wick.txt` | Fresco — a rumour is oil, a name a wick (`art/fresco-wick.jpg`) |
+| `06l-fresco-the-lamps-kept-low.txt` | Fresco — the lamps kept low (`art/fresco-lamps.jpg`) |
+| `06m-fresco-a-lamp-lit-in-secret.txt` | Fresco — a lamp lit in secret (`art/fresco-secret.jpg`) |
+| `06n-fresco-scraped-whitewash.txt` | Fresco — the scraped whitewash (`art/fresco-scrape.jpg`) |
+| `06o-fresco-windows-answering.txt` | Fresco — the windows that answered (`art/fresco-windows.jpg`) |
+| `06p-fresco-the-remembered-ember.txt` | Fresco — the remembered ember (`art/fresco-ember.jpg`) |
+| `06q-fresco-two-flames.txt` | Fresco — two flames (`art/fresco-two-flames.jpg`) |
 | `07a-texture-vellum-whitewash.txt` | Texture — vellum / whitewash grain |
 | `07b-texture-ink-veil.txt` | Texture — ink veil (thickening dark) |
 | `08a-city-old.txt` | City card — The Old City (`art/city-old.jpg`) |
