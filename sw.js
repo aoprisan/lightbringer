@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v43";
+const CACHE = "lightbringer-v44";
 
 const ASSETS = [
   "./",
@@ -45,6 +45,16 @@ const ASSETS = [
   "./art/flame-spark.png",
   "./art/rain-overlay.png",
   "./art/wind-overlay.png",
+  // Per-city sprite re-skins (spriteFor falls back to the base set when absent).
+  // Ashfold: ground + four dwelling states + conduit + press + shrine.
+  "./art/ashfold/ground.png",
+  "./art/ashfold/dwelling-dark.png",
+  "./art/ashfold/dwelling-lit.png",
+  "./art/ashfold/dwelling-awakened.png",
+  "./art/ashfold/dwelling-snuffed.png",
+  "./art/ashfold/conduit.png",
+  "./art/ashfold/press.png",
+  "./art/ashfold/shrine.png",
 ];
 
 self.addEventListener("install", (event) => {

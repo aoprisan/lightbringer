@@ -15,3 +15,7 @@ art/prompts/*.png
 # Full-res city establishing-art generations (~7.5MB each). The shipped,
 # optimized versions live in art/city-*.jpg; the source PNGs are local-only.
 art-prompts/city-*.png
+
+# Full-res per-city sprite generations (~6MB each). tools/process-city-sprites.py
+# turns these into the shipped art/<city>/*.png; the 2048px sources are local-only.
+art-prompts/*/*.png
