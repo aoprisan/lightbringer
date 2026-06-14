@@ -37,11 +37,19 @@ interface PentaType {
   id: string; name: string; desc: string; cost: number;
   radiusMul: number; chargeMul: number; pulseMul: number; dmgMul: number;
   power: PentaPower;
+  ring: string;  // signature glow/ring hue — each sigil reads at a glance
+  star: string;  // the star polygon's stroke hue
 }
 
 // A scorched patch of ground the Quick Ember leaves behind — burns shades that
 // stand on it until it cools. Live-play terrain, never persisted.
 interface Scorch { x: number; y: number; until: number }
+
+// Transient signature effects, drawn then faded — never persisted (no mid-combat
+// save anyway). An Arc is the Pyre's chain spark hopping from a kill to a nearby
+// shade; a Nova is the Wrath's expanding eruption ring on a full inscription.
+interface Arc { x1: number; y1: number; x2: number; y2: number; until: number }
+interface Nova { x: number; y: number; r: number; until: number }
 
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
@@ -90,6 +98,8 @@ interface PgState {
   fxPulse: number;
   fxDmg: number;
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
+  novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
   novaFired: boolean;    // has the Wrath's nova fired for this charge-up
   pulseAcc: number; // ms accumulated toward the next damage pulse
   elapsed: number;  // ms since the descent began (clear time)
@@ -187,6 +197,8 @@ const SCORCH_DPS = 26;           // …damage per second to shades standing on i
 const SCORCH_RADIUS = 60;        // …reach of a burnt patch
 const SCORCH_MAX = 6;            // …cap on simultaneous patches
 const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
+const ARC_MS = 180;              // Pyre: how long a chain spark stays drawn
+const NOVA_FX_MS = 320;          // Wrath: how long the eruption ring expands/fades
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -199,21 +211,25 @@ const PENTA_TYPES: PentaType[] = [
     id: "vigil", name: "The Vigil", cost: 0,
     desc: "The steady sigil you began with. No lean, no trick — even reach, even bite.",
     radiusMul: 1, chargeMul: 1, pulseMul: 1, dmgMul: 1, power: "none",
+    ring: "#ff6a3c", star: "#ffd87a", // the original warm flame
   },
   {
     id: "pyre", name: "The Pyre", cost: 120,
     desc: "A wide, hungry ring that bites harder but inscribes slower. A kill arcs to the shades around it.",
     radiusMul: 1.25, chargeMul: 1.3, pulseMul: 1, dmgMul: 1.15, power: "chain",
+    ring: "#ff3a1c", star: "#ffb24a", // deep, hungry red
   },
   {
     id: "ember", name: "The Quick Ember", cost: 160,
     desc: "A tight, fast sigil — short reach, rapid pulses — that leaves scorched ground burning behind you.",
     radiusMul: 0.8, chargeMul: 0.7, pulseMul: 0.7, dmgMul: 0.85, power: "scorch",
+    ring: "#ffb347", star: "#fff0b0", // bright, quick amber-white
   },
   {
     id: "wrath", name: "The Wrath", cost: 240,
     desc: "When fully inscribed it erupts, hurling the swarm back in a searing nova.",
     radiusMul: 1.05, chargeMul: 1.1, pulseMul: 1.1, dmgMul: 1, power: "nova",
+    ring: "#b46cff", star: "#f0d8ff", // searing violet
   },
 ];
 
@@ -453,7 +469,7 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], novaFired: false,
+    scorch: [], arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0,
@@ -602,6 +618,7 @@ function stepPentagram(s: PgState, dt: number): void {
           if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
             e.state = "chase";
             e.hp -= cdmg;
+            s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
             if (e.hp <= 0) kill(e);
           }
         }
@@ -672,11 +689,16 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
           e.x = p.x; e.y = p.y;
         }
       }
+      s.novas.push({ x: h.x, y: h.y, r: s.fxRadius, until: s.elapsed + NOVA_FX_MS });
       s.novaFired = true;
     } else if (s.penta.charge < 0.5) {
       s.novaFired = false;
     }
   }
+
+  // Retire spent cosmetic FX (cheap; only when any are live).
+  if (s.arcs.length) s.arcs = s.arcs.filter((a) => a.until > s.elapsed);
+  if (s.novas.length) s.novas = s.novas.filter((n) => n.until > s.elapsed);
 
   // Contact: a shade on the hero, outside i-frames, bites and is shoved off.
   if (h.hurt <= 0) {
@@ -850,7 +872,31 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
     layer.appendChild(el("circle", {
       cx: p.x, cy: p.y, r: SCORCH_RADIUS, fill: "none",
-      stroke: "#ff7a3c", "stroke-width": 1.5, opacity: 0.35 * life,
+      stroke: s.type.ring, "stroke-width": 1.5, opacity: 0.35 * life,
+    }));
+  }
+
+  // Chain sparks (Pyre) — a quick bolt drawn from each kill to the shade it
+  // arced to, fading over ARC_MS.
+  for (const a of s.arcs) {
+    const life = Math.max(0, (a.until - s.elapsed) / ARC_MS);
+    if (life <= 0) continue;
+    layer.appendChild(el("line", {
+      x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+      stroke: s.type.star, "stroke-width": 2.4, "stroke-linecap": "round",
+      opacity: 0.85 * life, filter: "url(#glow)",
+    }));
+  }
+
+  // Eruption rings (Wrath) — an expanding ring that thins as it fades over
+  // NOVA_FX_MS, marking where the swarm was hurled back.
+  for (const n of s.novas) {
+    const life = Math.max(0, (n.until - s.elapsed) / NOVA_FX_MS);
+    if (life <= 0) continue;
+    layer.appendChild(el("circle", {
+      cx: n.x, cy: n.y, r: n.r * (1.0 + (1 - life) * 0.6),
+      fill: "none", stroke: s.type.ring, "stroke-width": 3 + 5 * life,
+      opacity: 0.6 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
     }));
   }
 
@@ -922,16 +968,16 @@ function render(s: PgState, layer: SVGGElement): void {
     const op = 0.25 + 0.65 * s.penta.charge;
     layer.appendChild(el("circle", { cx: h.x, cy: h.y, r, fill: "url(#penta)", opacity: op * 0.6 }));
     layer.appendChild(el("circle", {
-      cx: h.x, cy: h.y, r, fill: "none", stroke: "#ff6a3c", "stroke-width": 2,
+      cx: h.x, cy: h.y, r, fill: "none", stroke: s.type.ring, "stroke-width": 2,
       opacity: op, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
     }));
     layer.appendChild(el("path", {
       d: pentagramPath(h.x, h.y, r * 0.92, s.penta.angle),
-      fill: "none", stroke: "#ffd87a", "stroke-width": 2.6, "stroke-linejoin": "round",
+      fill: "none", stroke: s.type.star, "stroke-width": 2.6, "stroke-linejoin": "round",
       opacity: op, filter: "url(#glow)",
     }));
     layer.appendChild(el("circle", {
-      cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: "#ff8a4c",
+      cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: s.type.ring,
       "stroke-width": 1, opacity: op * 0.7,
     }));
   }
@@ -1081,6 +1127,7 @@ function start(): void {
   const foesEl = byId("foes");
   const lightsEl = byId("lights");
   const cityEl = byId("cityname");
+  const sigilEl = byId("sigil");
   const toastEl = byId("toast");
   const stickEl = byId("stick");
   const stickKnob = byId("stick-knob");
@@ -1233,6 +1280,8 @@ function start(): void {
     foesEl.textContent = foes;
     lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
     cityEl.textContent = s.level.name;
+    sigilEl.textContent = s.type.name;
+    sigilEl.style.color = s.type.star;
   }
 
   // ----- Overlays -----
@@ -1391,7 +1440,7 @@ function start(): void {
       const verb = act === "equip" ? "Equip" : act === "unlock" ? "Unlock" : equipped ? "Equipped" : "Locked";
       html +=
         `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-act="${act}"${disabled ? " disabled" : ""}>` +
-        `<span class="city-name">${t.name}${badge}</span>` +
+        `<span class="city-name"><span class="ptype-swatch" style="background:${t.star};box-shadow:0 0 6px ${t.ring}"></span>${t.name}${badge}</span>` +
         `<span class="city-line">${t.desc}</span>` +
         `<span class="ptype-verb">${verb}</span></button>`;
     }
