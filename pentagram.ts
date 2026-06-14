@@ -1831,6 +1831,9 @@ function start(): void {
   const cityEl = byId("cityname");
   const sigilEl = byId("sigil");
   const toastEl = byId("toast");
+  const frescoEl = byId("fresco");
+  const frescoImg = byId("fresco-img") as HTMLImageElement;
+  const frescoCap = byId("fresco-cap");
   const stickEl = byId("stick");
   const stickKnob = byId("stick-knob");
 
@@ -2103,14 +2106,10 @@ function start(): void {
 
     if (s.phase === "won") { running = false; onWin(); return; }
     if (s.phase === "lost") { running = false; onLost(); return; }
-    // A fresco uncovered this frame freezes the descent until the carrier reads it.
-    if (s.pendingFresco) {
-      const text = s.pendingFresco;
-      s.pendingFresco = null;
-      running = false;
-      showFresco(text);
-      return;
-    }
+    // A fresco uncovered this frame surfaces as a small, quiet card (art) or a
+    // toast (text) — the descent keeps running, so an action fight is never frozen
+    // mid-swarm. It fades on its own.
+    if (s.pendingFresco) { revealFresco(s.pendingFresco); s.pendingFresco = null; }
     requestAnimationFrame(pgFrame);
   }
 
@@ -2123,27 +2122,28 @@ function start(): void {
     showToast("The Veilwarden rises. Trace its seal with your finger — follow the glowing glyph end to end; a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
   }
 
-  // A revealed fresco pauses the fight (the overlay is modal, so input is frozen)
-  // and shows the painted fragment; "Carry on" resumes the descent where it stood.
-  function resumeFight(): void {
-    if (!s || s.phase !== "fight" || running) return;
-    hideOverlay();
-    running = true; lastFrame = 0; // reset dt so the pause doesn't lurch the fight
-    requestAnimationFrame(pgFrame);
-  }
-  function showFresco(text: string): void {
+  // A revealed fresco surfaces without halting the descent: a painted fragment gets
+  // a small, quiet illuminated card; a plain one falls back to a toast — mirroring
+  // the parent. Both fade on their own and never eat the joystick (pointer-events:
+  // none), so the action runs on underneath. (No freeze: an action fight can't be
+  // modal-paused mid-swarm.)
+  let frescoTimer: ReturnType<typeof setTimeout> | undefined;
+  function revealFresco(text: string): void {
     const idx = FRESCOES.indexOf(text);
     const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
-    const img = art
-      ? `<img src="${art}" alt="" decoding="async" style="display:block;width:100%;max-width:420px;border-radius:6px;margin:0 auto 16px;">`
-      : "";
-    showOverlay("Beneath the whitewash", `${img}<em>${text}</em>`, "Carry on", resumeFight);
+    if (!art) { showToast(text); return; }
+    frescoImg.src = art;
+    frescoCap.textContent = text;
+    frescoEl.classList.add("show");
+    clearTimeout(frescoTimer);
+    frescoTimer = setTimeout(() => frescoEl.classList.remove("show"), 6000);
   }
 
   function startCity(level: LevelDef): void {
     s = buildArena(level);
     loadCitySprites(level.id, repaint);
     hideOverlay();
+    clearTimeout(frescoTimer); frescoEl.classList.remove("show"); // no card lingers into a new run
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();

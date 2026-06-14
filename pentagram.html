@@ -133,6 +133,26 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* A revealed fresco — a small painted fragment surfacing through the whitewash.
+     Non-blocking (pointer-events: none) so the descent runs on underneath, and it
+     fades on its own. Deliberately small: a quiet aside, not a modal. */
+  #fresco {
+    position: fixed; left: 50%; bottom: calc(58px + env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(8px); z-index: 7; margin: 0;
+    width: 190px; max-width: 56vw; text-align: center;
+    opacity: 0; pointer-events: none; transition: opacity .6s ease, transform .6s ease;
+  }
+  #fresco.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #fresco-img {
+    width: 100%; height: auto; display: block; border-radius: 2px;
+    border: 1px solid rgba(232,179,75,0.3);
+    box-shadow: 0 0 30px rgba(232,179,75,0.16), 0 8px 26px rgba(0,0,0,0.6);
+  }
+  #fresco-cap {
+    margin-top: 9px; font-style: italic; font-size: 12px; line-height: 1.5;
+    color: var(--gold-bright); letter-spacing: 0.02em; text-shadow: 0 0 12px rgba(232,179,75,0.3);
+  }
+
   #help {
     position: fixed; bottom: calc(18px + env(safe-area-inset-bottom)); left: 0; right: 0; z-index: 4;
     text-align: center; font-size: 11.5px; letter-spacing: 0.06em; line-height: 1.6;
@@ -283,6 +303,11 @@
   <div id="stick"><div id="stick-knob"></div></div>
 
   <div id="toast"></div>
+
+  <figure id="fresco">
+    <img id="fresco-img" alt="" decoding="async">
+    <figcaption id="fresco-cap"></figcaption>
+  </figure>
 
   <div id="help">Move with the joystick or WASD to dodge and weave around the presses and shrines. The shades lurk until you come near — stand still to inscribe the pentagram, which burns them and lights the dark dwellings around you. Clear a city to bank embers, and spend them on new sigils.</div>
 
