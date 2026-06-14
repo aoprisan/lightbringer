@@ -95,7 +95,7 @@ ok(s5.shades.every((e) => e.dead), "all shades fall when stacked on the sigil");
 ok(s5.phase === "boss" && s5.boss && s5.boss.hp > 0, "clearing the host raises the Veilwarden");
 ok(pg.clearedPct(s5) === 1, "cleared percentage reaches 100%");
 // Trace the pentagram cleanly until the warden falls.
-const stroke5 = perfectStroke(pg.pentagramSegments(s5.boss.cx, s5.boss.cy, s5.boss.r, 0));
+const stroke5 = perfectStroke(pg.sealSegments(s5.boss.seal));
 let g5 = 0;
 while (s5.phase === "boss" && g5++ < 20) pg.submitTrace(s5, stroke5);
 ok(s5.phase === "won", "tracing the warden down wins the descent");
@@ -383,7 +383,7 @@ pg.startBoss(sb);
 const expectHp = Math.round(K.BOSS_HP * pg.difficultyMult(pg.levelById("vesper")));
 ok(sb.phase === "boss" && sb.boss.maxHp === expectHp, `startBoss raises a city-scaled warden (${sb.boss.maxHp})`);
 // A perfect trace deals near the full BOSS_TRACE_DMG; a sloppy one far less.
-const segB = pg.pentagramSegments(sb.boss.cx, sb.boss.cy, sb.boss.r, 0);
+const segB = pg.sealSegments(sb.boss.seal);
 const hpA = sb.boss.hp;
 const qPerf = pg.submitTrace(sb, perfectStroke(segB));
 ok(qPerf > 0.85 && hpA - sb.boss.hp > K.BOSS_TRACE_DMG * 0.8, `a clean trace burns the warden deep (q=${qPerf.toFixed(2)})`);
@@ -402,10 +402,34 @@ ok(sb2.phase === "lost", "the warden wears an exhausted hero down to a fall");
 // The drawn template and the scorer share geometry: a perfect trace clears full health.
 const sb3 = pg.buildArena(pg.levelById("old-city"));
 pg.startBoss(sb3);
-const strokeB3 = perfectStroke(pg.pentagramSegments(sb3.boss.cx, sb3.boss.cy, sb3.boss.r, 0));
+const strokeB3 = perfectStroke(pg.sealSegments(sb3.boss.seal));
 let g3 = 0;
 while (sb3.phase === "boss" && g3++ < 30) pg.submitTrace(sb3, strokeB3);
 ok(sb3.phase === "won", "enough clean traces break the warden");
+
+// 22. Goetic seals — each warden's seal is a unique, deterministic line-glyph;
+//     it rebuilds identically from the city id and a perfect trace scores high.
+const sealA1 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
+const sealA2 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
+const sealB1 = pg.makeSeal(0, 0, 150, pg.hashSeed("vesper"));
+ok(sealA1.spine.length >= K.SEAL_NODES_MIN && sealA1.spine.length <= K.SEAL_NODES_MAX,
+  `a seal's spine has ${K.SEAL_NODES_MIN}-${K.SEAL_NODES_MAX} nodes (${sealA1.spine.length})`);
+ok(JSON.stringify(sealA1.spine) === JSON.stringify(sealA2.spine),
+  "a city's seal is deterministic — it rebuilds identically");
+ok(JSON.stringify(sealA1.spine) !== JSON.stringify(sealB1.spine),
+  "different cities raise different seals");
+ok(sealA1.spine.every((p) => Math.hypot(p.x, p.y) <= 150 + 1e-6),
+  "every seal node sits within the containment circle");
+ok(pg.sealSegments(sealA1).length === sealA1.spine.length - 1, "the spine is an open polyline of segments");
+const tolS = 150 * K.TRACE_TOL_FRAC;
+ok(pg.traceScore(perfectStroke(pg.sealSegments(sealA1)), pg.sealSegments(sealA1), tolS) > 0.85,
+  "a clean trace of a seal scores high");
+// Every city's warden raises a buildable, traceable seal (no degenerate glyph).
+for (const lv of pg.LEVELS) {
+  const seal = pg.makeSeal(0, 0, 150, pg.hashSeed(lv.id));
+  const q = pg.traceScore(perfectStroke(pg.sealSegments(seal)), pg.sealSegments(seal), tolS);
+  ok(q > 0.85, `${lv.id}'s seal is cleanly traceable (q=${q.toFixed(2)})`);
+}
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

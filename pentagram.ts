@@ -99,15 +99,31 @@ interface Penta {
 }
 
 // The Veilwarden — the city's master Keeper, risen for the turn-based duel after
-// the host falls. There is no kiting here: a pentagram template glows over the
-// warden and the carrier TRACES it with a finger to burn it. A clean, complete
-// trace bites deep; a sloppy one barely marks it. The warden snuffs on a cadence,
-// draining the carrier's flame, so the duel is a race. (A first cut — see the
-// BOSS_* tuning; the loop and balance are deliberately simple to prove the idea.)
+// the host falls. There is no kiting here: the warden's GOETIC SEAL glows over it
+// and the carrier TRACES it with a finger to bind and burn it. Each city's warden
+// has its own seal (a unique line-glyph, like the seals of the Ars Goetia),
+// generated deterministically from the city id — so it rebuilds identically and
+// reads as that warden's true name. A clean, complete trace bites deep; a sloppy
+// one barely marks it. The warden snuffs on a cadence, draining the carrier's
+// flame, so the duel is a race. (A first cut — see the BOSS_* / SEAL_* tuning.)
+
+// A warden's seal — a Goetia-style occult sigil. `spine` is the connected line
+// you trace (an open polyline, the glyph's stroke); the rest is decorative
+// flourish (containment ring, terminal nodes, a cross-bar) that reads as a seal
+// but isn't scored — only the spine is, mirroring how the pentagram's inner
+// circle was never part of the trace.
+interface Sigil {
+  cx: number; cy: number; r: number;       // containment circle, world space
+  spine: { x: number; y: number }[];       // the ordered line to trace (scored)
+  terminals: { x: number; y: number }[];   // small circles at notable points
+  bars: Segment[];                          // short cross-bars (a Goetic ending)
+}
+
 interface BossState {
   hp: number; maxHp: number;
   biteAcc: number;      // ms accumulated toward the next snuff (the warden's bite)
-  cx: number; cy: number; r: number; // the traceable template, in world space
+  cx: number; cy: number; r: number; // the seal's centre + reach, in world space
+  seal: Sigil;          // this warden's unique Goetic seal (the thing you trace)
   lastQuality: number;  // 0..1 of the most recent trace (for the toast/flash)
   flash: number;        // s.elapsed time until which it flares from a fresh trace
 }
@@ -273,6 +289,11 @@ const BOSS_BITE_DMG = 12;        // …draining this much hero HP each snuff
 const TRACE_TOL_FRAC = 0.2;      // how far off the line (× ring r) still scores
 const TRACE_MIN_POINTS = 6;      // a stroke shorter than this can't score
 const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trace
+// The warden's seal (Goetia-style glyph) — shape dials. More nodes = a more
+// intricate (harder) seal. The seal is the design surface for the duel's feel.
+const SEAL_NODES_MIN = 6;        // fewest spine nodes a seal may have
+const SEAL_NODES_MAX = 9;        // most spine nodes a seal may have
+const SEAL_INNER_FRAC = 0.62;    // inner nodes sit within this fraction of the ring
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -945,20 +966,83 @@ function traceScore(stroke: { x: number; y: number }[], segs: Segment[], tol: nu
   return +(acc * cov).toFixed(4);
 }
 
-// Raise the warden: a city-scaled health pool and a template centred on the
-// arena's heart. Flips the run into the turn-based duel.
+// A tiny seeded PRNG (mulberry32) and a string hash, so a warden's seal is a
+// pure, deterministic function of the city id — it rebuilds identically every
+// time, the way the parent's edges/districts rebuild from saved geometry.
+function hashSeed(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Build a warden's Goetic seal: a wandering, sometimes self-crossing line-glyph
+// inside a containment circle, with small terminal nodes and a cross-bar ending —
+// the look of an Ars Goetia spirit's seal, drawn from line segments (no new art).
+// `seed` (the city id hash) makes each city's seal unique but stable.
+function makeSeal(cx: number, cy: number, r: number, seed: number): Sigil {
+  const rnd = mulberry32(seed);
+  const n = SEAL_NODES_MIN + Math.floor(rnd() * (SEAL_NODES_MAX - SEAL_NODES_MIN + 1));
+  const spine: { x: number; y: number }[] = [];
+  let ang = rnd() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    // Wander the angle by a sizeable, sign-flipping step so the line turns sharply
+    // and can cross itself — the angular, asymmetric signature of a Goetic seal.
+    ang += (0.7 + rnd() * 1.7) * (rnd() < 0.5 ? 1 : -1);
+    const onRim = i === 0 || i === n - 1 || rnd() < 0.45;
+    const rad = onRim ? r * (0.84 + rnd() * 0.16) : r * (0.18 + rnd() * (SEAL_INNER_FRAC - 0.18));
+    spine.push({ x: cx + Math.cos(ang) * rad, y: cy + Math.sin(ang) * rad });
+  }
+  // Terminal nodes: small circles at both ends and the glyph's midpoint.
+  const terminals = [spine[0], spine[n - 1]];
+  if (n > 4) terminals.push(spine[Math.floor(n / 2)]);
+  // A cross-bar across the final terminal, perpendicular to the last stroke.
+  const a = spine[n - 2], b = spine[n - 1];
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len, py = dx / len, hb = r * 0.13;
+  const bars: Segment[] = [{ x1: b.x - px * hb, y1: b.y - py * hb, x2: b.x + px * hb, y2: b.y + py * hb }];
+  return { cx, cy, r, spine, terminals, bars };
+}
+
+// The seal's spine as scoreable segments (open polyline) and as an SVG path.
+function sealSegments(seal: Sigil): Segment[] {
+  const segs: Segment[] = [];
+  for (let i = 0; i < seal.spine.length - 1; i++) {
+    const a = seal.spine[i], b = seal.spine[i + 1];
+    segs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+  }
+  return segs;
+}
+function sealPath(seal: Sigil): string {
+  const p = seal.spine;
+  let d = `M${p[0].x.toFixed(1)} ${p[0].y.toFixed(1)}`;
+  for (let i = 1; i < p.length; i++) d += ` L${p[i].x.toFixed(1)} ${p[i].y.toFixed(1)}`;
+  return d;
+}
+
+// Raise the warden: a city-scaled health pool and its unique Goetic seal centred
+// on the arena's heart. Flips the run into the turn-based duel.
 function startBoss(s: PgState): void {
   const hp = Math.round(BOSS_HP * difficultyMult(s.level));
+  const cx = s.w / 2, cy = s.h / 2;
   s.boss = {
     hp, maxHp: hp, biteAcc: 0,
-    cx: s.w / 2, cy: s.h / 2, r: BOSS_RING_R,
+    cx, cy, r: BOSS_RING_R,
+    seal: makeSeal(cx, cy, BOSS_RING_R, hashSeed(s.level.id)),
     lastQuality: 0, flash: 0,
   };
   s.phase = "boss";
 }
 
 // The warden's own clock: it snuffs on a cadence, draining the carrier's flame.
-// (The carrier's answer is submitTrace — a finger-traced pentagram.) Pure sim.
+// (The carrier's answer is submitTrace — a finger-traced seal.) Pure sim.
 function stepBoss(s: PgState, dt: number): void {
   if (s.phase !== "boss" || !s.boss) return;
   s.elapsed += dt;
@@ -971,12 +1055,12 @@ function stepBoss(s: PgState, dt: number): void {
   if (s.hero.hp <= 0) { s.hero.hp = 0; s.phase = "lost"; }
 }
 
-// Score a completed finger-stroke against the warden's template and burn it for
-// that fraction of a full inscription. Returns the 0..1 quality (for the toast).
+// Score a completed finger-stroke against the warden's seal and burn it for that
+// fraction of a full inscription. Returns the 0..1 quality (for the toast).
 function submitTrace(s: PgState, stroke: { x: number; y: number }[]): number {
   if (s.phase !== "boss" || !s.boss) return 0;
   const b = s.boss;
-  const segs = pentagramSegments(b.cx, b.cy, b.r, 0);
+  const segs = sealSegments(b.seal);
   const q = traceScore(stroke, segs, b.r * TRACE_TOL_FRAC);
   b.lastQuality = q;
   b.flash = s.elapsed + TRACE_FLASH_MS;
@@ -1127,8 +1211,8 @@ const SCENERY_SIZE: Record<NodeKind, number> = {
 let bossTrace: { x: number; y: number }[] | null = null;
 
 // The warden duel's scene: the city dimmed to a backdrop, the master Keeper
-// risen at its heart under a traceable pentagram template, the carrier's live
-// stroke, the snuff telegraph, and the warden's health.
+// risen at its heart under its traceable Goetic seal, the carrier's live stroke,
+// the snuff telegraph, and the warden's health.
 function renderBossScene(s: PgState, layer: SVGGElement): void {
   const b = s.boss;
   if (!b) return;
@@ -1167,12 +1251,40 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
     transform: `rotate(-90 ${b.cx} ${b.cy})`, opacity: 0.85, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
   }));
 
-  // The traceable template — the star to draw over (dashed, glowing).
+  // The warden's Goetic seal — the thing you trace. Drawn as a containment
+  // double-ring with rim ticks (the occult-seal frame), then the glyph's spine
+  // as a dashed glowing line, its terminal nodes, and the cross-bar ending.
+  const seal = b.seal;
+  // Containment double-circle.
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: seal.r, fill: "none", stroke: "#ffd87a", "stroke-width": 1.6, opacity: 0.4 }));
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: seal.r * 0.93, fill: "none", stroke: "#ffd87a", "stroke-width": 0.8, opacity: 0.28 }));
+  // Rim ticks — short radial marks around the ring, an occult-seal flourish.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const c = Math.cos(a), sn = Math.sin(a);
+    layer.appendChild(el("line", {
+      x1: b.cx + c * seal.r * 0.93, y1: b.cy + sn * seal.r * 0.93,
+      x2: b.cx + c * seal.r, y2: b.cy + sn * seal.r,
+      stroke: "#ffd87a", "stroke-width": 0.8, opacity: 0.3,
+    }));
+  }
+  // The spine — the glyph you draw over (dashed, glowing).
   layer.appendChild(el("path", {
-    d: pentagramPath(b.cx, b.cy, b.r, 0), fill: "none",
-    stroke: "#ffd87a", "stroke-width": 2.5, "stroke-linejoin": "round",
-    "stroke-dasharray": "7 8", opacity: 0.55, filter: "url(#glow)",
+    d: sealPath(seal), fill: "none",
+    stroke: "#ffd87a", "stroke-width": 2.6, "stroke-linejoin": "round", "stroke-linecap": "round",
+    "stroke-dasharray": "7 8", opacity: 0.6, filter: "url(#glow)",
   }));
+  // Cross-bars — the Goetic ending strokes.
+  for (const bar of seal.bars) {
+    layer.appendChild(el("line", {
+      x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+      stroke: "#ffd87a", "stroke-width": 2.2, "stroke-linecap": "round", opacity: 0.55, filter: "url(#glow)",
+    }));
+  }
+  // Terminal nodes — small circles marking the glyph's notable points.
+  for (const t of seal.terminals) {
+    layer.appendChild(el("circle", { cx: t.x, cy: t.y, r: 5, fill: "none", stroke: "#ffe9b0", "stroke-width": 1.6, opacity: 0.65 }));
+  }
 
   // The carrier's live finger-stroke, burning along behind the fingertip.
   if (bossTrace && bossTrace.length > 1) {
@@ -1683,10 +1795,10 @@ function start(): void {
       if (s && s.phase === "boss" && bossTrace) {
         const q = submitTrace(s, bossTrace);
         showToast(
-          q > 0.85 ? "A clean inscription — the Veilwarden reels."
-          : q > 0.5 ? "A rough sigil, but it bites home."
-          : q > 0 ? "The line strays — barely a mark."
-          : "The sigil breaks — draw the whole star.",
+          q > 0.85 ? "The seal takes — the Veilwarden reels."
+          : q > 0.5 ? "A rough seal, but it bites home."
+          : q > 0 ? "The line strays from the glyph — barely a mark."
+          : "The seal breaks — follow the whole glyph.",
         );
       }
       bossPtr = null; bossTrace = null;
@@ -1835,7 +1947,7 @@ function start(): void {
     bossTrace = null; bossPtr = null;
     move.x = 0; move.y = 0; stick = null; hideStick();
     frameBoss();
-    showToast("The Veilwarden rises. Trace the pentagram over it with your finger — a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
+    showToast("The Veilwarden rises. Trace its seal with your finger — follow the glowing glyph end to end; a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
   }
 
   function startCity(level: LevelDef): void {
@@ -2024,6 +2136,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     startBoss, stepBoss, submitTrace, pentagramSegments, traceScore,
+    makeSeal, sealSegments, sealPath, hashSeed,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
     weaveSegments, closestOnSegment,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
@@ -2040,6 +2153,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
       BOSS_RING_R, BOSS_HP, BOSS_TRACE_DMG, BOSS_BITE_MS, BOSS_BITE_DMG,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS,
+      SEAL_NODES_MIN, SEAL_NODES_MAX, SEAL_INNER_FRAC,
     },
   };
 } else {
