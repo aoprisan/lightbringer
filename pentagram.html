@@ -107,14 +107,14 @@
     box-shadow: 0 0 10px rgba(255,106,60,0.5);
     transition: width .14s ease;
   }
-  #reset {
+  #reset, #refresh {
     pointer-events: auto;
     font-family: inherit; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
     border: 1px solid transparent; background: none; color: var(--ink-dim);
     opacity: 0.5; cursor: pointer; transition: opacity .2s ease, color .2s ease;
     text-transform: uppercase;
   }
-  #reset:hover { opacity: 1; color: var(--ember); }
+  #reset:hover, #refresh:hover { opacity: 1; color: var(--ember); }
 
   #citywrap { position: absolute; inset: 0; z-index: 1;
     -webkit-user-select: none; user-select: none; }
@@ -241,6 +241,7 @@
       <span id="lights"></span>
       <div class="hpbar"><div id="hp"></div></div>
       <button id="reset" title="Return to the city select">Choose city</button>
+      <button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button>
     </div>
   </header>
 

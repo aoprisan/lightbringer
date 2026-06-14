@@ -1078,6 +1078,28 @@ function start(): void {
 
   byId("reset").addEventListener("click", () => showPicker());
 
+  // Force-fresh the app to the newest deployed version. A cache-first service
+  // worker keeps serving the offline copy of the shell until its cache retires,
+  // so a shipped fix can sit invisible behind a stale cache. This drops every
+  // cache and unregisters the worker, then reloads — the next load fetches the
+  // current files from the network. The legacy lives in localStorage, untouched;
+  // this clears cached *files*, not progress.
+  const refreshBtn = byId("refresh");
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.textContent = "Updating…";
+    try {
+      if (typeof caches !== "undefined") {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch { /* best effort — reload regardless */ }
+    location.reload();
+  });
+
   setupZoom();
   clampCam();
   applyCam();
