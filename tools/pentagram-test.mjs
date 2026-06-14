@@ -281,5 +281,59 @@ const old = pg.loadPgLegacy();
 ok(old.embers === 0 && old.equipped === "vigil" && old.unlocked.length === 1 && old.runs === 2,
   "an old save defaults the new sigil fields");
 
+// 17. Elite champions — bigger hp, begin shielded, and only a FULL-charge pulse
+//     breaks the shield (a partial pulse does nothing).
+const sel = pg.buildArena(pg.levelById("vesper")); // a city that raises elites
+const elites = sel.shades.filter((e) => e.elite);
+ok(elites.length === Math.min(pg.levelById("vesper").eliteCount, sel.scenery.filter((n) => n.kind === "keeper").length),
+  `a city raises one champion per elite post (${elites.length})`);
+ok(elites.every((e) => e.shielded && e.maxHp === K.SHADE_HP * K.ELITE_HP_MUL),
+  "an elite begins shielded with a champion's health");
+// Park everyone, then test a shield against a deliberately weak (never-full) pulse.
+for (const e of sel.shades) park(e, 5, 5);
+const champ = elites[0];
+champ.x = sel.hero.x + 40; champ.y = sel.hero.y; wake(champ); champ.shielded = true;
+sel.penta.charge = 0.6; // hold below full by feathering: keep the hero from charging up
+// Drive a few pulses while forcing the charge to stay partial each frame.
+for (let t = 0; t < K.PENTA_PULSE_MS * 3; t += 16) { sel.penta.charge = 0.6; pg.stepPentagram(sel, 16); }
+ok(champ.shielded && champ.hp === champ.maxHp, "a partial pulse cannot break or hurt an elite's shield");
+// Now a full inscription shatters it; subsequent pulses then bite for real.
+sel.penta.charge = 1;
+for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) { sel.penta.charge = 1; pg.stepPentagram(sel, 16); }
+ok(!champ.shielded, "a full-charge pulse shatters an elite's shield");
+ok(champ.hp < champ.maxHp, "once unshielded an elite takes damage");
+
+// 18. Veil pools — a still hero standing in one cannot inscribe; the sigil unravels.
+const sv = pg.buildArena(pg.levelById("drowned")); // a city with several pools
+for (const e of sv.shades) park(e, 5, 5);
+ok(sv.veils.length > 0, `the city drifts with veil pools (${sv.veils.length})`);
+// Charge up on clean ground first.
+run(sv, K.PENTA_CHARGE_MS + 30, still);
+ok(sv.penta.charge > 0.9, "the hero inscribes on clean ground");
+ok(pg.inVeil(sv, sv.veils[0].x, sv.veils[0].y), "inVeil reports a point inside a pool");
+// Park the hero dead-centre in a pool and stand still: the charge must bleed away.
+const pool = sv.veils[0]; pool.vx = 0; pool.vy = 0; // stop it drifting off the hero
+sv.hero.x = pool.x; sv.hero.y = pool.y;
+const cIn = sv.penta.charge;
+run(sv, K.PENTA_CHARGE_MS, still);
+ok(sv.penta.charge < cIn, `standing in a veil pool unravels the sigil (${cIn.toFixed(2)} -> ${sv.penta.charge.toFixed(2)})`);
+
+// 19. Ember motes — gathering one snaps the sigil to full and opens a damage surge.
+const sm = pg.buildArena(pg.levelById("old-city"));
+for (const e of sm.shades) park(e, 5, 5);
+sm.veils = []; sm.solids = []; sm.fences = []; sm.pathways = [];
+sm.penta.charge = 0;
+sm.motes.push({ x: sm.hero.x, y: sm.hero.y, until: sm.elapsed + K.MOTE_TTL_MS });
+pg.stepCombat(sm, 16, { x: 1, y: 0 }); // walk over it (moving, yet it should snap full)
+ok(sm.motes.length === 0, "the hero gathers a mote underfoot");
+ok(sm.penta.charge >= 1 - 1e-6 || sm.surgeUntil > sm.elapsed, "gathering a mote snaps charge full and opens a surge");
+ok(sm.surgeUntil > sm.elapsed, "a gathered mote opens a damage-surge window");
+// killShade drops a mote by MOTE_DROP_CHANCE; over many kills at least one lands.
+const smd = pg.buildArena(pg.levelById("old-city"));
+smd.motes = [];
+for (let i = 0; i < 80; i++) pg.killShade(smd, { x: 200 + i, y: 200, dead: false });
+ok(smd.kills === 80, "killShade counts every kill");
+ok(smd.motes.length > 0, `slain shades leave gatherable ember motes (${smd.motes.length} of 80)`);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

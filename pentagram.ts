@@ -45,6 +45,18 @@ interface PentaType {
 // stand on it until it cools. Live-play terrain, never persisted.
 interface Scorch { x: number; y: number; until: number }
 
+// A veil pool — a drifting patch of the old dark. Standing in one doesn't
+// inscribe the sigil; it UNRAVELS it (charge bleeds away faster than a normal
+// fade), so a still hero must pick clean ground. Woven at build from the city's
+// veilCount, drifts on its own and bounces off the world's edge. Live-play
+// terrain — never persisted.
+interface Veil { x: number; y: number; vx: number; vy: number; r: number }
+
+// An ember mote — a spark a slain shade may leave behind. Walk over it to gather
+// it: the sigil snaps to full and a brief surge bites harder. Fades if left.
+// Live-play, never persisted.
+interface Mote { x: number; y: number; until: number }
+
 // Transient signature effects, drawn then faded — never persisted (no mid-combat
 // save anyway). An Arc is the Pyre's chain spark hopping from a kill to a nearby
 // shade; a Nova is the Wrath's expanding eruption ring on a full inscription.
@@ -76,6 +88,8 @@ interface Shade {
   wanderTimer: number; // ms until it re-rolls a wander heading
   homeX: number; homeY: number; // its keeper-post anchor (the leash centre)
   hit: number;         // s.elapsed time until which it flashes from a fresh blow (0 = none)
+  elite?: boolean;     // a champion: more hp, bites harder, and begins veil-shielded
+  shielded?: boolean;  // while true it takes no damage — only a FULL-charge pulse breaks it
 }
 
 interface Penta {
@@ -99,6 +113,9 @@ interface PgState {
   fxPulse: number;
   fxDmg: number;
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
+  motes: Mote[];         // gatherable ember sparks dropped by slain shades
+  surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
   novaFired: boolean;    // has the Wrath's nova fired for this charge-up
@@ -174,6 +191,29 @@ const FENCE_HALF = 8;            // half-thickness of a fence wall (collision)
 // the streets for kiting the host. Shades ignore them — only the hero is quick.
 const PATHWAY_HALF = 30;         // half-width of a pathway lane
 const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
+
+// Elite shades — one champion may rise at a keeper-post (per the city's
+// eliteCount). It carries far more hp, bites harder, and begins veil-SHIELDED:
+// while shielded it shrugs off every source, and only a FULL-charge pulse shatters
+// the shield. So you can't feather an elite down — you must hold for a full
+// inscription. Once broken it fights as any other shade.
+const ELITE_HP_MUL = 2.6;        // a champion's hp over a common shade
+const ELITE_CONTACT_DMG = 16;    // hero HP lost per elite touch (vs SHADE_CONTACT_DMG)
+
+// Veil pools — drifting patches of the old dark. A still hero standing in one
+// doesn't inscribe; the sigil UNRAVELS, charge bleeding away this much faster
+// than a normal moving fade. They wander slowly and bounce off the world edge.
+const VEIL_RADIUS = 88;          // a pool's reach
+const VEIL_DRIFT = 26;           // units/s a pool wanders
+const VEIL_DRAIN_MUL = 2.4;      // charge bleeds this much faster while stood in a pool
+
+// Ember motes — a slain shade may leave a gatherable spark. Walk over it and the
+// sigil snaps to full and a brief surge multiplies pulse damage. Left alone it fades.
+const MOTE_DROP_CHANCE = 0.22;   // fraction of kills that leave a mote
+const MOTE_TTL_MS = 6000;        // how long a mote waits to be gathered
+const MOTE_RADIUS = 16;          // gather reach (over and above the hero's radius)
+const MOTE_SURGE_MS = 2600;      // how long the gathered surge lasts
+const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
@@ -259,6 +299,8 @@ interface LevelDef {
   keeperSpacing: number;
   fenceCount: number;  // low walls woven between neighbouring posts (cover)
   pathwayCount: number; // open lanes the hero runs swift along
+  veilCount?: number;  // drifting dark pools that unravel the sigil (default 0)
+  eliteCount?: number; // keeper-posts whose champion rises veil-shielded (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -271,7 +313,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9,
+    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
   },
   {
     id: "ashfold",
@@ -281,7 +323,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 6, pathwayCount: 9, sizeScale: 1.0,
+    fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, sizeScale: 1.0,
   },
   {
     id: "drowned",
@@ -291,7 +333,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 11, pathwayCount: 3, sizeScale: 1.15,
+    fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, sizeScale: 1.15,
   },
   {
     id: "glassworks",
@@ -301,7 +343,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 13, pathwayCount: 5, sizeScale: 1.0,
+    fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, sizeScale: 1.0,
   },
   {
     id: "vesper",
@@ -311,7 +353,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 9, pathwayCount: 4, sizeScale: 1.1,
+    fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, sizeScale: 1.1,
   },
 ];
 
@@ -400,6 +442,22 @@ function weaveSegments(
   return segs;
 }
 
+// Scatter `count` drifting veil pools across the arena, each given a random
+// heading. The hero's heart-of-the-city spawn is kept clear so a descent never
+// begins mired in the dark. Pure: it only reads the world size.
+function weaveVeils(w: number, h: number, count: number): Veil[] {
+  const veils: Veil[] = [];
+  let guard = 0;
+  while (veils.length < count && guard++ < count * 40) {
+    const x = 80 + Math.random() * (w - 160);
+    const y = 80 + Math.random() * (h - 160);
+    if ((x - w / 2) ** 2 + (y - h / 2) ** 2 < (VEIL_RADIUS + 140) ** 2) continue;
+    const a = Math.random() * Math.PI * 2;
+    veils.push({ x, y, vx: Math.cos(a) * VEIL_DRIFT, vy: Math.sin(a) * VEIL_DRIFT, r: VEIL_RADIUS });
+  }
+  return veils;
+}
+
 // Push a moving body (hero or shade) out of any blocking terrain it has
 // overlapped — solid scenery (circle-vs-circle) and fences (circle-vs-segment) —
 // then back inside the world bounds. Shove along the normal so a body slides
@@ -443,22 +501,27 @@ function buildArena(level: LevelDef): PgState {
   };
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
-  for (const post of posts) {
+  // The first `eliteCount` posts each raise a shielded champion (its first shade).
+  const eliteCount = Math.min(level.eliteCount ?? 0, posts.length);
+  posts.forEach((post, pi) => {
     for (let j = 0; j < SHADE_PER_KEEPER; j++) {
+      const elite = j === 0 && pi < eliteCount;
+      const hp = SHADE_HP * (elite ? ELITE_HP_MUL : 1);
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
       const y = clamp(post.y + Math.sin(a) * r, SHADE_RADIUS, h - SHADE_RADIUS);
       shades.push({
-        x, y, vx: 0, vy: 0, hp: SHADE_HP, maxHp: SHADE_HP, dead: false,
+        x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false,
         state: "wander",
         wanderAngle: Math.random() * Math.PI * 2,
         wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
         hit: 0,
+        elite, shielded: elite,
       });
     }
-  }
+  });
   // Resolve the equipped sigil and bake its stat lean into effective constants.
   const type = pentaTypeById(loadPgLegacy().equipped);
   return {
@@ -472,7 +535,8 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], arcs: [], novas: [], novaFired: false,
+    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], surgeUntil: 0,
+    arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0,
@@ -523,6 +587,51 @@ function scoreRun(s: PgState): ScoreBreakdown {
   const total = Math.round((base + speed + dwellings + survival + untouched) * mult);
   const embers = Math.max(1, Math.round(total / SCORE_EMBERS_DIV));
   return { base, speed, dwellings, survival, untouched, mult, total, embers };
+}
+
+// Undo a shade: mark it dead, count the kill, and — by chance — leave a
+// gatherable ember mote where it fell. The single kill path, so every source
+// (pulse, chain, scorch, nova) drops motes the same way.
+function killShade(s: PgState, e: Shade): void {
+  e.dead = true;
+  s.kills++;
+  if (Math.random() < MOTE_DROP_CHANCE) {
+    s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
+  }
+}
+
+// Drift the veil pools and bounce them off the world's edge. Pure motion — the
+// pools never block, they only matter where the hero stands still (see stepCombat).
+function stepVeils(s: PgState, dt: number): void {
+  for (const v of s.veils) {
+    v.x += (v.vx * dt) / 1000;
+    v.y += (v.vy * dt) / 1000;
+    if (v.x < v.r || v.x > s.w - v.r) { v.vx = -v.vx; v.x = clamp(v.x, v.r, s.w - v.r); }
+    if (v.y < v.r || v.y > s.h - v.r) { v.vy = -v.vy; v.y = clamp(v.y, v.r, s.h - v.r); }
+  }
+}
+
+// Is the point inside any veil pool? (Used to decide whether a still hero
+// inscribes the sigil or has it unravelled.)
+function inVeil(s: PgState, x: number, y: number): boolean {
+  return s.veils.some((v) => (x - v.x) ** 2 + (y - v.y) ** 2 <= v.r ** 2);
+}
+
+// Gather any ember mote the hero has walked onto: snap the sigil to full and open
+// a damage-surge window. Then retire faded (or gathered) motes.
+function stepMotes(s: PgState): void {
+  if (!s.motes.length) return;
+  const h = s.hero;
+  const rr = (HERO_RADIUS + MOTE_RADIUS) ** 2;
+  for (const m of s.motes) {
+    if (m.until <= s.elapsed) continue;
+    if ((m.x - h.x) ** 2 + (m.y - h.y) ** 2 <= rr) {
+      m.until = 0; // consumed
+      s.penta.charge = 1;
+      s.surgeUntil = s.elapsed + MOTE_SURGE_MS;
+    }
+  }
+  s.motes = s.motes.filter((m) => m.until > s.elapsed);
 }
 
 // Shades wander their post until the hero comes near (sticky aggro), then chase,
@@ -577,21 +686,21 @@ function stepShades(s: PgState, dt: number): void {
 // and kindles any dark dwelling the ring has caught (mending the hero a little).
 function stepPentagram(s: PgState, dt: number): void {
   const hero = s.hero;
-  const kill = (e: Shade): void => { e.dead = true; s.kills++; };
 
   // Scorched ground (Quick Ember): burn shades on a live patch every frame, then
   // retire patches that have cooled. Runs continuously, not just on a pulse.
+  // A still-shielded elite shrugs the burn off (only a full pulse breaks it).
   if (s.scorch.length) {
     const sdmg = (SCORCH_DPS * dt) / 1000;
     const sr2 = SCORCH_RADIUS ** 2;
     for (const p of s.scorch) {
       if (p.until <= s.elapsed) continue;
       for (const e of s.shades) {
-        if (e.dead) continue;
+        if (e.dead || e.shielded) continue;
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= sr2) {
           e.hp -= sdmg;
           e.hit = s.elapsed + SHADE_HIT_MS;
-          if (e.hp <= 0) kill(e);
+          if (e.hp <= 0) killShade(s, e);
         }
       }
     }
@@ -603,15 +712,22 @@ function stepPentagram(s: PgState, dt: number): void {
     s.pulseAcc -= s.fxPulse;
     if (s.penta.charge <= 0) continue;
     const r2 = s.fxRadius ** 2;
-    const dmg = s.fxDmg * s.penta.charge;
+    const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
+    const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
+    const dmg = s.fxDmg * s.penta.charge * surge;
     const justKilled: Shade[] = [];
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
         e.state = "chase"; // a pulse that catches a wanderer rouses it
+        if (e.shielded) {
+          // Shielded: a partial pulse does nothing; a full one shatters the shield.
+          if (full) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
+          continue;
+        }
         e.hp -= dmg;
         e.hit = s.elapsed + SHADE_HIT_MS;
-        if (e.hp <= 0) { kill(e); justKilled.push(e); }
+        if (e.hp <= 0) { killShade(s, e); justKilled.push(e); }
       }
     }
     // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
@@ -619,13 +735,13 @@ function stepPentagram(s: PgState, dt: number): void {
       const cr2 = CHAIN_RADIUS ** 2, cdmg = dmg * CHAIN_FRAC;
       for (const k of justKilled) {
         for (const e of s.shades) {
-          if (e.dead) continue;
+          if (e.dead || e.shielded) continue;
           if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
             e.state = "chase";
             e.hp -= cdmg;
             e.hit = s.elapsed + SHADE_HIT_MS;
             s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
-            if (e.hp <= 0) kill(e);
+            if (e.hp <= 0) killShade(s, e);
           }
         }
       }
@@ -668,14 +784,25 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
-  // Stand still and the sigil inscribes itself; move and it fades. The equipped
-  // type's charge lean is baked into s.fxCharge.
-  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
+  // Drift the dark pools, then decide the sigil from where the hero now stands.
+  stepVeils(s, dt);
+  const veiled = inVeil(s, h.x, h.y);
+
+  // Stand still on clean ground and the sigil inscribes itself; move and it fades.
+  // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
+  // still hero must pick clear ground. The type's charge lean is baked into fxCharge.
+  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED && !veiled) {
     s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
+  } else if (veiled) {
+    s.penta.charge = Math.max(0, s.penta.charge - (VEIL_DRAIN_MUL * dt) / s.fxCharge);
   } else {
     s.penta.charge = Math.max(0, s.penta.charge - dt / s.fxCharge);
   }
   s.penta.angle = (s.penta.angle + dt * PENTA_SPIN) % 360;
+
+  // Gather any ember mote underfoot last, so its snap-to-full and surge land on
+  // this frame's pulse rather than the next.
+  stepMotes(s);
 
   stepShades(s, dt);
   stepPentagram(s, dt);
@@ -686,11 +813,11 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     if (s.penta.charge >= 1 && !s.novaFired) {
       const nr2 = s.fxRadius ** 2;
       for (const e of s.shades) {
-        if (e.dead) continue;
+        if (e.dead || e.shielded) continue; // a shielded elite rides out the nova
         if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= nr2) {
           e.hp -= s.fxDmg * 2;
           e.hit = s.elapsed + SHADE_HIT_MS;
-          if (e.hp <= 0) { e.dead = true; s.kills++; continue; }
+          if (e.hp <= 0) { killShade(s, e); continue; }
           const dx = e.x - h.x, dy = e.y - h.y, d = Math.hypot(dx, dy) || 1;
           const p = pushOut(s, e.x + (dx / d) * NOVA_PUSH, e.y + (dy / d) * NOVA_PUSH, SHADE_RADIUS);
           e.x = p.x; e.y = p.y;
@@ -713,7 +840,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= reach) {
-        h.hp -= SHADE_CONTACT_DMG;
+        h.hp -= e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG;
         s.hits++;
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
@@ -820,6 +947,16 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
       <stop offset="48%" stop-color="#ff6a3c" stop-opacity="0.18"/>
       <stop offset="100%" stop-color="#ff3a1c" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="veil">
+      <stop offset="0%" stop-color="#0a0612" stop-opacity="0.85"/>
+      <stop offset="60%" stop-color="#160c24" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#160c24" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mote">
+      <stop offset="0%" stop-color="#fff6d8" stop-opacity="1"/>
+      <stop offset="45%" stop-color="#ffd87a" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#ffd87a" stop-opacity="0"/>
+    </radialGradient>
     <radialGradient id="spriteFadeGrad">
       <stop offset="0%" stop-color="#fff"/>
       <stop offset="58%" stop-color="#fff"/>
@@ -869,6 +1006,16 @@ function render(s: PgState, layer: SVGGElement): void {
     x: 0, y: 0, width: s.w, height: s.h,
     fill: hasGround ? "url(#groundPat)" : "#0a0c16", opacity: hasGround ? 0.5 : 1,
   }));
+
+  // Veil pools — drifting patches of the old dark on the floor. A still hero
+  // standing in one cannot inscribe; the sigil unravels. Drawn low, on the ground.
+  for (const v of s.veils) {
+    layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
+    layer.appendChild(el("circle", {
+      cx: v.x, cy: v.y, r: v.r, fill: "none",
+      stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
+    }));
+  }
 
   // Scorched ground (Quick Ember) — faint embered patches that fade as they cool.
   for (const p of s.scorch) {
@@ -967,6 +1114,19 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
+  // Ember motes — bright gatherable sparks a slain shade left behind; walk over
+  // one to snap the sigil full and bite harder for a moment. They pulse and fade.
+  for (const m of s.motes) {
+    const life = Math.max(0, (m.until - s.elapsed) / MOTE_TTL_MS);
+    if (life <= 0) continue;
+    const pulse = 1 + 0.25 * Math.sin(s.elapsed / 140);
+    layer.appendChild(el("circle", {
+      cx: m.x, cy: m.y, r: 14 * pulse, fill: "url(#mote)",
+      opacity: Math.min(1, 0.4 + life), filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 3.2, fill: "#fff6d8" }));
+  }
+
   // The pentagram — the only procedural art. Scales and brightens with charge,
   // turns slowly, and burns through a soft glow.
   const h = s.hero;
@@ -1001,16 +1161,37 @@ function render(s: PgState, layer: SVGGElement): void {
     // spark, the Wrath's hollow violet ring — so the bite matches the brand.
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / SHADE_HIT_MS) : 0;
     const recoil = flash * (s.type.power === "chain" ? 0.26 : s.type.power === "scorch" ? 0.12 : 0.18);
-    const sz = 44 * (1 + recoil); // a small recoil pop on impact, leaned per sigil
+    const sz = (e.elite ? 60 : 44) * (1 + recoil); // champions loom larger; recoil pop on impact
     if (shadeKey) {
       layer.appendChild(spriteImage(shadeKey, e.x, e.y, sz, op));
     } else {
-      const q = SHADE_RADIUS * 1.4;
+      const q = SHADE_RADIUS * (e.elite ? 2 : 1.4);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
         transform: `rotate(45 ${e.x} ${e.y})`,
         fill: "#1b2740", stroke: "#9fc4e8", "stroke-width": 2, opacity: op,
       }));
+    }
+    // Champions read at a glance: a cold shield-ring while veiled (only a full
+    // inscription breaks it), or a faint dark aura once the shield is shattered.
+    if (e.elite) {
+      if (e.shielded) {
+        const sp = 1 + 0.06 * Math.sin(s.elapsed / 180);
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: (SHADE_RADIUS + 10) * sp, fill: "none",
+          stroke: "#8fc0ff", "stroke-width": 3, opacity: 0.8 * op,
+          filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS + 5, fill: "none",
+          stroke: "#cfe4ff", "stroke-width": 1, opacity: 0.5 * op,
+        }));
+      } else {
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS + 6, fill: "none",
+          stroke: "#5a2a6a", "stroke-width": 2, opacity: 0.5 * op,
+        }));
+      }
     }
     if (flash > 0) {
       const grow = 1 - flash; // 0 at impact → 1 as it fades, so the burst expands
@@ -1048,6 +1229,16 @@ function render(s: PgState, layer: SVGGElement): void {
       layer.appendChild(el("rect", { x: e.x - bw / 2, y: by, width: bw, height: 3, fill: "#2a0c0c", opacity: 0.85 }));
       layer.appendChild(el("rect", { x: e.x - bw / 2, y: by, width: bw * frac, height: 3, fill: "#ff6a3c", opacity: 0.95 }));
     }
+  }
+
+  // Surge aura — a bright pulsing ring while a gathered ember boosts the bite.
+  if (s.surgeUntil > s.elapsed) {
+    const sp = 1 + 0.12 * Math.sin(s.elapsed / 90);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 12) * sp, fill: "none",
+      stroke: s.type.star, "stroke-width": 3, opacity: 0.85,
+      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
   }
 
   // The hero, drawn last over everything (copied from app.ts's avatar block).
@@ -1393,7 +1584,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings.");
+    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings. Keep out of the drifting veil pools (they unravel the sigil), break a shielded champion with a FULL inscription, and gather the embers the fallen leave to bite harder.");
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -1566,6 +1757,7 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
+    stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
     weaveSegments, closestOnSegment,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
@@ -1577,6 +1769,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
       OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
       SCORCH_RADIUS, SCORCH_MAX,
+      ELITE_HP_MUL, ELITE_CONTACT_DMG,
+      VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
+      MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
     },
   };
 } else {
