@@ -289,11 +289,14 @@ const BOSS_BITE_DMG = 12;        // …draining this much hero HP each snuff
 const TRACE_TOL_FRAC = 0.2;      // how far off the line (× ring r) still scores
 const TRACE_MIN_POINTS = 6;      // a stroke shorter than this can't score
 const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trace
-// The warden's seal (Goetia-style glyph) — shape dials. More nodes = a more
-// intricate (harder) seal. The seal is the design surface for the duel's feel.
-const SEAL_NODES_MIN = 6;        // fewest spine nodes a seal may have
-const SEAL_NODES_MAX = 9;        // most spine nodes a seal may have
-const SEAL_INNER_FRAC = 0.62;    // inner nodes sit within this fraction of the ring
+// The warden's seal (Goetia-style glyph) — shape dials. The seal is composed from
+// a fixed occult grammar (a containment cross through the heart, a crescent bow,
+// paired terminal loops), seeded per city so each warden's seal is unique but
+// recognizably a seal. These are the design surface for the duel's feel.
+const SEAL_LOOP_STEPS = 10;      // segments in a terminal loop (the end ornaments)
+const SEAL_BOW_STEPS = 9;        // segments in the crescent bow
+const SEAL_BAR_FRAC = 0.5;       // crossbar half-width baseline (× ring r), + jitter
+const SEAL_STAFF_TOP = 0.8;      // how far up the ring the staff's head reaches (× r)
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -983,32 +986,75 @@ function mulberry32(a: number): () => number {
   };
 }
 
-// Build a warden's Goetic seal: a wandering, sometimes self-crossing line-glyph
-// inside a containment circle, with small terminal nodes and a cross-bar ending —
-// the look of an Ars Goetia spirit's seal, drawn from line segments (no new art).
-// `seed` (the city id hash) makes each city's seal unique but stable.
+type Pt = { x: number; y: number };
+
+// Motif emitters — each appends points to the running spine, so the whole seal
+// stays ONE continuous finger-stroke. A loop is a near-closed ring (a terminal
+// ornament); a bow is a crescent sweep from one point to another, bellied out.
+function appendLoop(spine: Pt[], cx: number, cy: number, r: number, startA: number): void {
+  for (let i = 0; i <= SEAL_LOOP_STEPS; i++) {
+    const a = startA + (i / SEAL_LOOP_STEPS) * Math.PI * 2;
+    spine.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+  }
+}
+function appendBow(spine: Pt[], p0: Pt, p1: Pt, bow: number): void {
+  const mx = p1.x - p0.x, my = p1.y - p0.y, len = Math.hypot(mx, my) || 1;
+  const nx = -my / len, ny = mx / len; // unit normal — the belly direction
+  for (let i = 1; i <= SEAL_BOW_STEPS; i++) {
+    const t = i / SEAL_BOW_STEPS, b = Math.sin(t * Math.PI) * bow;
+    spine.push({ x: p0.x + mx * t + nx * b, y: p0.y + my * t + ny * b });
+  }
+}
+
+// Build a warden's Goetic seal from a fixed occult grammar, seeded per city so
+// each is unique but unmistakably a seal: a terminal loop at the head, a vertical
+// STAFF down through the heart with a horizontal CROSSBAR (together a cross), a
+// CRESCENT bow off to one side, and a terminal loop at the tail — all one
+// continuous stroke, drawn from line segments (no new art). The seed (city id
+// hash) fixes the tilt, bar width, crescent side and loop sizes.
 function makeSeal(cx: number, cy: number, r: number, seed: number): Sigil {
   const rnd = mulberry32(seed);
-  const n = SEAL_NODES_MIN + Math.floor(rnd() * (SEAL_NODES_MAX - SEAL_NODES_MIN + 1));
-  const spine: { x: number; y: number }[] = [];
-  let ang = rnd() * Math.PI * 2;
-  for (let i = 0; i < n; i++) {
-    // Wander the angle by a sizeable, sign-flipping step so the line turns sharply
-    // and can cross itself — the angular, asymmetric signature of a Goetic seal.
-    ang += (0.7 + rnd() * 1.7) * (rnd() < 0.5 ? 1 : -1);
-    const onRim = i === 0 || i === n - 1 || rnd() < 0.45;
-    const rad = onRim ? r * (0.84 + rnd() * 0.16) : r * (0.18 + rnd() * (SEAL_INNER_FRAC - 0.18));
-    spine.push({ x: cx + Math.cos(ang) * rad, y: cy + Math.sin(ang) * rad });
+  const spine: Pt[] = [];
+  const push = (x: number, y: number): void => { spine.push({ x, y }); };
+  const rim = (ang: number, k: number): Pt => ({ x: cx + Math.cos(ang) * r * k, y: cy + Math.sin(ang) * r * k });
+
+  const tilt = (rnd() - 0.5) * 0.7;             // overall rotation of the seal
+  const topA = -Math.PI / 2 + tilt;             // the head points up-ish
+  const botA = Math.PI / 2 + tilt;              // the foot points down-ish
+  const barA = topA + Math.PI / 2;              // crossbar perpendicular to the staff
+  const barLen = r * (SEAL_BAR_FRAC + rnd() * 0.3);
+  const loopR = r * (0.11 + rnd() * 0.06);
+  const side = rnd() < 0.5 ? 1 : -1;            // which way the crescent bellies
+
+  // 1. A terminal loop at the head.
+  const head = rim(topA, SEAL_STAFF_TOP);
+  appendLoop(spine, head.x, head.y, loopR, topA);
+  // 2. The staff down through the heart of the seal.
+  push(cx, cy);
+  // 3. The crossbar (left, back through centre, right, back) — forms the cross.
+  const bc = Math.cos(barA), bs = Math.sin(barA);
+  push(cx - bc * barLen, cy - bs * barLen);
+  push(cx, cy);
+  push(cx + bc * barLen, cy + bs * barLen);
+  push(cx, cy);
+  // 4. The staff continues to the foot.
+  const foot = rim(botA, 0.8);
+  push(foot.x, foot.y);
+  // 5. A crescent bow from the foot across to a side point on the rim.
+  const tail = rim(botA + side * 1.15, 0.78);
+  appendBow(spine, foot, tail, side * r * 0.34);
+  // 6. A terminal loop at the tail.
+  appendLoop(spine, tail.x, tail.y, loopR * 0.85, botA);
+
+  // Keep every node within the containment circle.
+  for (const p of spine) {
+    const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+    if (d > r) { p.x = cx + (dx / d) * r; p.y = cy + (dy / d) * r; }
   }
-  // Terminal nodes: small circles at both ends and the glyph's midpoint.
-  const terminals = [spine[0], spine[n - 1]];
-  if (n > 4) terminals.push(spine[Math.floor(n / 2)]);
-  // A cross-bar across the final terminal, perpendicular to the last stroke.
-  const a = spine[n - 2], b = spine[n - 1];
-  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-  const px = -dy / len, py = dx / len, hb = r * 0.13;
-  const bars: Segment[] = [{ x1: b.x - px * hb, y1: b.y - py * hb, x2: b.x + px * hb, y2: b.y + py * hb }];
-  return { cx, cy, r, spine, terminals, bars };
+
+  // Terminal node dots at the cross's head, foot and heart (a Goetic flourish).
+  const terminals = [head, foot, { x: cx, y: cy }];
+  return { cx, cy, r, spine, terminals, bars: [] };
 }
 
 // The seal's spine as scoreable segments (open polyline) and as an SVG path.
@@ -2153,7 +2199,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
       BOSS_RING_R, BOSS_HP, BOSS_TRACE_DMG, BOSS_BITE_MS, BOSS_BITE_DMG,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS,
-      SEAL_NODES_MIN, SEAL_NODES_MAX, SEAL_INNER_FRAC,
+      SEAL_LOOP_STEPS, SEAL_BOW_STEPS, SEAL_BAR_FRAC, SEAL_STAFF_TOP,
     },
   };
 } else {

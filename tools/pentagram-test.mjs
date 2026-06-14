@@ -412,8 +412,8 @@ ok(sb3.phase === "won", "enough clean traces break the warden");
 const sealA1 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
 const sealA2 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
 const sealB1 = pg.makeSeal(0, 0, 150, pg.hashSeed("vesper"));
-ok(sealA1.spine.length >= K.SEAL_NODES_MIN && sealA1.spine.length <= K.SEAL_NODES_MAX,
-  `a seal's spine has ${K.SEAL_NODES_MIN}-${K.SEAL_NODES_MAX} nodes (${sealA1.spine.length})`);
+ok(sealA1.spine.length > 12, `a seal is an intricate glyph (${sealA1.spine.length} nodes)`);
+ok(sealA1.terminals.length === 3, "a seal marks head, foot and heart with terminal dots");
 ok(JSON.stringify(sealA1.spine) === JSON.stringify(sealA2.spine),
   "a city's seal is deterministic — it rebuilds identically");
 ok(JSON.stringify(sealA1.spine) !== JSON.stringify(sealB1.spine),
