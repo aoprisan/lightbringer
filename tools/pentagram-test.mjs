@@ -26,6 +26,16 @@ function run(s, ms, move = still, slice = 16) {
 const park = (e, x, y) => { e.state = "wander"; e.x = x; e.y = y; e.homeX = x; e.homeY = y; };
 // Rouse a shade to chase immediately (replaces the old wakeAt = 0).
 const wake = (e) => { e.state = "chase"; };
+// A pristine finger-trace: densely sample every star segment, exactly on the line.
+function perfectStroke(segs, step = 0.05) {
+  const pts = [];
+  for (const sg of segs) {
+    for (let t = 0; t <= 1.0001; t += step) {
+      pts.push({ x: sg.x1 + (sg.x2 - sg.x1) * t, y: sg.y1 + (sg.y2 - sg.y1) * t });
+    }
+  }
+  return pts;
+}
 
 // 1. Cities + arena generation
 ok(Array.isArray(pg.LEVELS) && pg.LEVELS.length >= 3, `cities are defined (${pg.LEVELS.length})`);
@@ -77,17 +87,22 @@ const charged = s4.penta.charge;
 run(s4, K.PENTA_CHARGE_MS, { x: 1, y: 0 }); // walk
 ok(s4.penta.charge < charged, `moving lets the sigil fade (${charged.toFixed(2)} -> ${s4.penta.charge.toFixed(2)})`);
 
-// 6. Clearing every shade wins the descent.
+// 6. Clearing every shade raises the warden; tracing it down wins the descent.
 const s5 = pg.buildArena(pg.levelById("old-city"));
 for (const e of s5.shades) { e.x = s5.hero.x; e.y = s5.hero.y; wake(e); e.hp = K.SHADE_HP; }
 run(s5, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 12, still);
 ok(s5.shades.every((e) => e.dead), "all shades fall when stacked on the sigil");
-ok(s5.phase === "won", "clearing the host wins the descent");
+ok(s5.phase === "boss" && s5.boss && s5.boss.hp > 0, "clearing the host raises the Veilwarden");
 ok(pg.clearedPct(s5) === 1, "cleared percentage reaches 100%");
-// Once won, the sim is inert.
-const kAfter = s5.kills;
-pg.stepCombat(s5, 100, still);
-ok(s5.kills === kAfter, "a won descent does not keep simulating");
+// Trace the pentagram cleanly until the warden falls.
+const stroke5 = perfectStroke(pg.sealSegments(s5.boss.seal));
+let g5 = 0;
+while (s5.phase === "boss" && g5++ < 20) pg.submitTrace(s5, stroke5);
+ok(s5.phase === "won", "tracing the warden down wins the descent");
+// Once won, the duel is inert.
+const hpAfter = s5.boss.hp;
+pg.stepBoss(s5, 100); pg.submitTrace(s5, stroke5);
+ok(s5.boss.hp === hpAfter, "a won duel does not keep simulating");
 
 // 7. Contact damage + i-frames; enough touches bring the hero down (lost).
 const s6 = pg.buildArena(pg.levelById("old-city"));
@@ -281,7 +296,142 @@ const old = pg.loadPgLegacy();
 ok(old.embers === 0 && old.equipped === "vigil" && old.unlocked.length === 1 && old.runs === 2,
   "an old save defaults the new sigil fields");
 
-// Frescoes — the hero's body reaching an un-walked place uncovers them.
+// 17. Elite champions — bigger hp, begin shielded, and only a FULL-charge pulse
+//     breaks the shield (a partial pulse does nothing).
+const sel = pg.buildArena(pg.levelById("vesper")); // a city that raises elites
+const elites = sel.shades.filter((e) => e.elite);
+ok(elites.length === Math.min(pg.levelById("vesper").eliteCount, sel.scenery.filter((n) => n.kind === "keeper").length),
+  `a city raises one champion per elite post (${elites.length})`);
+ok(elites.every((e) => e.shielded && e.maxHp === K.SHADE_HP * K.ELITE_HP_MUL),
+  "an elite begins shielded with a champion's health");
+// Park everyone, then test a shield against a deliberately weak (never-full) pulse.
+for (const e of sel.shades) park(e, 5, 5);
+const champ = elites[0];
+champ.x = sel.hero.x + 40; champ.y = sel.hero.y; wake(champ); champ.shielded = true;
+sel.penta.charge = 0.6; // hold below full by feathering: keep the hero from charging up
+// Drive a few pulses while forcing the charge to stay partial each frame.
+for (let t = 0; t < K.PENTA_PULSE_MS * 3; t += 16) { sel.penta.charge = 0.6; pg.stepPentagram(sel, 16); }
+ok(champ.shielded && champ.hp === champ.maxHp, "a partial pulse cannot break or hurt an elite's shield");
+// Now a full inscription shatters it; subsequent pulses then bite for real.
+sel.penta.charge = 1;
+for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) { sel.penta.charge = 1; pg.stepPentagram(sel, 16); }
+ok(!champ.shielded, "a full-charge pulse shatters an elite's shield");
+ok(champ.hp < champ.maxHp, "once unshielded an elite takes damage");
+
+// 18. Veil pools — a still hero standing in one cannot inscribe; the sigil unravels.
+const sv = pg.buildArena(pg.levelById("drowned")); // a city with several pools
+for (const e of sv.shades) park(e, 5, 5);
+ok(sv.veils.length > 0, `the city drifts with veil pools (${sv.veils.length})`);
+// Charge up on clean ground first.
+run(sv, K.PENTA_CHARGE_MS + 30, still);
+ok(sv.penta.charge > 0.9, "the hero inscribes on clean ground");
+ok(pg.inVeil(sv, sv.veils[0].x, sv.veils[0].y), "inVeil reports a point inside a pool");
+// Park the hero dead-centre in a pool and stand still: the charge must bleed away.
+const pool = sv.veils[0]; pool.vx = 0; pool.vy = 0; // stop it drifting off the hero
+sv.hero.x = pool.x; sv.hero.y = pool.y;
+const cIn = sv.penta.charge;
+run(sv, K.PENTA_CHARGE_MS, still);
+ok(sv.penta.charge < cIn, `standing in a veil pool unravels the sigil (${cIn.toFixed(2)} -> ${sv.penta.charge.toFixed(2)})`);
+
+// 19. Ember motes — gathering one snaps the sigil to full and opens a damage surge.
+const sm = pg.buildArena(pg.levelById("old-city"));
+for (const e of sm.shades) park(e, 5, 5);
+sm.veils = []; sm.solids = []; sm.fences = []; sm.pathways = [];
+sm.penta.charge = 0;
+sm.motes.push({ x: sm.hero.x, y: sm.hero.y, until: sm.elapsed + K.MOTE_TTL_MS });
+pg.stepCombat(sm, 16, { x: 1, y: 0 }); // walk over it (moving, yet it should snap full)
+ok(sm.motes.length === 0, "the hero gathers a mote underfoot");
+ok(sm.penta.charge >= 1 - 1e-6 || sm.surgeUntil > sm.elapsed, "gathering a mote snaps charge full and opens a surge");
+ok(sm.surgeUntil > sm.elapsed, "a gathered mote opens a damage-surge window");
+// killShade drops a mote by MOTE_DROP_CHANCE; over many kills at least one lands.
+const smd = pg.buildArena(pg.levelById("old-city"));
+smd.motes = [];
+for (let i = 0; i < 80; i++) pg.killShade(smd, { x: 200 + i, y: 200, dead: false });
+ok(smd.kills === 80, "killShade counts every kill");
+ok(smd.motes.length > 0, `slain shades leave gatherable ember motes (${smd.motes.length} of 80)`);
+
+// 20. Gesture scoring — the risky core. A clean full trace scores high; junk and
+//     empty strokes score zero; a single edge is gated low by coverage.
+const segG = pg.pentagramSegments(0, 0, 100, 0);
+ok(segG.length === 5, "the star is five segments");
+ok(segG.every((sg, i) => {
+  const nx = segG[(i + 1) % 5];
+  return Math.abs(sg.x2 - nx.x1) < 1e-6 && Math.abs(sg.y2 - nx.y1) < 1e-6;
+}), "the segments chain into a closed star");
+const tolG = 100 * K.TRACE_TOL_FRAC;
+const fullTrace = perfectStroke(segG);
+const qFull = pg.traceScore(fullTrace, segG, tolG);
+ok(qFull > 0.85, `a clean full trace scores high (${qFull})`);
+ok(pg.traceScore([], segG, tolG) === 0, "an empty stroke scores zero");
+ok(pg.traceScore(fullTrace.slice(0, 3), segG, tolG) === 0, "too few points score zero");
+const junk = Array.from({ length: 40 }, (_, i) => ({ x: 9000 + i, y: -9000 }));
+ok(pg.traceScore(junk, segG, tolG) === 0, "a stroke nowhere near the star scores zero");
+const oneEdge = [];
+for (let t = 0; t <= 1; t += 0.02) {
+  oneEdge.push({ x: segG[0].x1 + (segG[0].x2 - segG[0].x1) * t, y: segG[0].y1 + (segG[0].y2 - segG[0].y1) * t });
+}
+const qEdge = pg.traceScore(oneEdge, segG, tolG);
+ok(qEdge > 0 && qEdge < 0.4, `tracing only one edge is gated low by coverage (${qEdge})`);
+// A noisy-but-faithful trace (jittered within the slack band) still scores well.
+const noisy = fullTrace.map((p) => ({ x: p.x + (Math.random() - 0.5) * tolG * 0.6, y: p.y + (Math.random() - 0.5) * tolG * 0.6 }));
+ok(pg.traceScore(noisy, segG, tolG) > 0.5, "a faithful but jittery trace still scores well");
+
+// 21. The Veilwarden duel — a city-scaled boss, a perfect trace burns it, a poor
+//     trace barely marks it, and its snuff wears down an exhausted hero.
+const sb = pg.buildArena(pg.levelById("vesper"));
+pg.startBoss(sb);
+const expectHp = Math.round(K.BOSS_HP * pg.difficultyMult(pg.levelById("vesper")));
+ok(sb.phase === "boss" && sb.boss.maxHp === expectHp, `startBoss raises a city-scaled warden (${sb.boss.maxHp})`);
+// A perfect trace deals near the full BOSS_TRACE_DMG; a sloppy one far less.
+const segB = pg.sealSegments(sb.boss.seal);
+const hpA = sb.boss.hp;
+const qPerf = pg.submitTrace(sb, perfectStroke(segB));
+ok(qPerf > 0.85 && hpA - sb.boss.hp > K.BOSS_TRACE_DMG * 0.8, `a clean trace burns the warden deep (q=${qPerf.toFixed(2)})`);
+const hpB = sb.boss.hp;
+pg.submitTrace(sb, junk); // a stroke nowhere near the template
+ok(sb.boss.hp === hpB, "a trace that misses the template does no damage");
+// The warden's snuff drains the hero over time, and enough of it fells you.
+const sb2 = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sb2);
+const hpStart = sb2.hero.hp;
+for (let t = 0; t < K.BOSS_BITE_MS * 1.2; t += 16) pg.stepBoss(sb2, 16);
+ok(sb2.hero.hp < hpStart, "the warden's snuff drains the hero over time");
+sb2.hero.hp = K.BOSS_BITE_DMG; // one snuff from death
+for (let t = 0; t < K.BOSS_BITE_MS * 1.2; t += 16) pg.stepBoss(sb2, 16);
+ok(sb2.phase === "lost", "the warden wears an exhausted hero down to a fall");
+// The drawn template and the scorer share geometry: a perfect trace clears full health.
+const sb3 = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sb3);
+const strokeB3 = perfectStroke(pg.sealSegments(sb3.boss.seal));
+let g3 = 0;
+while (sb3.phase === "boss" && g3++ < 30) pg.submitTrace(sb3, strokeB3);
+ok(sb3.phase === "won", "enough clean traces break the warden");
+
+// 22. Goetic seals — each warden's seal is a unique, deterministic line-glyph;
+//     it rebuilds identically from the city id and a perfect trace scores high.
+const sealA1 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
+const sealA2 = pg.makeSeal(0, 0, 150, pg.hashSeed("old-city"));
+const sealB1 = pg.makeSeal(0, 0, 150, pg.hashSeed("vesper"));
+ok(sealA1.spine.length > 12, `a seal is an intricate glyph (${sealA1.spine.length} nodes)`);
+ok(sealA1.terminals.length === 3, "a seal marks head, foot and heart with terminal dots");
+ok(JSON.stringify(sealA1.spine) === JSON.stringify(sealA2.spine),
+  "a city's seal is deterministic — it rebuilds identically");
+ok(JSON.stringify(sealA1.spine) !== JSON.stringify(sealB1.spine),
+  "different cities raise different seals");
+ok(sealA1.spine.every((p) => Math.hypot(p.x, p.y) <= 150 + 1e-6),
+  "every seal node sits within the containment circle");
+ok(pg.sealSegments(sealA1).length === sealA1.spine.length - 1, "the spine is an open polyline of segments");
+const tolS = 150 * K.TRACE_TOL_FRAC;
+ok(pg.traceScore(perfectStroke(pg.sealSegments(sealA1)), pg.sealSegments(sealA1), tolS) > 0.85,
+  "a clean trace of a seal scores high");
+// Every city's warden raises a buildable, traceable seal (no degenerate glyph).
+for (const lv of pg.LEVELS) {
+  const seal = pg.makeSeal(0, 0, 150, pg.hashSeed(lv.id));
+  const q = pg.traceScore(perfectStroke(pg.sealSegments(seal)), pg.sealSegments(seal), tolS);
+  ok(q > 0.85, `${lv.id}'s seal is cleanly traceable (q=${q.toFixed(2)})`);
+}
+
+// 23. Frescoes — the hero's body reaching an un-walked place uncovers them.
 const sfr = pg.buildArena(pg.levelById("old-city"));
 for (const e of sfr.shades) park(e, 5, 5); // no swarm to jostle the hero
 sfr.solids = []; sfr.fences = []; sfr.pathways = []; // a clear floor to walk

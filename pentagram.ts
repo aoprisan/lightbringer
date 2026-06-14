@@ -22,7 +22,8 @@
 // ---------- Types ----------
 
 type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
-type Phase = "fight" | "won" | "lost";
+// "boss" is the turn-based finger-traced duel that follows clearing the host.
+type Phase = "fight" | "boss" | "won" | "lost";
 
 // A shade lurks (wanders) around its post until the hero comes near, then gives
 // chase. Aggro is sticky — once roused it never settles back to wandering.
@@ -44,6 +45,18 @@ interface PentaType {
 // A scorched patch of ground the Quick Ember leaves behind — burns shades that
 // stand on it until it cools. Live-play terrain, never persisted.
 interface Scorch { x: number; y: number; until: number }
+
+// A veil pool — a drifting patch of the old dark. Standing in one doesn't
+// inscribe the sigil; it UNRAVELS it (charge bleeds away faster than a normal
+// fade), so a still hero must pick clean ground. Woven at build from the city's
+// veilCount, drifts on its own and bounces off the world's edge. Live-play
+// terrain — never persisted.
+interface Veil { x: number; y: number; vx: number; vy: number; r: number }
+
+// An ember mote — a spark a slain shade may leave behind. Walk over it to gather
+// it: the sigil snaps to full and a brief surge bites harder. Fades if left.
+// Live-play, never persisted.
+interface Mote { x: number; y: number; until: number }
 
 // Transient signature effects, drawn then faded — never persisted (no mid-combat
 // save anyway). An Arc is the Pyre's chain spark hopping from a kill to a nearby
@@ -76,11 +89,43 @@ interface Shade {
   wanderTimer: number; // ms until it re-rolls a wander heading
   homeX: number; homeY: number; // its keeper-post anchor (the leash centre)
   hit: number;         // s.elapsed time until which it flashes from a fresh blow (0 = none)
+  elite?: boolean;     // a champion: more hp, bites harder, and begins veil-shielded
+  shielded?: boolean;  // while true it takes no damage — only a FULL-charge pulse breaks it
 }
 
 interface Penta {
   charge: number; // 0..1 — how fully the sigil is inscribed (ramps while still)
   angle: number;  // current rotation, degrees (cosmetic)
+}
+
+// The Veilwarden — the city's master Keeper, risen for the turn-based duel after
+// the host falls. There is no kiting here: the warden's GOETIC SEAL glows over it
+// and the carrier TRACES it with a finger to bind and burn it. Each city's warden
+// has its own seal (a unique line-glyph, like the seals of the Ars Goetia),
+// generated deterministically from the city id — so it rebuilds identically and
+// reads as that warden's true name. A clean, complete trace bites deep; a sloppy
+// one barely marks it. The warden snuffs on a cadence, draining the carrier's
+// flame, so the duel is a race. (A first cut — see the BOSS_* / SEAL_* tuning.)
+
+// A warden's seal — a Goetia-style occult sigil. `spine` is the connected line
+// you trace (an open polyline, the glyph's stroke); the rest is decorative
+// flourish (containment ring, terminal nodes, a cross-bar) that reads as a seal
+// but isn't scored — only the spine is, mirroring how the pentagram's inner
+// circle was never part of the trace.
+interface Sigil {
+  cx: number; cy: number; r: number;       // containment circle, world space
+  spine: { x: number; y: number }[];       // the ordered line to trace (scored)
+  terminals: { x: number; y: number }[];   // small circles at notable points
+  bars: Segment[];                          // short cross-bars (a Goetic ending)
+}
+
+interface BossState {
+  hp: number; maxHp: number;
+  biteAcc: number;      // ms accumulated toward the next snuff (the warden's bite)
+  cx: number; cy: number; r: number; // the seal's centre + reach, in world space
+  seal: Sigil;          // this warden's unique Goetic seal (the thing you trace)
+  lastQuality: number;  // 0..1 of the most recent trace (for the toast/flash)
+  flash: number;        // s.elapsed time until which it flares from a fresh trace
 }
 
 interface PgState {
@@ -99,6 +144,9 @@ interface PgState {
   fxPulse: number;
   fxDmg: number;
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
+  motes: Mote[];         // gatherable ember sparks dropped by slain shades
+  surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
   novaFired: boolean;    // has the Wrath's nova fired for this charge-up
@@ -112,6 +160,7 @@ interface PgState {
   shownFrescoes: number[]; // FRESCO indices already uncovered this descent
   pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
   phase: Phase;
+  boss?: BossState;     // the Veilwarden, raised once the host is cleared
 }
 
 interface Move { x: number; y: number } // normalized input vector, -1..1 each
@@ -177,6 +226,29 @@ const FENCE_HALF = 8;            // half-thickness of a fence wall (collision)
 const PATHWAY_HALF = 30;         // half-width of a pathway lane
 const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
 
+// Elite shades — one champion may rise at a keeper-post (per the city's
+// eliteCount). It carries far more hp, bites harder, and begins veil-SHIELDED:
+// while shielded it shrugs off every source, and only a FULL-charge pulse shatters
+// the shield. So you can't feather an elite down — you must hold for a full
+// inscription. Once broken it fights as any other shade.
+const ELITE_HP_MUL = 2.6;        // a champion's hp over a common shade
+const ELITE_CONTACT_DMG = 16;    // hero HP lost per elite touch (vs SHADE_CONTACT_DMG)
+
+// Veil pools — drifting patches of the old dark. A still hero standing in one
+// doesn't inscribe; the sigil UNRAVELS, charge bleeding away this much faster
+// than a normal moving fade. They wander slowly and bounce off the world edge.
+const VEIL_RADIUS = 88;          // a pool's reach
+const VEIL_DRIFT = 26;           // units/s a pool wanders
+const VEIL_DRAIN_MUL = 2.4;      // charge bleeds this much faster while stood in a pool
+
+// Ember motes — a slain shade may leave a gatherable spark. Walk over it and the
+// sigil snaps to full and a brief surge multiplies pulse damage. Left alone it fades.
+const MOTE_DROP_CHANCE = 0.22;   // fraction of kills that leave a mote
+const MOTE_TTL_MS = 6000;        // how long a mote waits to be gathered
+const MOTE_RADIUS = 16;          // gather reach (over and above the hero's radius)
+const MOTE_SURGE_MS = 2600;      // how long the gathered surge lasts
+const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
+
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
@@ -203,6 +275,30 @@ const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
 const ARC_MS = 180;              // Pyre: how long a chain spark stays drawn
 const NOVA_FX_MS = 320;          // Wrath: how long the eruption ring expands/fades
 const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh blow
+
+// The Veilwarden duel (per-city boss). When the host falls, the city's master
+// Keeper rises and the fight becomes turn-based: a pentagram template glows over
+// the warden and the carrier traces it by finger. traceScore (pure geometry)
+// rates the stroke 0..1 — accuracy (how close to the star's edges) × coverage
+// (did the whole star get drawn) — and a trace deals that fraction of
+// BOSS_TRACE_DMG. Meanwhile the warden snuffs every BOSS_BITE_MS for BOSS_BITE_DMG.
+// A first cut; balance is provisional. This is the design surface for the duel.
+const BOSS_RING_R = 150;         // world radius of the traceable template
+const BOSS_HP = 100;             // base warden health (× the city's difficultyMult)
+const BOSS_TRACE_DMG = 40;       // damage a perfect (quality 1) trace deals
+const BOSS_BITE_MS = 2600;       // the warden snuffs this often…
+const BOSS_BITE_DMG = 12;        // …draining this much hero HP each snuff
+const TRACE_TOL_FRAC = 0.2;      // how far off the line (× ring r) still scores
+const TRACE_MIN_POINTS = 6;      // a stroke shorter than this can't score
+const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trace
+// The warden's seal (Goetia-style glyph) — shape dials. The seal is composed from
+// a fixed occult grammar (a containment cross through the heart, a crescent bow,
+// paired terminal loops), seeded per city so each warden's seal is unique but
+// recognizably a seal. These are the design surface for the duel's feel.
+const SEAL_LOOP_STEPS = 10;      // segments in a terminal loop (the end ornaments)
+const SEAL_BOW_STEPS = 9;        // segments in the crescent bow
+const SEAL_BAR_FRAC = 0.5;       // crossbar half-width baseline (× ring r), + jitter
+const SEAL_STAFF_TOP = 0.8;      // how far up the ring the staff's head reaches (× r)
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -261,6 +357,8 @@ interface LevelDef {
   keeperSpacing: number;
   fenceCount: number;  // low walls woven between neighbouring posts (cover)
   pathwayCount: number; // open lanes the hero runs swift along
+  veilCount?: number;  // drifting dark pools that unravel the sigil (default 0)
+  eliteCount?: number; // keeper-posts whose champion rises veil-shielded (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -273,7 +371,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9,
+    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
   },
   {
     id: "ashfold",
@@ -283,7 +381,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 6, pathwayCount: 9, sizeScale: 1.0,
+    fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, sizeScale: 1.0,
   },
   {
     id: "drowned",
@@ -293,7 +391,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 11, pathwayCount: 3, sizeScale: 1.15,
+    fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, sizeScale: 1.15,
   },
   {
     id: "glassworks",
@@ -303,7 +401,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 13, pathwayCount: 5, sizeScale: 1.0,
+    fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, sizeScale: 1.0,
   },
   {
     id: "vesper",
@@ -313,7 +411,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 9, pathwayCount: 4, sizeScale: 1.1,
+    fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, sizeScale: 1.1,
   },
 ];
 
@@ -402,6 +500,22 @@ function weaveSegments(
   return segs;
 }
 
+// Scatter `count` drifting veil pools across the arena, each given a random
+// heading. The hero's heart-of-the-city spawn is kept clear so a descent never
+// begins mired in the dark. Pure: it only reads the world size.
+function weaveVeils(w: number, h: number, count: number): Veil[] {
+  const veils: Veil[] = [];
+  let guard = 0;
+  while (veils.length < count && guard++ < count * 40) {
+    const x = 80 + Math.random() * (w - 160);
+    const y = 80 + Math.random() * (h - 160);
+    if ((x - w / 2) ** 2 + (y - h / 2) ** 2 < (VEIL_RADIUS + 140) ** 2) continue;
+    const a = Math.random() * Math.PI * 2;
+    veils.push({ x, y, vx: Math.cos(a) * VEIL_DRIFT, vy: Math.sin(a) * VEIL_DRIFT, r: VEIL_RADIUS });
+  }
+  return veils;
+}
+
 // Push a moving body (hero or shade) out of any blocking terrain it has
 // overlapped — solid scenery (circle-vs-circle) and fences (circle-vs-segment) —
 // then back inside the world bounds. Shove along the normal so a body slides
@@ -445,22 +559,27 @@ function buildArena(level: LevelDef): PgState {
   };
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
-  for (const post of posts) {
+  // The first `eliteCount` posts each raise a shielded champion (its first shade).
+  const eliteCount = Math.min(level.eliteCount ?? 0, posts.length);
+  posts.forEach((post, pi) => {
     for (let j = 0; j < SHADE_PER_KEEPER; j++) {
+      const elite = j === 0 && pi < eliteCount;
+      const hp = SHADE_HP * (elite ? ELITE_HP_MUL : 1);
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
       const y = clamp(post.y + Math.sin(a) * r, SHADE_RADIUS, h - SHADE_RADIUS);
       shades.push({
-        x, y, vx: 0, vy: 0, hp: SHADE_HP, maxHp: SHADE_HP, dead: false,
+        x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false,
         state: "wander",
         wanderAngle: Math.random() * Math.PI * 2,
         wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
         hit: 0,
+        elite, shielded: elite,
       });
     }
-  }
+  });
   // Resolve the equipped sigil and bake its stat lean into effective constants.
   const type = pentaTypeById(loadPgLegacy().equipped);
   return {
@@ -474,7 +593,8 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], arcs: [], novas: [], novaFired: false,
+    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], surgeUntil: 0,
+    arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0,
@@ -526,6 +646,51 @@ function scoreRun(s: PgState): ScoreBreakdown {
   const total = Math.round((base + speed + dwellings + survival + untouched) * mult);
   const embers = Math.max(1, Math.round(total / SCORE_EMBERS_DIV));
   return { base, speed, dwellings, survival, untouched, mult, total, embers };
+}
+
+// Undo a shade: mark it dead, count the kill, and — by chance — leave a
+// gatherable ember mote where it fell. The single kill path, so every source
+// (pulse, chain, scorch, nova) drops motes the same way.
+function killShade(s: PgState, e: Shade): void {
+  e.dead = true;
+  s.kills++;
+  if (Math.random() < MOTE_DROP_CHANCE) {
+    s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
+  }
+}
+
+// Drift the veil pools and bounce them off the world's edge. Pure motion — the
+// pools never block, they only matter where the hero stands still (see stepCombat).
+function stepVeils(s: PgState, dt: number): void {
+  for (const v of s.veils) {
+    v.x += (v.vx * dt) / 1000;
+    v.y += (v.vy * dt) / 1000;
+    if (v.x < v.r || v.x > s.w - v.r) { v.vx = -v.vx; v.x = clamp(v.x, v.r, s.w - v.r); }
+    if (v.y < v.r || v.y > s.h - v.r) { v.vy = -v.vy; v.y = clamp(v.y, v.r, s.h - v.r); }
+  }
+}
+
+// Is the point inside any veil pool? (Used to decide whether a still hero
+// inscribes the sigil or has it unravelled.)
+function inVeil(s: PgState, x: number, y: number): boolean {
+  return s.veils.some((v) => (x - v.x) ** 2 + (y - v.y) ** 2 <= v.r ** 2);
+}
+
+// Gather any ember mote the hero has walked onto: snap the sigil to full and open
+// a damage-surge window. Then retire faded (or gathered) motes.
+function stepMotes(s: PgState): void {
+  if (!s.motes.length) return;
+  const h = s.hero;
+  const rr = (HERO_RADIUS + MOTE_RADIUS) ** 2;
+  for (const m of s.motes) {
+    if (m.until <= s.elapsed) continue;
+    if ((m.x - h.x) ** 2 + (m.y - h.y) ** 2 <= rr) {
+      m.until = 0; // consumed
+      s.penta.charge = 1;
+      s.surgeUntil = s.elapsed + MOTE_SURGE_MS;
+    }
+  }
+  s.motes = s.motes.filter((m) => m.until > s.elapsed);
 }
 
 // Shades wander their post until the hero comes near (sticky aggro), then chase,
@@ -580,21 +745,21 @@ function stepShades(s: PgState, dt: number): void {
 // and kindles any dark dwelling the ring has caught (mending the hero a little).
 function stepPentagram(s: PgState, dt: number): void {
   const hero = s.hero;
-  const kill = (e: Shade): void => { e.dead = true; s.kills++; };
 
   // Scorched ground (Quick Ember): burn shades on a live patch every frame, then
   // retire patches that have cooled. Runs continuously, not just on a pulse.
+  // A still-shielded elite shrugs the burn off (only a full pulse breaks it).
   if (s.scorch.length) {
     const sdmg = (SCORCH_DPS * dt) / 1000;
     const sr2 = SCORCH_RADIUS ** 2;
     for (const p of s.scorch) {
       if (p.until <= s.elapsed) continue;
       for (const e of s.shades) {
-        if (e.dead) continue;
+        if (e.dead || e.shielded) continue;
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= sr2) {
           e.hp -= sdmg;
           e.hit = s.elapsed + SHADE_HIT_MS;
-          if (e.hp <= 0) kill(e);
+          if (e.hp <= 0) killShade(s, e);
         }
       }
     }
@@ -606,15 +771,22 @@ function stepPentagram(s: PgState, dt: number): void {
     s.pulseAcc -= s.fxPulse;
     if (s.penta.charge <= 0) continue;
     const r2 = s.fxRadius ** 2;
-    const dmg = s.fxDmg * s.penta.charge;
+    const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
+    const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
+    const dmg = s.fxDmg * s.penta.charge * surge;
     const justKilled: Shade[] = [];
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
         e.state = "chase"; // a pulse that catches a wanderer rouses it
+        if (e.shielded) {
+          // Shielded: a partial pulse does nothing; a full one shatters the shield.
+          if (full) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
+          continue;
+        }
         e.hp -= dmg;
         e.hit = s.elapsed + SHADE_HIT_MS;
-        if (e.hp <= 0) { kill(e); justKilled.push(e); }
+        if (e.hp <= 0) { killShade(s, e); justKilled.push(e); }
       }
     }
     // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
@@ -622,13 +794,13 @@ function stepPentagram(s: PgState, dt: number): void {
       const cr2 = CHAIN_RADIUS ** 2, cdmg = dmg * CHAIN_FRAC;
       for (const k of justKilled) {
         for (const e of s.shades) {
-          if (e.dead) continue;
+          if (e.dead || e.shielded) continue;
           if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
             e.state = "chase";
             e.hp -= cdmg;
             e.hit = s.elapsed + SHADE_HIT_MS;
             s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
-            if (e.hp <= 0) kill(e);
+            if (e.hp <= 0) killShade(s, e);
           }
         }
       }
@@ -740,14 +912,25 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     }
   }
 
-  // Stand still and the sigil inscribes itself; move and it fades. The equipped
-  // type's charge lean is baked into s.fxCharge.
-  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
+  // Drift the dark pools, then decide the sigil from where the hero now stands.
+  stepVeils(s, dt);
+  const veiled = inVeil(s, h.x, h.y);
+
+  // Stand still on clean ground and the sigil inscribes itself; move and it fades.
+  // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
+  // still hero must pick clear ground. The type's charge lean is baked into fxCharge.
+  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED && !veiled) {
     s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
+  } else if (veiled) {
+    s.penta.charge = Math.max(0, s.penta.charge - (VEIL_DRAIN_MUL * dt) / s.fxCharge);
   } else {
     s.penta.charge = Math.max(0, s.penta.charge - dt / s.fxCharge);
   }
   s.penta.angle = (s.penta.angle + dt * PENTA_SPIN) % 360;
+
+  // Gather any ember mote underfoot last, so its snap-to-full and surge land on
+  // this frame's pulse rather than the next.
+  stepMotes(s);
 
   stepShades(s, dt);
   stepPentagram(s, dt);
@@ -758,11 +941,11 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     if (s.penta.charge >= 1 && !s.novaFired) {
       const nr2 = s.fxRadius ** 2;
       for (const e of s.shades) {
-        if (e.dead) continue;
+        if (e.dead || e.shielded) continue; // a shielded elite rides out the nova
         if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= nr2) {
           e.hp -= s.fxDmg * 2;
           e.hit = s.elapsed + SHADE_HIT_MS;
-          if (e.hp <= 0) { e.dead = true; s.kills++; continue; }
+          if (e.hp <= 0) { killShade(s, e); continue; }
           const dx = e.x - h.x, dy = e.y - h.y, d = Math.hypot(dx, dy) || 1;
           const p = pushOut(s, e.x + (dx / d) * NOVA_PUSH, e.y + (dy / d) * NOVA_PUSH, SHADE_RADIUS);
           e.x = p.x; e.y = p.y;
@@ -785,7 +968,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= reach) {
-        h.hp -= SHADE_CONTACT_DMG;
+        h.hp -= e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG;
         s.hits++;
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
@@ -798,7 +981,210 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
 
   if (h.hp <= 0) { h.hp = 0; s.phase = "lost"; }
-  else if (s.shades.every((e) => e.dead)) { s.phase = "won"; }
+  else if (s.shades.every((e) => e.dead)) { startBoss(s); } // the host falls — the warden rises
+}
+
+// ---------- The Veilwarden duel (turn-based, finger-traced) ----------
+
+// The five segments of the {5/2} star inscribed in a circle of radius r, in draw
+// order (0→2→4→1→3→0). The single source of the star geometry — both the drawn
+// template (pentagramPath) and the trace scorer read it, so they can never drift.
+function pentagramSegments(cx: number, cy: number, r: number, rotDeg: number): Segment[] {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < 5; i++) {
+    const a = ((-90 + rotDeg + i * 72) * Math.PI) / 180;
+    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  const order = [0, 2, 4, 1, 3];
+  const segs: Segment[] = [];
+  for (let i = 0; i < 5; i++) {
+    const a = pts[order[i]], b = pts[order[(i + 1) % 5]];
+    segs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1] });
+  }
+  return segs;
+}
+
+// Rate a finger-traced stroke against the star's five segments, 0..1. The risky
+// idea, kept pure so the harness can prove it. Two factors, multiplied:
+//   accuracy — how close each drawn point sits to the nearest star edge (a stroke
+//              that wanders off the lines scores low), and
+//   coverage — how much of the star the stroke actually visited (sampling the
+//              ideal path and requiring a drawn point near each sample), so you
+//              can't pass by scribbling one edge or one corner.
+// `tol` is the world-space slack band (the duel passes r × TRACE_TOL_FRAC).
+function traceScore(stroke: { x: number; y: number }[], segs: Segment[], tol: number): number {
+  if (stroke.length < TRACE_MIN_POINTS || tol <= 0) return 0;
+  // Accuracy: mean nearest-edge distance, normalized by the slack band.
+  let sum = 0;
+  for (const p of stroke) {
+    let best = Infinity;
+    for (const sg of segs) {
+      const d = closestOnSegment(p.x, p.y, sg.x1, sg.y1, sg.x2, sg.y2).d;
+      if (d < best) best = d;
+    }
+    sum += best;
+  }
+  const acc = clamp(1 - sum / stroke.length / tol, 0, 1);
+  // Coverage: sample along every edge; each sample wants a drawn point nearby.
+  const tol2 = tol * tol;
+  let covered = 0, samples = 0;
+  for (const sg of segs) {
+    for (let t = 0; t <= 1.0001; t += 0.2) {
+      const ix = sg.x1 + (sg.x2 - sg.x1) * t, iy = sg.y1 + (sg.y2 - sg.y1) * t;
+      samples++;
+      for (const p of stroke) {
+        if ((p.x - ix) ** 2 + (p.y - iy) ** 2 <= tol2) { covered++; break; }
+      }
+    }
+  }
+  const cov = samples ? covered / samples : 0;
+  return +(acc * cov).toFixed(4);
+}
+
+// A tiny seeded PRNG (mulberry32) and a string hash, so a warden's seal is a
+// pure, deterministic function of the city id — it rebuilds identically every
+// time, the way the parent's edges/districts rebuild from saved geometry.
+function hashSeed(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+type Pt = { x: number; y: number };
+
+// Motif emitters — each appends points to the running spine, so the whole seal
+// stays ONE continuous finger-stroke. A loop is a near-closed ring (a terminal
+// ornament); a bow is a crescent sweep from one point to another, bellied out.
+function appendLoop(spine: Pt[], cx: number, cy: number, r: number, startA: number): void {
+  for (let i = 0; i <= SEAL_LOOP_STEPS; i++) {
+    const a = startA + (i / SEAL_LOOP_STEPS) * Math.PI * 2;
+    spine.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+  }
+}
+function appendBow(spine: Pt[], p0: Pt, p1: Pt, bow: number): void {
+  const mx = p1.x - p0.x, my = p1.y - p0.y, len = Math.hypot(mx, my) || 1;
+  const nx = -my / len, ny = mx / len; // unit normal — the belly direction
+  for (let i = 1; i <= SEAL_BOW_STEPS; i++) {
+    const t = i / SEAL_BOW_STEPS, b = Math.sin(t * Math.PI) * bow;
+    spine.push({ x: p0.x + mx * t + nx * b, y: p0.y + my * t + ny * b });
+  }
+}
+
+// Build a warden's Goetic seal from a fixed occult grammar, seeded per city so
+// each is unique but unmistakably a seal: a terminal loop at the head, a vertical
+// STAFF down through the heart with a horizontal CROSSBAR (together a cross), a
+// CRESCENT bow off to one side, and a terminal loop at the tail — all one
+// continuous stroke, drawn from line segments (no new art). The seed (city id
+// hash) fixes the tilt, bar width, crescent side and loop sizes.
+function makeSeal(cx: number, cy: number, r: number, seed: number): Sigil {
+  const rnd = mulberry32(seed);
+  const spine: Pt[] = [];
+  const push = (x: number, y: number): void => { spine.push({ x, y }); };
+  const rim = (ang: number, k: number): Pt => ({ x: cx + Math.cos(ang) * r * k, y: cy + Math.sin(ang) * r * k });
+
+  const tilt = (rnd() - 0.5) * 0.7;             // overall rotation of the seal
+  const topA = -Math.PI / 2 + tilt;             // the head points up-ish
+  const botA = Math.PI / 2 + tilt;              // the foot points down-ish
+  const barA = topA + Math.PI / 2;              // crossbar perpendicular to the staff
+  const barLen = r * (SEAL_BAR_FRAC + rnd() * 0.3);
+  const loopR = r * (0.11 + rnd() * 0.06);
+  const side = rnd() < 0.5 ? 1 : -1;            // which way the crescent bellies
+
+  // 1. A terminal loop at the head.
+  const head = rim(topA, SEAL_STAFF_TOP);
+  appendLoop(spine, head.x, head.y, loopR, topA);
+  // 2. The staff down through the heart of the seal.
+  push(cx, cy);
+  // 3. The crossbar (left, back through centre, right, back) — forms the cross.
+  const bc = Math.cos(barA), bs = Math.sin(barA);
+  push(cx - bc * barLen, cy - bs * barLen);
+  push(cx, cy);
+  push(cx + bc * barLen, cy + bs * barLen);
+  push(cx, cy);
+  // 4. The staff continues to the foot.
+  const foot = rim(botA, 0.8);
+  push(foot.x, foot.y);
+  // 5. A crescent bow from the foot across to a side point on the rim.
+  const tail = rim(botA + side * 1.15, 0.78);
+  appendBow(spine, foot, tail, side * r * 0.34);
+  // 6. A terminal loop at the tail.
+  appendLoop(spine, tail.x, tail.y, loopR * 0.85, botA);
+
+  // Keep every node within the containment circle.
+  for (const p of spine) {
+    const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+    if (d > r) { p.x = cx + (dx / d) * r; p.y = cy + (dy / d) * r; }
+  }
+
+  // Terminal node dots at the cross's head, foot and heart (a Goetic flourish).
+  const terminals = [head, foot, { x: cx, y: cy }];
+  return { cx, cy, r, spine, terminals, bars: [] };
+}
+
+// The seal's spine as scoreable segments (open polyline) and as an SVG path.
+function sealSegments(seal: Sigil): Segment[] {
+  const segs: Segment[] = [];
+  for (let i = 0; i < seal.spine.length - 1; i++) {
+    const a = seal.spine[i], b = seal.spine[i + 1];
+    segs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+  }
+  return segs;
+}
+function sealPath(seal: Sigil): string {
+  const p = seal.spine;
+  let d = `M${p[0].x.toFixed(1)} ${p[0].y.toFixed(1)}`;
+  for (let i = 1; i < p.length; i++) d += ` L${p[i].x.toFixed(1)} ${p[i].y.toFixed(1)}`;
+  return d;
+}
+
+// Raise the warden: a city-scaled health pool and its unique Goetic seal centred
+// on the arena's heart. Flips the run into the turn-based duel.
+function startBoss(s: PgState): void {
+  const hp = Math.round(BOSS_HP * difficultyMult(s.level));
+  const cx = s.w / 2, cy = s.h / 2;
+  s.boss = {
+    hp, maxHp: hp, biteAcc: 0,
+    cx, cy, r: BOSS_RING_R,
+    seal: makeSeal(cx, cy, BOSS_RING_R, hashSeed(s.level.id)),
+    lastQuality: 0, flash: 0,
+  };
+  s.phase = "boss";
+}
+
+// The warden's own clock: it snuffs on a cadence, draining the carrier's flame.
+// (The carrier's answer is submitTrace — a finger-traced seal.) Pure sim.
+function stepBoss(s: PgState, dt: number): void {
+  if (s.phase !== "boss" || !s.boss) return;
+  s.elapsed += dt;
+  const b = s.boss;
+  b.biteAcc += dt;
+  while (b.biteAcc >= BOSS_BITE_MS) {
+    b.biteAcc -= BOSS_BITE_MS;
+    s.hero.hp -= BOSS_BITE_DMG;
+  }
+  if (s.hero.hp <= 0) { s.hero.hp = 0; s.phase = "lost"; }
+}
+
+// Score a completed finger-stroke against the warden's seal and burn it for that
+// fraction of a full inscription. Returns the 0..1 quality (for the toast).
+function submitTrace(s: PgState, stroke: { x: number; y: number }[]): number {
+  if (s.phase !== "boss" || !s.boss) return 0;
+  const b = s.boss;
+  const segs = sealSegments(b.seal);
+  const q = traceScore(stroke, segs, b.r * TRACE_TOL_FRAC);
+  b.lastQuality = q;
+  b.flash = s.elapsed + TRACE_FLASH_MS;
+  b.hp -= q * BOSS_TRACE_DMG;
+  if (b.hp <= 0) { b.hp = 0; s.phase = "won"; }
+  return q;
 }
 
 // ---------- Sprites (reused from app.ts) ----------
@@ -892,6 +1278,16 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
       <stop offset="48%" stop-color="#ff6a3c" stop-opacity="0.18"/>
       <stop offset="100%" stop-color="#ff3a1c" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="veil">
+      <stop offset="0%" stop-color="#0a0612" stop-opacity="0.85"/>
+      <stop offset="60%" stop-color="#160c24" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#160c24" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mote">
+      <stop offset="0%" stop-color="#fff6d8" stop-opacity="1"/>
+      <stop offset="45%" stop-color="#ffd87a" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#ffd87a" stop-opacity="0"/>
+    </radialGradient>
     <radialGradient id="spriteFadeGrad">
       <stop offset="0%" stop-color="#fff"/>
       <stop offset="58%" stop-color="#fff"/>
@@ -909,18 +1305,12 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
   return cam;
 }
 
-// The {5/2} star polygon inscribed in a circle of radius r, rotated by rotDeg.
+// The {5/2} star polygon as an SVG path, built from the shared segment geometry
+// so the drawn sigil and the trace scorer can never diverge.
 function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): string {
-  const pts: [number, number][] = [];
-  for (let i = 0; i < 5; i++) {
-    const a = ((-90 + rotDeg + i * 72) * Math.PI) / 180;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  const order = [0, 2, 4, 1, 3];
-  let d = "";
-  order.forEach((idx, i) => {
-    d += `${i === 0 ? "M" : "L"}${pts[idx][0].toFixed(1)} ${pts[idx][1].toFixed(1)} `;
-  });
+  const segs = pentagramSegments(cx, cy, r, rotDeg);
+  let d = `M${segs[0].x1.toFixed(1)} ${segs[0].y1.toFixed(1)} `;
+  for (const sg of segs) d += `L${sg.x2.toFixed(1)} ${sg.y2.toFixed(1)} `;
   return d + "Z";
 }
 
@@ -932,6 +1322,105 @@ const SCENERY_SIZE: Record<NodeKind, number> = {
   dwelling: 46, conduit: 40, press: 56, shrine: 50, keeper: 0,
 };
 
+// The carrier's in-progress finger-stroke during the warden duel, in world
+// space. The shell appends to it as the finger moves and clears it on release;
+// renderBossScene draws it. Module-scoped so both the shell and render share it
+// (transient — never persisted, like decoys in the parent).
+let bossTrace: { x: number; y: number }[] | null = null;
+
+// The warden duel's scene: the city dimmed to a backdrop, the master Keeper
+// risen at its heart under its traceable Goetic seal, the carrier's live stroke,
+// the snuff telegraph, and the warden's health.
+function renderBossScene(s: PgState, layer: SVGGElement): void {
+  const b = s.boss;
+  if (!b) return;
+
+  // The city, dimmed — context behind the duel.
+  for (const n of s.scenery) {
+    if (n.kind === "keeper") continue;
+    const spriteName = n.kind === "dwelling" && n.lit ? "dwelling-lit" : SCENERY_SPRITE[n.kind];
+    const key = spriteFor(s.level, spriteName);
+    if (key) layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], 0.16));
+  }
+
+  const flash = b.flash > s.elapsed ? (b.flash - s.elapsed) / TRACE_FLASH_MS : 0;
+
+  // The warden — the master Keeper, risen large, in a pool of infernal light.
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: b.r * 0.8, fill: "url(#penta)", opacity: 0.3 + 0.4 * flash }));
+  const bossKey = sprites.has("keeper-node") ? "keeper-node" : null;
+  if (bossKey) {
+    layer.appendChild(spriteImage(bossKey, b.cx, b.cy, 124 * (1 + 0.05 * flash), 1));
+  } else {
+    const q = 80;
+    layer.appendChild(el("rect", {
+      x: b.cx - q / 2, y: b.cy - q / 2, width: q, height: q,
+      transform: `rotate(45 ${b.cx} ${b.cy})`,
+      fill: "#1b2740", stroke: "#9fc4e8", "stroke-width": 3,
+    }));
+  }
+
+  // The snuff telegraph — a violet ring that fills as the warden's next bite nears.
+  const frac = clamp(b.biteAcc / BOSS_BITE_MS, 0, 1);
+  const tr = b.r * 1.22, circ = 2 * Math.PI * tr;
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: tr, fill: "none", stroke: "#3a2150", "stroke-width": 3, opacity: 0.5 }));
+  layer.appendChild(el("circle", {
+    cx: b.cx, cy: b.cy, r: tr, fill: "none", stroke: "#b46cff", "stroke-width": 3.5,
+    "stroke-dasharray": `${circ.toFixed(1)}`, "stroke-dashoffset": `${(circ * (1 - frac)).toFixed(1)}`,
+    transform: `rotate(-90 ${b.cx} ${b.cy})`, opacity: 0.85, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+  }));
+
+  // The warden's Goetic seal — the thing you trace. Drawn as a containment
+  // double-ring with rim ticks (the occult-seal frame), then the glyph's spine
+  // as a dashed glowing line, its terminal nodes, and the cross-bar ending.
+  const seal = b.seal;
+  // Containment double-circle.
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: seal.r, fill: "none", stroke: "#ffd87a", "stroke-width": 1.6, opacity: 0.4 }));
+  layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: seal.r * 0.93, fill: "none", stroke: "#ffd87a", "stroke-width": 0.8, opacity: 0.28 }));
+  // Rim ticks — short radial marks around the ring, an occult-seal flourish.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const c = Math.cos(a), sn = Math.sin(a);
+    layer.appendChild(el("line", {
+      x1: b.cx + c * seal.r * 0.93, y1: b.cy + sn * seal.r * 0.93,
+      x2: b.cx + c * seal.r, y2: b.cy + sn * seal.r,
+      stroke: "#ffd87a", "stroke-width": 0.8, opacity: 0.3,
+    }));
+  }
+  // The spine — the glyph you draw over (dashed, glowing).
+  layer.appendChild(el("path", {
+    d: sealPath(seal), fill: "none",
+    stroke: "#ffd87a", "stroke-width": 2.6, "stroke-linejoin": "round", "stroke-linecap": "round",
+    "stroke-dasharray": "7 8", opacity: 0.6, filter: "url(#glow)",
+  }));
+  // Cross-bars — the Goetic ending strokes.
+  for (const bar of seal.bars) {
+    layer.appendChild(el("line", {
+      x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+      stroke: "#ffd87a", "stroke-width": 2.2, "stroke-linecap": "round", opacity: 0.55, filter: "url(#glow)",
+    }));
+  }
+  // Terminal nodes — small circles marking the glyph's notable points.
+  for (const t of seal.terminals) {
+    layer.appendChild(el("circle", { cx: t.x, cy: t.y, r: 5, fill: "none", stroke: "#ffe9b0", "stroke-width": 1.6, opacity: 0.65 }));
+  }
+
+  // The carrier's live finger-stroke, burning along behind the fingertip.
+  if (bossTrace && bossTrace.length > 1) {
+    let d = `M${bossTrace[0].x.toFixed(1)} ${bossTrace[0].y.toFixed(1)}`;
+    for (let i = 1; i < bossTrace.length; i++) d += ` L${bossTrace[i].x.toFixed(1)} ${bossTrace[i].y.toFixed(1)}`;
+    layer.appendChild(el("path", {
+      d, fill: "none", stroke: "#ff6a3c", "stroke-width": 4.5,
+      "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.95,
+      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+  }
+
+  // The warden's health, in world space above it.
+  const bw = b.r * 1.7, hpFrac = clamp(b.hp / b.maxHp, 0, 1), by = b.cy - b.r - 26;
+  layer.appendChild(el("rect", { x: b.cx - bw / 2, y: by, width: bw, height: 7, fill: "#2a0c0c", opacity: 0.85 }));
+  layer.appendChild(el("rect", { x: b.cx - bw / 2, y: by, width: bw * hpFrac, height: 7, fill: "#b46cff", opacity: 0.95 }));
+}
+
 function render(s: PgState, layer: SVGGElement): void {
   layer.innerHTML = "";
 
@@ -941,6 +1430,19 @@ function render(s: PgState, layer: SVGGElement): void {
     x: 0, y: 0, width: s.w, height: s.h,
     fill: hasGround ? "url(#groundPat)" : "#0a0c16", opacity: hasGround ? 0.5 : 1,
   }));
+
+  // Once the warden has risen, the duel replaces the field (drawn over the ground).
+  if (s.boss) { renderBossScene(s, layer); return; }
+
+  // Veil pools — drifting patches of the old dark on the floor. A still hero
+  // standing in one cannot inscribe; the sigil unravels. Drawn low, on the ground.
+  for (const v of s.veils) {
+    layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
+    layer.appendChild(el("circle", {
+      cx: v.x, cy: v.y, r: v.r, fill: "none",
+      stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
+    }));
+  }
 
   // Scorched ground (Quick Ember) — faint embered patches that fade as they cool.
   for (const p of s.scorch) {
@@ -1039,6 +1541,19 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
+  // Ember motes — bright gatherable sparks a slain shade left behind; walk over
+  // one to snap the sigil full and bite harder for a moment. They pulse and fade.
+  for (const m of s.motes) {
+    const life = Math.max(0, (m.until - s.elapsed) / MOTE_TTL_MS);
+    if (life <= 0) continue;
+    const pulse = 1 + 0.25 * Math.sin(s.elapsed / 140);
+    layer.appendChild(el("circle", {
+      cx: m.x, cy: m.y, r: 14 * pulse, fill: "url(#mote)",
+      opacity: Math.min(1, 0.4 + life), filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 3.2, fill: "#fff6d8" }));
+  }
+
   // The pentagram — the only procedural art. Scales and brightens with charge,
   // turns slowly, and burns through a soft glow.
   const h = s.hero;
@@ -1073,16 +1588,37 @@ function render(s: PgState, layer: SVGGElement): void {
     // spark, the Wrath's hollow violet ring — so the bite matches the brand.
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / SHADE_HIT_MS) : 0;
     const recoil = flash * (s.type.power === "chain" ? 0.26 : s.type.power === "scorch" ? 0.12 : 0.18);
-    const sz = 44 * (1 + recoil); // a small recoil pop on impact, leaned per sigil
+    const sz = (e.elite ? 60 : 44) * (1 + recoil); // champions loom larger; recoil pop on impact
     if (shadeKey) {
       layer.appendChild(spriteImage(shadeKey, e.x, e.y, sz, op));
     } else {
-      const q = SHADE_RADIUS * 1.4;
+      const q = SHADE_RADIUS * (e.elite ? 2 : 1.4);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
         transform: `rotate(45 ${e.x} ${e.y})`,
         fill: "#1b2740", stroke: "#9fc4e8", "stroke-width": 2, opacity: op,
       }));
+    }
+    // Champions read at a glance: a cold shield-ring while veiled (only a full
+    // inscription breaks it), or a faint dark aura once the shield is shattered.
+    if (e.elite) {
+      if (e.shielded) {
+        const sp = 1 + 0.06 * Math.sin(s.elapsed / 180);
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: (SHADE_RADIUS + 10) * sp, fill: "none",
+          stroke: "#8fc0ff", "stroke-width": 3, opacity: 0.8 * op,
+          filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS + 5, fill: "none",
+          stroke: "#cfe4ff", "stroke-width": 1, opacity: 0.5 * op,
+        }));
+      } else {
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: SHADE_RADIUS + 6, fill: "none",
+          stroke: "#5a2a6a", "stroke-width": 2, opacity: 0.5 * op,
+        }));
+      }
     }
     if (flash > 0) {
       const grow = 1 - flash; // 0 at impact → 1 as it fades, so the burst expands
@@ -1120,6 +1656,16 @@ function render(s: PgState, layer: SVGGElement): void {
       layer.appendChild(el("rect", { x: e.x - bw / 2, y: by, width: bw, height: 3, fill: "#2a0c0c", opacity: 0.85 }));
       layer.appendChild(el("rect", { x: e.x - bw / 2, y: by, width: bw * frac, height: 3, fill: "#ff6a3c", opacity: 0.95 }));
     }
+  }
+
+  // Surge aura — a bright pulsing ring while a gathered ember boosts the bite.
+  if (s.surgeUntil > s.elapsed) {
+    const sp = 1 + 0.12 * Math.sin(s.elapsed / 90);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 12) * sp, fill: "none",
+      stroke: s.type.star, "stroke-width": 3, opacity: 0.85,
+      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
   }
 
   // The hero, drawn last over everything (copied from app.ts's avatar block).
@@ -1279,6 +1825,19 @@ function start(): void {
     clampCam();
     applyCam();
   }
+  // Screen (client) point → world space, inverting the camera transform. Used to
+  // map the carrier's finger-trace onto the warden's template during the duel.
+  function worldPt(clientX: number, clientY: number): { x: number; y: number } {
+    const r = svg.getBoundingClientRect();
+    return { x: (clientX - r.left - cam.x) / cam.k, y: (clientY - r.top - cam.y) / cam.k };
+  }
+  // Lock the camera on the risen warden, framed so the whole template is in view.
+  function frameBoss(): void {
+    if (!s || !s.boss) return;
+    const m = Math.min(svg.clientWidth, svg.clientHeight);
+    cam.k = clamp(m / (s.boss.r * 3.4), minK, maxK);
+    centerCam(s.boss.cx, s.boss.cy);
+  }
 
   // ----- Input: a floating joystick (touch) + WASD/arrows (desktop). -----
   const STICK_MAX = 60;
@@ -1287,6 +1846,7 @@ function start(): void {
   const pointers = new Map<number, { x: number; y: number }>();
   let stick: { id: number; ox: number; oy: number } | null = null;
   let pinch: { d: number; k: number } | null = null;
+  let bossPtr: number | null = null; // the pointer id drawing the warden trace
 
   function showStick(sx: number, sy: number): void {
     stickEl.style.left = sx + "px";
@@ -1304,6 +1864,12 @@ function start(): void {
   svg.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     svg.setPointerCapture(e.pointerId);
+    // During the warden duel a touch begins a finger-trace, not the joystick.
+    if (s && s.phase === "boss") {
+      bossPtr = e.pointerId;
+      bossTrace = [worldPt(e.clientX, e.clientY)];
+      return;
+    }
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
       stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY };
@@ -1319,6 +1885,10 @@ function start(): void {
     }
   });
   svg.addEventListener("pointermove", (e) => {
+    if (s && s.phase === "boss") {
+      if (bossPtr === e.pointerId && bossTrace) bossTrace.push(worldPt(e.clientX, e.clientY));
+      return;
+    }
     const p = pointers.get(e.pointerId);
     if (!p) return;
     if (pointers.size === 1 && stick && stick.id === e.pointerId) {
@@ -1338,6 +1908,20 @@ function start(): void {
     }
   });
   function endPointer(e: PointerEvent): void {
+    // Releasing during the duel submits the finger-trace to the warden.
+    if (bossPtr === e.pointerId) {
+      if (s && s.phase === "boss" && bossTrace) {
+        const q = submitTrace(s, bossTrace);
+        showToast(
+          q > 0.85 ? "The seal takes — the Veilwarden reels."
+          : q > 0.5 ? "A rough seal, but it bites home."
+          : q > 0 ? "The line strays from the glyph — barely a mark."
+          : "The seal breaks — follow the whole glyph.",
+        );
+      }
+      bossPtr = null; bossTrace = null;
+      return;
+    }
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
     if (stick && stick.id === e.pointerId) {
@@ -1348,6 +1932,7 @@ function start(): void {
   svg.addEventListener("pointercancel", endPointer);
   svg.addEventListener("wheel", (e) => {
     e.preventDefault();
+    if (s && s.phase === "boss") return; // the duel locks the camera
     cam.k = Math.min(maxK, Math.max(minK, cam.k * Math.exp(-e.deltaY * 0.0015)));
     if (s) centerCam(s.hero.x, s.hero.y); else { clampCam(); applyCam(); }
   }, { passive: false });
@@ -1377,6 +1962,15 @@ function start(): void {
   function hud(): void {
     if (!s) return;
     hpFill.style.width = Math.max(0, (s.hero.hp / s.hero.maxHp) * 100) + "%";
+    cityEl.textContent = s.level.name;
+    sigilEl.textContent = s.type.name;
+    sigilEl.style.color = s.type.star;
+    // The duel: show the warden's health where the shade count would be.
+    if (s.boss && s.phase === "boss") {
+      foesEl.textContent = `Veilwarden ${Math.ceil((s.boss.hp / s.boss.maxHp) * 100)}%`;
+      lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
+      return;
+    }
     const alive = aliveShades(s);
     let foes = `${alive} / ${s.total} shades`;
     // When only a handful remain, point toward the nearest so the last few of a
@@ -1437,19 +2031,26 @@ function start(): void {
     let dt = now - lastFrame; lastFrame = now;
     if (dt > 100) dt = 100; // a backgrounded tab must not lurch the fight forward
 
-    if (!stick) {
-      let mx = 0, my = 0;
-      if (keys.has("a") || keys.has("arrowleft")) mx -= 1;
-      if (keys.has("d") || keys.has("arrowright")) mx += 1;
-      if (keys.has("w") || keys.has("arrowup")) my -= 1;
-      if (keys.has("s") || keys.has("arrowdown")) my += 1;
-      const m = Math.hypot(mx, my);
-      move.x = m ? mx / m : 0;
-      move.y = m ? my / m : 0;
+    if (s.phase === "fight") {
+      if (!stick) {
+        let mx = 0, my = 0;
+        if (keys.has("a") || keys.has("arrowleft")) mx -= 1;
+        if (keys.has("d") || keys.has("arrowright")) mx += 1;
+        if (keys.has("w") || keys.has("arrowup")) my -= 1;
+        if (keys.has("s") || keys.has("arrowdown")) my += 1;
+        const m = Math.hypot(mx, my);
+        move.x = m ? mx / m : 0;
+        move.y = m ? my / m : 0;
+      }
+      stepCombat(s, dt, move);
+      // stepCombat may have raised the warden (cast defeats the "fight" narrowing).
+      if ((s.phase as Phase) === "boss") onBossRise(); // the host just fell
+      else centerCam(s.hero.x, s.hero.y);
+    } else if (s.phase === "boss") {
+      stepBoss(s, dt);
+      frameBoss();
     }
 
-    stepCombat(s, dt, move);
-    centerCam(s.hero.x, s.hero.y);
     render(s, layer);
     hud();
 
@@ -1464,6 +2065,15 @@ function start(): void {
       return;
     }
     requestAnimationFrame(pgFrame);
+  }
+
+  // The host has fallen and the warden risen: drop the joystick, lock the camera
+  // on the warden, and tell the carrier how the duel is fought.
+  function onBossRise(): void {
+    bossTrace = null; bossPtr = null;
+    move.x = 0; move.y = 0; stick = null; hideStick();
+    frameBoss();
+    showToast("The Veilwarden rises. Trace its seal with your finger — follow the glowing glyph end to end; a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
   }
 
   // A revealed fresco pauses the fight (the overlay is modal, so input is frozen)
@@ -1490,7 +2100,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings.");
+    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings. Keep out of the drifting veil pools (they unravel the sigil), break a shielded champion with a FULL inscription, and gather the embers the fallen leave to bite harder.");
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -1520,8 +2130,8 @@ function start(): void {
       `</dl></div>`;
     showOverlay(
       "The city is cleansed",
-      `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them, ` +
-      `in <em>${fmtTime(ms)}</em>.<br><br>` +
+      `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them — ` +
+      `and the Veilwarden broken, in <em>${fmtTime(ms)}</em>.<br><br>` +
       `${relit}<br><br>` +
       (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`) +
       breakdown,
@@ -1533,10 +2143,14 @@ function start(): void {
   function onLost(): void {
     if (!s) return;
     recordDeath(s.litCount);
+    const how = s.boss
+      ? `The Veilwarden of <em>${s.level.name}</em> snuffed your flame with ` +
+        `<em>${Math.ceil((s.boss.hp / s.boss.maxHp) * 100)}%</em> of it still standing.`
+      : `The watch of <em>${s.level.name}</em> pulled you down with ` +
+        `<em>${aliveShades(s)}</em> shades still standing.`;
     showOverlay(
       "You fell",
-      `The watch of <em>${s.level.name}</em> pulled you down with ` +
-      `<em>${aliveShades(s)}</em> shades still standing.<br><br>` +
+      `${how}<br><br>` +
       `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.<br><br>` +
       `<em>The dark is patient. Descend again.</em>`,
       "Try again", () => startCity(s!.level),
@@ -1663,6 +2277,9 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
+    stepVeils, inVeil, stepMotes, killShade, weaveVeils,
+    startBoss, stepBoss, submitTrace, pentagramSegments, traceScore,
+    makeSeal, sealSegments, sealPath, hashSeed,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
     weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_REACH,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
@@ -1674,6 +2291,12 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
       OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
       SCORCH_RADIUS, SCORCH_MAX,
+      ELITE_HP_MUL, ELITE_CONTACT_DMG,
+      VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
+      MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
+      BOSS_RING_R, BOSS_HP, BOSS_TRACE_DMG, BOSS_BITE_MS, BOSS_BITE_DMG,
+      TRACE_TOL_FRAC, TRACE_MIN_POINTS,
+      SEAL_LOOP_STEPS, SEAL_BOW_STEPS, SEAL_BAR_FRAC, SEAL_STAFF_TOP,
     },
   };
 } else {
