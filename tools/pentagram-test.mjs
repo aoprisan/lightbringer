@@ -26,6 +26,16 @@ function run(s, ms, move = still, slice = 16) {
 const park = (e, x, y) => { e.state = "wander"; e.x = x; e.y = y; e.homeX = x; e.homeY = y; };
 // Rouse a shade to chase immediately (replaces the old wakeAt = 0).
 const wake = (e) => { e.state = "chase"; };
+// A pristine finger-trace: densely sample every star segment, exactly on the line.
+function perfectStroke(segs, step = 0.05) {
+  const pts = [];
+  for (const sg of segs) {
+    for (let t = 0; t <= 1.0001; t += step) {
+      pts.push({ x: sg.x1 + (sg.x2 - sg.x1) * t, y: sg.y1 + (sg.y2 - sg.y1) * t });
+    }
+  }
+  return pts;
+}
 
 // 1. Cities + arena generation
 ok(Array.isArray(pg.LEVELS) && pg.LEVELS.length >= 3, `cities are defined (${pg.LEVELS.length})`);
@@ -77,17 +87,22 @@ const charged = s4.penta.charge;
 run(s4, K.PENTA_CHARGE_MS, { x: 1, y: 0 }); // walk
 ok(s4.penta.charge < charged, `moving lets the sigil fade (${charged.toFixed(2)} -> ${s4.penta.charge.toFixed(2)})`);
 
-// 6. Clearing every shade wins the descent.
+// 6. Clearing every shade raises the warden; tracing it down wins the descent.
 const s5 = pg.buildArena(pg.levelById("old-city"));
 for (const e of s5.shades) { e.x = s5.hero.x; e.y = s5.hero.y; wake(e); e.hp = K.SHADE_HP; }
 run(s5, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 12, still);
 ok(s5.shades.every((e) => e.dead), "all shades fall when stacked on the sigil");
-ok(s5.phase === "won", "clearing the host wins the descent");
+ok(s5.phase === "boss" && s5.boss && s5.boss.hp > 0, "clearing the host raises the Veilwarden");
 ok(pg.clearedPct(s5) === 1, "cleared percentage reaches 100%");
-// Once won, the sim is inert.
-const kAfter = s5.kills;
-pg.stepCombat(s5, 100, still);
-ok(s5.kills === kAfter, "a won descent does not keep simulating");
+// Trace the pentagram cleanly until the warden falls.
+const stroke5 = perfectStroke(pg.pentagramSegments(s5.boss.cx, s5.boss.cy, s5.boss.r, 0));
+let g5 = 0;
+while (s5.phase === "boss" && g5++ < 20) pg.submitTrace(s5, stroke5);
+ok(s5.phase === "won", "tracing the warden down wins the descent");
+// Once won, the duel is inert.
+const hpAfter = s5.boss.hp;
+pg.stepBoss(s5, 100); pg.submitTrace(s5, stroke5);
+ok(s5.boss.hp === hpAfter, "a won duel does not keep simulating");
 
 // 7. Contact damage + i-frames; enough touches bring the hero down (lost).
 const s6 = pg.buildArena(pg.levelById("old-city"));
@@ -334,6 +349,63 @@ smd.motes = [];
 for (let i = 0; i < 80; i++) pg.killShade(smd, { x: 200 + i, y: 200, dead: false });
 ok(smd.kills === 80, "killShade counts every kill");
 ok(smd.motes.length > 0, `slain shades leave gatherable ember motes (${smd.motes.length} of 80)`);
+
+// 20. Gesture scoring — the risky core. A clean full trace scores high; junk and
+//     empty strokes score zero; a single edge is gated low by coverage.
+const segG = pg.pentagramSegments(0, 0, 100, 0);
+ok(segG.length === 5, "the star is five segments");
+ok(segG.every((sg, i) => {
+  const nx = segG[(i + 1) % 5];
+  return Math.abs(sg.x2 - nx.x1) < 1e-6 && Math.abs(sg.y2 - nx.y1) < 1e-6;
+}), "the segments chain into a closed star");
+const tolG = 100 * K.TRACE_TOL_FRAC;
+const fullTrace = perfectStroke(segG);
+const qFull = pg.traceScore(fullTrace, segG, tolG);
+ok(qFull > 0.85, `a clean full trace scores high (${qFull})`);
+ok(pg.traceScore([], segG, tolG) === 0, "an empty stroke scores zero");
+ok(pg.traceScore(fullTrace.slice(0, 3), segG, tolG) === 0, "too few points score zero");
+const junk = Array.from({ length: 40 }, (_, i) => ({ x: 9000 + i, y: -9000 }));
+ok(pg.traceScore(junk, segG, tolG) === 0, "a stroke nowhere near the star scores zero");
+const oneEdge = [];
+for (let t = 0; t <= 1; t += 0.02) {
+  oneEdge.push({ x: segG[0].x1 + (segG[0].x2 - segG[0].x1) * t, y: segG[0].y1 + (segG[0].y2 - segG[0].y1) * t });
+}
+const qEdge = pg.traceScore(oneEdge, segG, tolG);
+ok(qEdge > 0 && qEdge < 0.4, `tracing only one edge is gated low by coverage (${qEdge})`);
+// A noisy-but-faithful trace (jittered within the slack band) still scores well.
+const noisy = fullTrace.map((p) => ({ x: p.x + (Math.random() - 0.5) * tolG * 0.6, y: p.y + (Math.random() - 0.5) * tolG * 0.6 }));
+ok(pg.traceScore(noisy, segG, tolG) > 0.5, "a faithful but jittery trace still scores well");
+
+// 21. The Veilwarden duel — a city-scaled boss, a perfect trace burns it, a poor
+//     trace barely marks it, and its snuff wears down an exhausted hero.
+const sb = pg.buildArena(pg.levelById("vesper"));
+pg.startBoss(sb);
+const expectHp = Math.round(K.BOSS_HP * pg.difficultyMult(pg.levelById("vesper")));
+ok(sb.phase === "boss" && sb.boss.maxHp === expectHp, `startBoss raises a city-scaled warden (${sb.boss.maxHp})`);
+// A perfect trace deals near the full BOSS_TRACE_DMG; a sloppy one far less.
+const segB = pg.pentagramSegments(sb.boss.cx, sb.boss.cy, sb.boss.r, 0);
+const hpA = sb.boss.hp;
+const qPerf = pg.submitTrace(sb, perfectStroke(segB));
+ok(qPerf > 0.85 && hpA - sb.boss.hp > K.BOSS_TRACE_DMG * 0.8, `a clean trace burns the warden deep (q=${qPerf.toFixed(2)})`);
+const hpB = sb.boss.hp;
+pg.submitTrace(sb, junk); // a stroke nowhere near the template
+ok(sb.boss.hp === hpB, "a trace that misses the template does no damage");
+// The warden's snuff drains the hero over time, and enough of it fells you.
+const sb2 = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sb2);
+const hpStart = sb2.hero.hp;
+for (let t = 0; t < K.BOSS_BITE_MS * 1.2; t += 16) pg.stepBoss(sb2, 16);
+ok(sb2.hero.hp < hpStart, "the warden's snuff drains the hero over time");
+sb2.hero.hp = K.BOSS_BITE_DMG; // one snuff from death
+for (let t = 0; t < K.BOSS_BITE_MS * 1.2; t += 16) pg.stepBoss(sb2, 16);
+ok(sb2.phase === "lost", "the warden wears an exhausted hero down to a fall");
+// The drawn template and the scorer share geometry: a perfect trace clears full health.
+const sb3 = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sb3);
+const strokeB3 = perfectStroke(pg.pentagramSegments(sb3.boss.cx, sb3.boss.cy, sb3.boss.r, 0));
+let g3 = 0;
+while (sb3.phase === "boss" && g3++ < 30) pg.submitTrace(sb3, strokeB3);
+ok(sb3.phase === "won", "enough clean traces break the warden");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
