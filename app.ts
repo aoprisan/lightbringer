@@ -41,10 +41,18 @@ interface Edge {
   conductivity: number;
 }
 
+// A line laid across the city the carrier did not put there: a canal the fire
+// crosses slowly, or a wall it barely crosses at all (and that also splits the
+// dawn's flood-fill, and blocks the avatar in the Lamplighter Run). Pure
+// geometry, hand-authored per city on its LevelDef — rebuilt deterministically
+// from the city id on load, so it is never itself saved.
+interface Barrier { x1: number; y1: number; x2: number; y2: number; wall?: boolean }
+
 interface City {
   nodes: CityNode[];
   edges: Edge[];
   adj: Map<number, number[]>;
+  barriers: Barrier[];
 }
 
 interface GameState extends City {
@@ -62,6 +70,8 @@ interface GameState extends City {
   veilThickened: boolean;
   lostSoul: boolean; // an awakened soul was snuffed since the last draw
   decoySpent: boolean; // a Keeper searched a false light since the last draw
+  perk: string; // the carrier's one equipped perk this run ("" = bare flame); re-derived from the legacy on load, never saved
+
   player?: Player; // the avatar, in action mode only — transient, never persisted
   playerHit?: boolean; // a Keeper caught the avatar since the last draw (action mode)
 }
@@ -116,6 +126,79 @@ const RAIN_SNUFF_DELAY = 2;        // extra ticks between snuffs in the rain
 const PRESS_VEIL_BLOCK = 1.2;      // a street scarred past this refuses the press's word
 
 const IDLE_CAP_TICKS = 600;        // most "while you were away" ticks we simulate
+
+// ---------- Terrain (canals & walls) ----------
+// Barrier segments a city's LevelDef may lay across its streets. A CANAL only
+// damps the fire that would creep across an edge (passable, slow water); a WALL
+// damps it far harder AND blocks the dawn's flood-fill, the press's word, and
+// the avatar's body — but never the watch (Keepers are a universal force, like
+// the veil-scar and the flame-spark). All of it is a pure function of the city's
+// hand-authored barrier geometry, so it rebuilds on load and is never saved.
+const CANAL_CROSS_DAMP = 0.4;      // fire crosses a canal at 40% the usual carry-rate
+const WALL_CROSS_DAMP = 0.05;      // ...and barely crosses a wall at all
+const WALL_HALF = 9;               // a wall's half-thickness, for the avatar's body
+
+// ---------- Perks (the carrier's craft) ----------
+// A meta-layer earned across runs and orthogonal to the cities: embers banked at
+// each dawn buy a perk, and the carrier may equip exactly one before a run. Perks
+// bend the carrier's own dials (their flame, their reach, their decoys) — never a
+// city's rules — and resolve through perkMods(g), read at a handful of sites. The
+// embers and what is owned live in the legacy (its own key); only the equipped id
+// rides the run, re-derived from the legacy on load so the save never changes.
+const EMBER_CAP = 12;              // most embers a single run can bank (farm guard)
+
+interface Perk { id: string; name: string; blurb: string; cost: number }
+
+const PERKS: Perk[] = [
+  { id: "deep-lungs", name: "Deep Lungs", cost: 6,
+    blurb: "You begin each night with +2✦." },
+  { id: "old-hearths", name: "Old Hearths", cost: 8,
+    blurb: "Every hearth returns +1✦ more at dawn." },
+  { id: "steady-hand", name: "Steady Hand", cost: 6,
+    blurb: "Awakening a soul costs one ✦ less." },
+  { id: "long-shadow", name: "Long Shadow", cost: 7,
+    blurb: "Decoys burn longer and cost 1✦ — but awakening costs +1✦." },
+  { id: "dim-watch", name: "Dim Watch", cost: 9,
+    blurb: "The watch sees less far — but you begin each night with −2✦." },
+  { id: "quick-wick", name: "Quick Wick", cost: 7,
+    blurb: "The fire spreads a little more eagerly." },
+];
+
+interface PerkMods {
+  startFlameBonus: number;
+  hearthRefund: number;
+  awakenCost: number;
+  decoyCost: number;
+  decoyTicks: number;
+  keeperRadiusMul: number;
+  spreadMul: number;
+}
+
+// Resolve the carrier's equipped perk into the dials the sim reads. Defaults are
+// the unmodified tuning constants, so a bare flame ("") behaves exactly as before.
+function perkMods(g: GameState): PerkMods {
+  const m: PerkMods = {
+    startFlameBonus: 0,
+    hearthRefund: HEARTH_REFUND,
+    awakenCost: AWAKEN_COST,
+    decoyCost: DECOY_COST,
+    decoyTicks: DECOY_TICKS,
+    keeperRadiusMul: 1,
+    spreadMul: 1,
+  };
+  switch (g.perk) {
+    case "deep-lungs": m.startFlameBonus += 2; break;
+    case "old-hearths": m.hearthRefund += 1; break;
+    case "steady-hand": m.awakenCost = Math.max(1, m.awakenCost - 1); break;
+    case "long-shadow": m.decoyTicks += 5; m.decoyCost = 1; m.awakenCost += 1; break;
+    case "dim-watch": m.keeperRadiusMul = 0.88; m.startFlameBonus -= 2; break;
+    case "quick-wick": m.spreadMul = 1.15; break;
+  }
+  return m;
+}
+const awakenCost = (g: GameState): number => perkMods(g).awakenCost;
+const decoyCost = (g: GameState): number => perkMods(g).decoyCost;
+const decoyTicks = (g: GameState): number => perkMods(g).decoyTicks;
 
 // ---------- Action mode ("The Lamplighter Run") ----------
 // An optional real-time shell layered over the very same turn-based sim: you
@@ -206,6 +289,7 @@ interface LevelDef {
   startFlame: number;  // the flame a night begins with
   sky: { wind: number; rain: number }; // weather temperament (rest is still air)
   districts: District[];
+  barriers?: Barrier[]; // canals/walls laid across the streets (pure geometry; default none)
   unlockNight?: number; // furthest-night legacy needed to unlock (0/undef = open)
 }
 
@@ -233,6 +317,8 @@ const LEVELS: LevelDef[] = [
     startFlame: 14,
     sky: { wind: 0.62, rain: 0.05 },
     districts: quarters("The Cinder Yards", "Embergate", "The Tanneries", "Smokefell", "The Black Quay"),
+    // One canal along the Black Quay waterfront — the fire crosses, but slowly.
+    barriers: [{ x1: 120, y1: 1180, x2: 880, y2: 1240 }],
   },
   {
     id: "drowned",
@@ -245,6 +331,13 @@ const LEVELS: LevelDef[] = [
     startFlame: 11,
     sky: { wind: 0.10, rain: 0.62 },
     districts: quarters("The Sunk Nave", "Tidewall", "The Weir", "Greylethe", "Mussel Row"),
+    // The water took the low streets: canals carve the quarters apart, so the
+    // fire must crawl between them and each region needs its own awakened soul.
+    barriers: [
+      { x1: 60, y1: 560, x2: 940, y2: 620 },
+      { x1: 520, y1: 80, x2: 470, y2: 560 },
+      { x1: 300, y1: 900, x2: 760, y2: 1020 },
+    ],
   },
   {
     id: "glassworks",
@@ -257,6 +350,12 @@ const LEVELS: LevelDef[] = [
     startFlame: 10,
     sky: { wind: 0.30, rain: 0.20 },
     districts: quarters("The Kilns", "Prism Row", "The Annealing", "Cullet Yard", "The Lantern Houses"),
+    // Kiln walls the fire and the dawn cannot cross — route the light precisely,
+    // and seed a soul on each side or that ground fades by morning.
+    barriers: [
+      { x1: 480, y1: 120, x2: 540, y2: 700, wall: true },
+      { x1: 540, y1: 700, x2: 900, y2: 760, wall: true },
+    ],
   },
   {
     id: "vesper",
@@ -269,6 +368,8 @@ const LEVELS: LevelDef[] = [
     startFlame: 12,
     sky: { wind: 0.25, rain: 0.25 },
     districts: quarters("The Cloisters", "Matins", "The Long Watch", "Compline", "The Pale"),
+    // A cloister wall seals the faithful's quarter from the rest of the city.
+    barriers: [{ x1: 640, y1: 640, x2: 980, y2: 720, wall: true }],
     unlockNight: 4,
   },
 ];
@@ -369,7 +470,68 @@ function generateCity(level: LevelDef): City {
     }
   }
 
-  return finalizeCity(nodes);
+  return finalizeCity(nodes, level.barriers ?? []);
+}
+
+// ---------- Geometry (barriers) ----------
+
+// The closest point to (px,py) on the segment, and the distance to it.
+function closestOnSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): { x: number; y: number; d: number } {
+  const dx = x2 - x1, dy = y2 - y1;
+  let len2 = dx * dx + dy * dy;
+  if (len2 === 0) len2 = 1;
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const x = x1 + dx * t, y = y1 + dy * t;
+  return { x, y, d: Math.hypot(px - x, py - y) };
+}
+
+// Do segments A-B and C-D cross? Orientation test (collinear overlap is ignored —
+// it never matters for our hand-placed barriers).
+function segIntersect(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
+  const o = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) =>
+    Math.sign((qx - px) * (ry - py) - (qy - py) * (rx - px));
+  return o(ax, ay, bx, by, cx, cy) !== o(ax, ay, bx, by, dx, dy) &&
+         o(cx, cy, dx, dy, ax, ay) !== o(cx, cy, dx, dy, bx, by);
+}
+
+// Does a WALL stand between two nodes? Walls (not canals) split the dawn's
+// flood-fill and the press's word — computed live from geometry, cheap because
+// the callers run only at dawn and on a press kindle. No-op without walls.
+function wallBetween(g: GameState, a: number, b: number): boolean {
+  if (!g.barriers.length) return false;
+  const na = g.nodes[a], nb = g.nodes[b];
+  for (const bar of g.barriers) {
+    if (!bar.wall) continue;
+    if (segIntersect(na.x, na.y, nb.x, nb.y, bar.x1, bar.y1, bar.x2, bar.y2)) return true;
+  }
+  return false;
+}
+
+// Push a body of the given radius out of any WALL it overlaps (capsule = segment
+// + WALL_HALF), then clamp to the map. Canals are passable, so ignored. No-op
+// without walls, so barrier-free cities move exactly as before.
+function pushOut(g: GameState, x: number, y: number, radius: number): { x: number; y: number } {
+  for (const bar of g.barriers) {
+    if (!bar.wall) continue;
+    const c = closestOnSegment(x, y, bar.x1, bar.y1, bar.x2, bar.y2);
+    const rr = radius + WALL_HALF;
+    if (c.d < rr) {
+      let nx = x - c.x, ny = y - c.y;
+      let d = Math.hypot(nx, ny);
+      if (d === 0) { // dead on the line: shove perpendicular to it
+        const fx = bar.x2 - bar.x1, fy = bar.y2 - bar.y1;
+        const fl = Math.hypot(fx, fy) || 1;
+        nx = -fy / fl; ny = fx / fl; d = 1;
+      }
+      x = c.x + (nx / d) * rr;
+      y = c.y + (ny / d) * rr;
+    }
+  }
+  return {
+    x: Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, x)),
+    y: Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, y)),
+  };
 }
 
 function makeNode(id: number, x: number, y: number, kind: NodeKind, districts: District[]): CityNode {
@@ -389,7 +551,7 @@ function makeNode(id: number, x: number, y: number, kind: NodeKind, districts: D
 
 // Build edges (streets, conduits, lines of rumor) + adjacency from node geometry.
 // Deterministic from positions/kinds, so we can rebuild it after loading a save.
-function finalizeCity(nodes: CityNode[]): City {
+function finalizeCity(nodes: CityNode[], barriers: Barrier[] = []): City {
   const edges: Edge[] = [];
   const seen = new Set<string>();
   for (const n of nodes) {
@@ -402,7 +564,17 @@ function finalizeCity(nodes: CityNode[]): City {
       const key = n.id < m.id ? `${n.id}-${m.id}` : `${m.id}-${n.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const cond = Math.min(COND[n.kind] + COND[m.kind], 0.66) + 0.08;
+      let cond = Math.min(COND[n.kind] + COND[m.kind], 0.66) + 0.08;
+      // A street that crosses a canal carries the fire slowly; one that crosses a
+      // wall barely at all. The edge is KEPT either way (the graph stays
+      // connected, so the dawn's flood-fill never errors) — only its carry-rate
+      // drops. Walls additionally block traversal outright, live, in applyDawn
+      // and runPress via wallBetween.
+      for (const bar of barriers) {
+        if (segIntersect(n.x, n.y, m.x, m.y, bar.x1, bar.y1, bar.x2, bar.y2)) {
+          cond *= bar.wall ? WALL_CROSS_DAMP : CANAL_CROSS_DAMP;
+        }
+      }
       edges.push({ a: n.id, b: m.id, conductivity: cond });
     }
   }
@@ -413,7 +585,7 @@ function finalizeCity(nodes: CityNode[]): City {
     adj.get(e.a)!.push(e.b);
     adj.get(e.b)!.push(e.a);
   }
-  return { nodes, edges, adj };
+  return { nodes, edges, adj, barriers };
 }
 
 // ---------- Simulation ----------
@@ -472,6 +644,7 @@ function runPress(g: GameState, press: CityNode): void {
       if (m.state !== "dark") continue;
       if (m.kind !== "conduit" && m.kind !== "press") continue;
       if (m.veil >= PRESS_VEIL_BLOCK) continue;
+      if (wallBetween(g, id, mId)) continue; // the word does not carry across a wall
       kindle(g, mId);
       queue.push(mId);
     }
@@ -501,7 +674,7 @@ function placeDecoy(g: GameState, id: number): boolean {
   const n = g.nodes[id];
   if (n.kind === "keeper") return false;
   if (n.state !== "dark" || n.decoy > 0) return false;
-  n.decoy = DECOY_TICKS;
+  n.decoy = decoyTicks(g);
   n.revealed = true; // the carrier sees the lure they laid
   return true;
 }
@@ -513,6 +686,7 @@ function stepDecoys(g: GameState): void {
 
 function stepSpread(g: GameState): void {
   const toLight: number[] = [];
+  const spreadMul = perkMods(g).spreadMul; // the carrier's perk may quicken the fire
   for (const n of g.nodes) {
     if (n.state !== "lit" && n.state !== "awakened") continue;
     for (const mId of g.adj.get(n.id) ?? []) {
@@ -534,7 +708,7 @@ function stepSpread(g: GameState): void {
       const chance =
         e.conductivity * n.brightness * (n.state === "awakened" ? 1.25 : 1) * veilDamp * sky;
       const clock = g.player ? ACTION_SPREAD_DAMP : 1; // action shell breathes faster
-      if (Math.random() < chance * 0.45 * clock) toLight.push(mId);
+      if (Math.random() < chance * 0.45 * clock * spreadMul) toLight.push(mId);
     }
     if (n.state === "lit") n.brightness = Math.max(0.35, n.brightness - 0.03);
   }
@@ -573,7 +747,9 @@ function keeperRadius(g: GameState, k: CityNode): number {
     const d2 = (n.x - k.x) ** 2 + (n.y - k.y) ** 2;
     if (d2 <= (base * 1.4) ** 2) localVeil += n.veil;
   }
-  return base * (1 + Math.min(0.6, localVeil * 0.05));
+  // The carrier's perk may quiet the watch (a smaller sensed ring). Applied here
+  // so render() draws the very reach the simulation enforces.
+  return base * (1 + Math.min(0.6, localVeil * 0.05)) * perkMods(g).keeperRadiusMul;
 }
 
 // Keepers patrol. A Keeper's post sees the worst light within its ring — an
@@ -779,6 +955,7 @@ function applyDawn(g: GameState): { faded: number } {
     const id = queue.pop()!;
     for (const m of g.adj.get(id) ?? []) {
       const node = g.nodes[m];
+      if (wallBetween(g, id, m)) continue; // a wall severs the dawn's connection
       if ((node.state === "lit" || node.state === "awakened") && !keep.has(m)) {
         keep.add(m);
         queue.push(m);
@@ -862,10 +1039,10 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     n.nights = typeof r[10] === "number" ? r[10] : 0;
     return n;
   });
-  const { edges, adj } = finalizeCity(nodes);
+  const { edges, adj, barriers } = finalizeCity(nodes, level.barriers ?? []);
   const w = data.weather;
   const g: GameState = {
-    nodes, edges, adj, level,
+    nodes, edges, adj, barriers, level,
     night: data.night, maxFlame: data.maxFlame, flame: data.flame,
     weather: Array.isArray(w) && (w[0] === "still" || w[0] === "wind" || w[0] === "rain")
       ? { kind: w[0], wx: w[1] || 0, wy: w[2] || 0 }
@@ -875,14 +1052,17 @@ function loadGame(): { g: GameState; savedAt: number } | null {
     shownFrescoes: Array.isArray(data.shownFrescoes) ? data.shownFrescoes : [],
     pendingFresco: null, lastSnuffDistrict: -1, veilThickened: false,
     lostSoul: false, decoySpent: false,
+    // The equipped perk is not in the save — re-derive it from the legacy. The
+    // resume overlay has no picker, so the perk is effectively locked for the run.
+    perk: loadLegacy().perkEquipped,
   };
   return { g, savedAt: data.savedAt || Date.now() };
 }
 
-function freshGame(level: LevelDef = LEVELS[0]): GameState {
-  const { nodes, edges, adj } = generateCity(level);
+function freshGame(level: LevelDef = LEVELS[0], perkId: string = loadLegacy().perkEquipped): GameState {
+  const { nodes, edges, adj, barriers } = generateCity(level);
   const g: GameState = {
-    nodes, edges, adj, level,
+    nodes, edges, adj, barriers, level, perk: perkId,
     night: 1, maxFlame: level.startFlame, flame: level.startFlame,
     weather: rollWeather(1, level),
     mode: "kindle", phase: "night", tick: 0,
@@ -890,6 +1070,9 @@ function freshGame(level: LevelDef = LEVELS[0]): GameState {
     lastSnuffDistrict: -1, veilThickened: false, lostSoul: false,
     decoySpent: false,
   };
+  // The equipped perk may swell or thin the flame a night begins with.
+  const bonus = perkMods(g).startFlameBonus;
+  g.maxFlame = g.flame = Math.max(1, level.startFlame + bonus);
   // The city begins wholly dark: nothing is revealed until the carrier lights it,
   // so the frescoes stay under the whitewash (uncovered as the city lights, never
   // at the start) and no node reads as already burning. Shrines still show as a
@@ -913,10 +1096,13 @@ interface Legacy {
   bestLit: number;     // most lights carried into a morning
   bestPct: number;     // brightest morning, as a percent of the city
   bestHearths: number; // most hearths settled in a single run
+  embers: number;      // banked currency, spent to unlock perks
+  perksOwned: string[];// perk ids the carrier has bought
+  perkEquipped: string;// the one perk equipped for the next run ("" = bare flame)
 }
 
 function emptyLegacy(): Legacy {
-  return { runs: 0, bestNight: 0, bestLit: 0, bestPct: 0, bestHearths: 0 };
+  return { runs: 0, bestNight: 0, bestLit: 0, bestPct: 0, bestHearths: 0, embers: 0, perksOwned: [], perkEquipped: "" };
 }
 
 function loadLegacy(): Legacy {
@@ -924,16 +1110,25 @@ function loadLegacy(): Legacy {
     const raw = localStorage.getItem(LEGACY_KEY);
     if (raw) {
       const r = JSON.parse(raw) as Partial<Legacy>;
+      // New fields default gracefully — the legacy gains fields without a key bump.
+      const owned = Array.isArray(r.perksOwned) ? r.perksOwned.filter((id) => PERKS.some((p) => p.id === id)) : [];
       return {
         runs: r.runs || 0,
         bestNight: r.bestNight || 0,
         bestLit: r.bestLit || 0,
         bestPct: r.bestPct || 0,
         bestHearths: r.bestHearths || 0,
+        embers: r.embers || 0,
+        perksOwned: owned,
+        perkEquipped: typeof r.perkEquipped === "string" && owned.includes(r.perkEquipped) ? r.perkEquipped : "",
       };
     }
   } catch (_) { /* storage may be unavailable; the record is best-effort */ }
   return emptyLegacy();
+}
+
+function saveLegacy(l: Legacy): void {
+  try { localStorage.setItem(LEGACY_KEY, JSON.stringify(l)); } catch (_) { /* best-effort */ }
 }
 
 // Which lifetime bests a just-ended run newly bettered, so the end screen can
@@ -942,8 +1137,10 @@ function loadLegacy(): Legacy {
 interface LegacyBeat { night: boolean; lit: boolean; pct: boolean; hearths: boolean; }
 
 // Fold a finished run into the lifetime record and persist it. Returns the saved
-// legacy (already including this run) and the bests this run set.
-function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat } {
+// legacy (already including this run), the bests this run set, and the embers it
+// banked. Embers reward density and depth (% lit, hearths, night) rather than raw
+// count — and are capped — so the action shell's auto-kindle can't farm them.
+function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat; earned: number } {
   const s = litStats(g);
   const pct = s.total ? Math.round((s.lit / s.total) * 100) : 0;
   const prev = loadLegacy();
@@ -953,15 +1150,19 @@ function recordRun(g: GameState): { legacy: Legacy; beat: LegacyBeat } {
     pct: pct > prev.bestPct,
     hearths: s.hearths > prev.bestHearths,
   };
+  const earned = Math.min(EMBER_CAP, Math.round(pct / 10) + s.hearths * 2 + g.night);
   const legacy: Legacy = {
     runs: prev.runs + 1,
     bestNight: Math.max(prev.bestNight, g.night),
     bestLit: Math.max(prev.bestLit, s.lit),
     bestPct: Math.max(prev.bestPct, pct),
     bestHearths: Math.max(prev.bestHearths, s.hearths),
+    embers: prev.embers + earned,
+    perksOwned: prev.perksOwned,
+    perkEquipped: prev.perkEquipped,
   };
-  try { localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy)); } catch (_) { /* best-effort */ }
-  return { legacy, beat };
+  saveLegacy(legacy);
+  return { legacy, beat, earned };
 }
 
 // The legacy block for the overlays (pure string, no DOM). With nothing recorded
@@ -974,7 +1175,14 @@ function legacyHtml(l: Legacy, beat?: LegacyBeat): string {
     `<div><dt>Furthest night</dt><dd>${l.bestNight}${mark(beat?.night)}</dd></div>` +
     `<div><dt>Brightest morning</dt><dd>${l.bestPct}% · ${l.bestLit} lights${mark(beat && (beat.pct || beat.lit))}</dd></div>` +
     `<div><dt>Most hearths kept</dt><dd>${l.bestHearths}${mark(beat?.hearths)}</dd></div>` +
+    `<div><dt>Embers banked</dt><dd>${l.embers}</dd></div>` +
     `</dl></div>`;
+}
+
+// The embers a just-ended run banked, for the end overlays. Silent if none.
+function emberLine(earned: number): string {
+  if (earned <= 0) return "";
+  return `<p class="embers-earned">You bank <strong>${earned}✦ ${earned === 1 ? "ember" : "embers"}</strong> from this run, to spend on your craft.</p>`;
 }
 
 // One breath of the city: light spreads a step, awakened souls kindle, the
@@ -1153,6 +1361,25 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
     }));
   }
 
+  // Canals run beneath the streets — water the fire crosses slowly. (Walls are
+  // drawn later, above the lit threads, since a flame must not appear to cross
+  // one.) Terrain is night art, like the ground texture, so dawn shows the bare
+  // field.
+  if (!dawnMode) {
+    for (const bar of g.barriers) {
+      if (bar.wall) continue;
+      layer.appendChild(el("line", {
+        x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+        stroke: "#2b3a55", "stroke-opacity": 0.5, "stroke-width": 16, "stroke-linecap": "round",
+      }));
+      layer.appendChild(el("line", {
+        x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+        stroke: "#6f93c4", "stroke-opacity": 0.3, "stroke-width": 2,
+        "stroke-linecap": "round", "stroke-dasharray": "3 10",
+      }));
+    }
+  }
+
   // Veil blots first — the thickening dark sits beneath everything, an ink
   // stain that feathers out into the night rather than a hard disc.
   for (const n of g.nodes) {
@@ -1214,6 +1441,23 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
     });
     if (carrier && visible && !litEdge && !dawnMode) line.setAttribute("stroke-dasharray", "1 6");
     layer.appendChild(line);
+  }
+
+  // Walls stand above the streets — a dark bar with a lit top edge — so a warm
+  // thread never reads as crossing one. They block the fire, the dawn, and the
+  // carrier's body, but not the watch.
+  if (!dawnMode) {
+    for (const bar of g.barriers) {
+      if (!bar.wall) continue;
+      layer.appendChild(el("line", {
+        x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+        stroke: "#11131f", "stroke-opacity": 0.92, "stroke-width": WALL_HALF * 2, "stroke-linecap": "round",
+      }));
+      layer.appendChild(el("line", {
+        x1: bar.x1, y1: bar.y1, x2: bar.x2, y2: bar.y2,
+        stroke: "#4a4f63", "stroke-opacity": 0.7, "stroke-width": 3, "stroke-linecap": "round",
+      }));
+    }
   }
 
   // Nodes. (Taps are handled by the shell's camera layer — nearest-node
@@ -1647,8 +1891,9 @@ function start(): void {
       if (d2 <= bd) { bd = d2; best = n; }
     }
     if (!best) return;
-    if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦ — your life runs low.`); return; }
-    if (awaken(g, best.id)) { g.flame -= AWAKEN_COST; }
+    const cost = awakenCost(g);
+    if (g.flame < cost) { showToast(`Awakening a soul costs ${cost}✦ — your life runs low.`); return; }
+    if (awaken(g, best.id)) { g.flame -= cost; }
     else showToast("Only a dwelling — a person — can be awakened.");
   }
 
@@ -1700,8 +1945,8 @@ function start(): void {
     const s = litStats(g);
     litEl.textContent = `${Math.round((s.lit / s.total) * 100)}% lit`;
     modeBtn.textContent = g.mode === "kindle" ? `Kindle (${KINDLE_COST}✦)`
-      : g.mode === "awaken" ? `Awaken (${AWAKEN_COST}✦)`
-      : `Decoy (${DECOY_COST}✦)`;
+      : g.mode === "awaken" ? `Awaken (${awakenCost(g)}✦)`
+      : `Decoy (${decoyCost(g)}✦)`;
     modeBtn.className = g.mode;
   }
 
@@ -1776,6 +2021,8 @@ function start(): void {
     p.vy = move.y * PLAYER_SPEED;
     p.x = Math.max(PLAYER_RADIUS, Math.min(W - PLAYER_RADIUS, p.x + p.vx * dt / 1000));
     p.y = Math.max(PLAYER_RADIUS, Math.min(H - PLAYER_RADIUS, p.y + p.vy * dt / 1000));
+    const pushed = pushOut(g, p.x, p.y, PLAYER_RADIUS); // walls are cover the carrier cannot pass
+    p.x = pushed.x; p.y = pushed.y;
     if (p.hurt > 0) p.hurt = Math.max(0, p.hurt - dt);
 
     // The weapon: stand still and the lantern kindles the nearest dark ground.
@@ -1822,7 +2069,7 @@ function start(): void {
     g.phase = "end";
     g.player = undefined; // no avatar on the morning-after board
     saveGame(g);
-    const { legacy, beat } = recordRun(g); // fold this run into the lifetime record
+    const { legacy, beat, earned } = recordRun(g); // fold this run into the lifetime record
     draw(true);
     const after = litStats(g);
     showOverlay(
@@ -1830,6 +2077,7 @@ function start(): void {
       (after.lit > 0
         ? `The Keepers ran you down — but ${after.lit} lights still burn without you, ${Math.round((after.lit / after.total) * 100)}% of the city, held by ${after.awakened} awakened souls.<br><br><em>That is the only victory there was. Ora pro nobis, Lucifer.</em>`
         : `The Keepers ran you down, and the city is dark again.<br><br><em>Begin again. The morning is patient.</em>`) +
+        emberLine(earned) +
         legacyHtml(legacy, beat),
       "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
     );
@@ -1843,12 +2091,14 @@ function start(): void {
       if (g.flame < KINDLE_COST) { showToast("No flame left to give. Wait, or end the night."); return; }
       if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; }
     } else if (g.mode === "awaken") {
-      if (g.flame < AWAKEN_COST) { showToast(`Awakening a soul costs ${AWAKEN_COST}✦.`); return; }
+      const cost = awakenCost(g);
+      if (g.flame < cost) { showToast(`Awakening a soul costs ${cost}✦.`); return; }
       if (n.kind !== "dwelling") { showToast("Only a dwelling — a person — can be awakened."); return; }
-      if (awaken(g, id)) { g.flame -= AWAKEN_COST; acted = true; }
+      if (awaken(g, id)) { g.flame -= cost; acted = true; }
     } else {
-      if (g.flame < DECOY_COST) { showToast(`A false light costs ${DECOY_COST}✦.`); return; }
-      if (placeDecoy(g, id)) { g.flame -= DECOY_COST; acted = true; }
+      const cost = decoyCost(g);
+      if (g.flame < cost) { showToast(`A false light costs ${cost}✦.`); return; }
+      if (placeDecoy(g, id)) { g.flame -= cost; acted = true; }
       else { showToast("Lay a false light only on dark, empty ground."); return; }
     }
     if (!acted) return; // a tap that lights nothing costs no breath
@@ -1987,7 +2237,7 @@ function start(): void {
     if (g.maxFlame <= 0) {
       g.phase = "end";
       saveGame(g);
-      const { legacy, beat } = recordRun(g); // fold this run into the lifetime record
+      const { legacy, beat, earned } = recordRun(g); // fold this run into the lifetime record
       draw(true); // render the city in dawn light, only survivors gold
       const pct = Math.round((after.lit / after.total) * 100);
       showOverlay(
@@ -1995,6 +2245,7 @@ function start(): void {
         (after.lit > 0
           ? `Your flame is gone. But ${after.lit} lights still burn without you — ${pct}% of the city, held by ${after.awakened} awakened souls${after.hearths > 0 ? `, ${after.hearths} of them settled hearths that will keep the flame` : ``}.<br><br>That is the only victory there was.<br><br><em>Ora pro nobis, Lucifer.</em>`
           : `Your flame is gone, and the city is dark. Nothing you lit outlived you.<br><br><em>Begin again. The morning is patient.</em>`) +
+          emberLine(earned) +
           legacyHtml(legacy, beat),
         "Begin again", () => { localStorage.removeItem(SAVE_KEY); location.reload(); }
       );
@@ -2005,7 +2256,7 @@ function start(): void {
     // to the carrier, the only warmth the dimming hand gets back. The carrier
     // still burns, so the run still ends; hearths only make the nights you have
     // left burn brighter.
-    const refund = after.hearths * HEARTH_REFUND;
+    const refund = after.hearths * perkMods(g).hearthRefund;
     const nightFlame = g.maxFlame + refund;
 
     saveGame(g);
@@ -2103,6 +2354,52 @@ function start(): void {
     if (img) img.onerror = () => { img.style.display = "none"; };
   }
 
+  // The carrier's craft: a band showing the ember balance, a bare-flame default,
+  // then each perk — owned ones equippable, locked ones buyable when affordable.
+  function perkPickerHtml(): string {
+    const lg = loadLegacy();
+    const bare = `<button class="perk${lg.perkEquipped === "" ? " sel" : ""}" data-perk="">` +
+      `<span class="perk-name">Bare flame</span>` +
+      `<span class="perk-line">No perk — the night as it was first stolen.</span></button>`;
+    const cards = PERKS.map((p) => {
+      const owned = lg.perksOwned.includes(p.id);
+      const equipped = lg.perkEquipped === p.id;
+      const affordable = lg.embers >= p.cost;
+      const cls = `perk${equipped ? " sel" : ""}${owned ? "" : " locked"}`;
+      const act = owned
+        ? (equipped ? `equipped` : `equip`)
+        : (affordable ? `kindle · ${p.cost}✦` : `${p.cost}✦`);
+      return `<button class="${cls}" data-perk="${p.id}"${(!owned && !affordable) ? " disabled" : ""}>` +
+        `<span class="perk-name">${p.name}</span>` +
+        `<span class="perk-line">${p.blurb}</span>` +
+        `<span class="perk-act">${act}</span></button>`;
+    }).join("");
+    return `<div class="perks-head"><em>Your craft</em> · ${lg.embers}✦ embers</div>` +
+      `<div class="perks">${bare}${cards}</div>`;
+  }
+  // Equip an owned perk, or buy a locked one if its cost is met; either persists
+  // the legacy and re-renders the intro through onChange.
+  function wirePerkPicker(onChange: () => void): void {
+    document.querySelectorAll<HTMLButtonElement>("#ov-body .perk").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.perk ?? "";
+        const lg = loadLegacy();
+        if (id === "") { lg.perkEquipped = ""; saveLegacy(lg); onChange(); return; }
+        if (lg.perksOwned.includes(id)) {
+          lg.perkEquipped = id;
+        } else {
+          const p = PERKS.find((x) => x.id === id);
+          if (!p || lg.embers < p.cost) return;
+          lg.embers -= p.cost;
+          lg.perksOwned.push(id);
+          lg.perkEquipped = id;
+        }
+        saveLegacy(lg);
+        onChange();
+      });
+    });
+  }
+
   // The classic night's intro, rebuilt whenever the city choice changes so the
   // card art, epigraph highlight, and button label track the selection.
   function showClassicIntro(): void {
@@ -2117,6 +2414,7 @@ function start(): void {
       `<em>Choose a city to carry it into:</em>` +
       cityPickerHtml(g.level.id) +
       `<em>Tap to kindle; drag to pan, pinch to zoom. The city moves only when you do — each act, or a Wait, lets the night breathe once. The cold rings are the Keepers' sight. Awaken a dwelling and it carries the light while you are away. The carrier burns: each night your flame is smaller. You will not finish the city.</em>` +
+      perkPickerHtml() +
       legacyHtml(introLegacy),
       `Carry the flame into ${g.level.name}`,
       () => { g.phase = "night"; overlay.classList.add("hidden"); draw(); },
@@ -2128,6 +2426,7 @@ function start(): void {
       showClassicIntro();
       draw();
     });
+    wirePerkPicker(() => { g = freshGame(g.level); showClassicIntro(); draw(); });
     draw();
   }
 
@@ -2140,20 +2439,22 @@ function start(): void {
       card +
       `You are the flame now. Move with the stick — or <em>WASD</em> — and <em>stand still</em> to kindle the dark around you. Tap a dwelling to awaken a soul (${AWAKEN_COST}✦). The Keepers no longer wait: they leave their posts to hunt you. Your ✦ is your life — when it gutters out, the run ends.<br><br>` +
       `<em>Choose a city to run:</em>` +
-      cityPickerHtml(g.level.id),
+      cityPickerHtml(g.level.id) +
+      perkPickerHtml(),
       `Run ${g.level.name}`,
       () => { overlay.classList.add("hidden"); startAction(); },
       "The classic night ▸", () => setMode(false),
     );
-    wireCityPicker((lv) => {
-      g = freshGame(lv);
+    const respawn = () => {
       loadCitySprites(g.level.id, onSpriteChange);
       spawnPlayer();
       g.phase = "night";
       centerCam(g.player!.x, g.player!.y);
       showActionIntro();
       draw();
-    });
+    };
+    wireCityPicker((lv) => { g = freshGame(lv); respawn(); });
+    wirePerkPicker(() => { g = freshGame(g.level); respawn(); });
   }
 
   // Returning to a run already under way — no city picker (that is a fresh-start
@@ -2285,8 +2586,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__LB_TEST__) {
     generateCity, freshGame, simulateTicks, stepCity, stepSpread, stepAwakened,
     stepKeepers, keeperRadius, kindle, awaken, placeDecoy, snuff, litStats, isHearth, applyDawn,
     districtStats, saveGame, loadGame, rollWeather, DISTRICTS,
-    loadLegacy, recordRun, emptyLegacy,
-    LEVELS, levelById,
+    loadLegacy, saveLegacy, recordRun, emptyLegacy,
+    LEVELS, levelById, finalizeCity,
+    perkMods, PERKS, wallBetween, segIntersect, closestOnSegment, pushOut,
   };
 } else {
   start();
