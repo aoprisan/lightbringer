@@ -75,6 +75,7 @@ interface Shade {
   wanderAngle: number; // current drift heading, radians
   wanderTimer: number; // ms until it re-rolls a wander heading
   homeX: number; homeY: number; // its keeper-post anchor (the leash centre)
+  hit: number;         // s.elapsed time until which it flashes from a fresh blow (0 = none)
 }
 
 interface Penta {
@@ -199,6 +200,7 @@ const SCORCH_MAX = 6;            // …cap on simultaneous patches
 const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
 const ARC_MS = 180;              // Pyre: how long a chain spark stays drawn
 const NOVA_FX_MS = 320;          // Wrath: how long the eruption ring expands/fades
+const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh blow
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -453,6 +455,7 @@ function buildArena(level: LevelDef): PgState {
         wanderAngle: Math.random() * Math.PI * 2,
         wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
+        hit: 0,
       });
     }
   }
@@ -587,6 +590,7 @@ function stepPentagram(s: PgState, dt: number): void {
         if (e.dead) continue;
         if ((e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= sr2) {
           e.hp -= sdmg;
+          e.hit = s.elapsed + SHADE_HIT_MS;
           if (e.hp <= 0) kill(e);
         }
       }
@@ -606,6 +610,7 @@ function stepPentagram(s: PgState, dt: number): void {
       if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
         e.state = "chase"; // a pulse that catches a wanderer rouses it
         e.hp -= dmg;
+        e.hit = s.elapsed + SHADE_HIT_MS;
         if (e.hp <= 0) { kill(e); justKilled.push(e); }
       }
     }
@@ -618,6 +623,7 @@ function stepPentagram(s: PgState, dt: number): void {
           if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
             e.state = "chase";
             e.hp -= cdmg;
+            e.hit = s.elapsed + SHADE_HIT_MS;
             s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
             if (e.hp <= 0) kill(e);
           }
@@ -683,6 +689,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
         if (e.dead) continue;
         if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= nr2) {
           e.hp -= s.fxDmg * 2;
+          e.hit = s.elapsed + SHADE_HIT_MS;
           if (e.hp <= 0) { e.dead = true; s.kills++; continue; }
           const dx = e.x - h.x, dy = e.y - h.y, d = Math.hypot(dx, dy) || 1;
           const p = pushOut(s, e.x + (dx / d) * NOVA_PUSH, e.y + (dy / d) * NOVA_PUSH, SHADE_RADIUS);
@@ -988,14 +995,25 @@ function render(s: PgState, layer: SVGGElement): void {
   for (const e of s.shades) {
     if (e.dead) continue;
     const op = e.state === "chase" ? 1 : 0.55;
+    // Fresh blow: the shade recoils brighter and a white burst flares over it,
+    // fading across SHADE_HIT_MS. Reads at a glance that the sigil is biting.
+    const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / SHADE_HIT_MS) : 0;
+    const sz = 44 * (1 + 0.18 * flash); // a small recoil pop on impact
     if (shadeKey) {
-      layer.appendChild(spriteImage(shadeKey, e.x, e.y, 44, op));
+      layer.appendChild(spriteImage(shadeKey, e.x, e.y, sz, op));
     } else {
       const q = SHADE_RADIUS * 1.4;
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
         transform: `rotate(45 ${e.x} ${e.y})`,
         fill: "#1b2740", stroke: "#9fc4e8", "stroke-width": 2, opacity: op,
+      }));
+    }
+    if (flash > 0) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: SHADE_RADIUS * (0.9 + 0.5 * (1 - flash)),
+        fill: "#fff6e0", opacity: 0.7 * flash,
+        ...(LOW_FX ? {} : { filter: "url(#bloom)" }),
       }));
     }
     if (e.state === "chase" && e.hp < e.maxHp) {
