@@ -427,6 +427,11 @@ const FRESCOES: string[] = [
   "A rumor is oil. A name spoken twice is a wick.",
   "The morning is not coming to judge you. It is only morning.",
   "They keep the lamps low and call the dark holy.",
+  "A lamp lit in secret is still a lamp. Begin where no one watches.",
+  "They whitewashed the walls, not the colour beneath. Scratch, and remember.",
+  "Count the windows that answered yours: that is the city waking.",
+  "The dark was never the enemy — only the forgetting that there was light.",
+  "Two flames see farther than one, and fear each other less.",
 ];
 
 // A few of the most quotable frescoes have painted art (the rest reveal as text
@@ -1638,6 +1643,83 @@ function render(g: GameState, layer: SVGGElement, dawnMode?: boolean): void {
 
 // ---------- Game shell ----------
 
+// ---------- Sound ----------
+// A procedural voice for the night — zero assets, the same ethos as the SVG.
+// Short WebAudio tones synthesized on the fly, so nothing is shipped and it works
+// offline by nature (no entries in sw.js ASSETS). One AudioContext is created
+// lazily on the first sound — after a user gesture, per the autoplay policy — and
+// the whole thing no-ops where WebAudio is absent (the headless smoke test, which
+// imports the compiled module in Node). Mute lives in its OWN localStorage key,
+// like the legacy, so it never couples to the save version.
+const SOUND_PREF_KEY = "lightbringer.sound"; // "0" = muted; absent / "1" = on
+
+// Each voice is a tiny additive chord with a soft envelope. Frequencies are real
+// pitches so the palette stays consonant: bright bells for giving light, a warm
+// chord for a soul, low falls and saws for the Veil's work, a slow gold swell for
+// dawn. Tuning these is the sound design surface — same spirit as the constants.
+type Voice = { freqs: number[]; type: OscillatorType; dur: number; gain: number; attack?: number };
+const VOICES: Record<string, Voice> = {
+  kindle: { freqs: [523.25, 783.99], type: "sine", dur: 0.5, gain: 0.16 },               // C5→G5, a small bell
+  awaken: { freqs: [392.0, 523.25, 659.25], type: "triangle", dur: 1.1, gain: 0.17, attack: 0.05 }, // a warm G-major bloom
+  decoy: { freqs: [311.13], type: "sine", dur: 0.16, gain: 0.10 },                        // a soft, hollow tick
+  fresco: { freqs: [659.25, 987.77, 1318.51], type: "sine", dur: 1.4, gain: 0.11, attack: 0.07 }, // a high shimmer surfacing
+  snuff: { freqs: [110.0, 87.31], type: "sine", dur: 0.9, gain: 0.20 },                   // a low fall, a light put out
+  keeper: { freqs: [82.41, 77.78], type: "sawtooth", dur: 1.2, gain: 0.09 },              // ominous, the Veil thickens
+  dawn: { freqs: [261.63, 329.63, 392.0, 523.25], type: "triangle", dur: 2.4, gain: 0.15, attack: 0.5 }, // a slow gold swell
+  wait: { freqs: [196.0], type: "sine", dur: 0.7, gain: 0.05, attack: 0.2 },              // a quiet breath
+};
+
+const sound = (() => {
+  const Ctor = (globalThis as unknown as {
+    AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext;
+  });
+  const AC = Ctor.AudioContext || Ctor.webkitAudioContext;
+  let ctx: AudioContext | null = null;
+  let muted = false;
+  try { muted = localStorage.getItem(SOUND_PREF_KEY) === "0"; } catch { /* ignore */ }
+
+  function ensure(): AudioContext | null {
+    if (muted || !AC) return null;
+    if (!ctx) { try { ctx = new AC(); } catch { return null; } }
+    if (ctx.state === "suspended") ctx.resume().catch(() => { /* gesture pending */ });
+    return ctx;
+  }
+  return {
+    get muted(): boolean { return muted; },
+    // Toggle and persist. Unmuting is itself the user gesture, so warm the context
+    // now — otherwise the first event would be swallowed by the autoplay policy.
+    toggle(): boolean {
+      muted = !muted;
+      try { localStorage.setItem(SOUND_PREF_KEY, muted ? "0" : "1"); } catch { /* ignore */ }
+      if (!muted) ensure();
+      return muted;
+    },
+    play(name: keyof typeof VOICES): void {
+      const c = ensure();
+      const v = VOICES[name];
+      if (!c || !v) return;
+      const now = c.currentTime;
+      const atk = v.attack ?? 0.01;
+      const master = c.createGain();
+      master.connect(c.destination);
+      // A shared exponential envelope (never to a true 0 — exponential ramps can't).
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(v.gain, now + atk);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + v.dur);
+      v.freqs.forEach((f, i) => {
+        const o = c.createOscillator();
+        o.type = v.type;
+        o.frequency.value = f;
+        const part = c.createGain();
+        part.gain.value = 1 / v.freqs.length;
+        o.connect(part); part.connect(master);
+        o.start(now + i * v.dur * 0.1); // stagger partials so chords bloom, not stab
+        o.stop(now + v.dur + 0.05);
+      });
+    },
+  };
+})();
+
 function byId(id: string): HTMLElement {
   const e = document.getElementById(id);
   if (!e) throw new Error(`missing element #${id}`);
@@ -1957,9 +2039,10 @@ function start(): void {
     // art/rain-overlay.png / art/wind-overlay.png and fail silently until
     // those files exist.
     wx.className = g.phase === "night" && g.weather.kind !== "still" ? g.weather.kind : "";
-    if (g.pendingFresco) { revealFresco(g.pendingFresco); g.pendingFresco = null; }
+    if (g.pendingFresco) { revealFresco(g.pendingFresco); sound.play("fresco"); g.pendingFresco = null; }
     if (g.lostSoul) {
       g.lostSoul = false;
+      sound.play("snuff");
       showToast("A soul you woke is snuffed; the Veil closes where they stood.");
     } else if (g.decoySpent) {
       showToast("A Keeper searches your false light, and finds an empty house.");
@@ -1968,6 +2051,7 @@ function start(): void {
     g.playerHit = false; // the hit-flash is driven by player.hurt; clear the per-draw flag
     if (g.veilThickened) {
       g.veilThickened = false;
+      sound.play("keeper");
       const d = g.lastSnuffDistrict >= 0 ? g.level.districts[g.lastSnuffDistrict].name : "the city";
       showToast(`The Veil thickens over ${d}. A new Keeper wakes.`);
     }
@@ -2035,7 +2119,7 @@ function start(): void {
         const d2 = (n.x - p.x) ** 2 + (n.y - p.y) ** 2;
         if (d2 <= bd) { bd = d2; best = n; }
       }
-      if (best) { kindle(g, best.id); kindleCd = KINDLE_COOLDOWN_MS; }
+      if (best) { kindle(g, best.id); kindleCd = KINDLE_COOLDOWN_MS; sound.play("kindle"); }
     }
 
     // The city breathes on the clock — the same stepCity the turn-based shell
@@ -2089,16 +2173,16 @@ function start(): void {
     let acted = false;
     if (g.mode === "kindle") {
       if (g.flame < KINDLE_COST) { showToast("No flame left to give. Wait, or end the night."); return; }
-      if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; }
+      if (kindle(g, id)) { g.flame -= KINDLE_COST; acted = true; sound.play("kindle"); }
     } else if (g.mode === "awaken") {
       const cost = awakenCost(g);
       if (g.flame < cost) { showToast(`Awakening a soul costs ${cost}✦.`); return; }
       if (n.kind !== "dwelling") { showToast("Only a dwelling — a person — can be awakened."); return; }
-      if (awaken(g, id)) { g.flame -= cost; acted = true; }
+      if (awaken(g, id)) { g.flame -= cost; acted = true; sound.play("awaken"); }
     } else {
       const cost = decoyCost(g);
       if (g.flame < cost) { showToast(`A false light costs ${cost}✦.`); return; }
-      if (placeDecoy(g, id)) { g.flame -= cost; acted = true; }
+      if (placeDecoy(g, id)) { g.flame -= cost; acted = true; sound.play("decoy"); }
       else { showToast("Lay a false light only on dark, empty ground."); return; }
     }
     if (!acted) return; // a tap that lights nothing costs no breath
@@ -2122,6 +2206,7 @@ function start(): void {
   // your awakened souls kindle, at the cost of one step of the Keepers' advance.
   waitBtn.addEventListener("click", () => {
     if (g.phase !== "night") return;
+    sound.play("wait");
     breathe();
   });
 
@@ -2193,6 +2278,17 @@ function start(): void {
     modeSwitch.addEventListener("click", () => setMode(!actionMode));
   }
 
+  // The sound toggle — the night's procedural voice, off by a tap and remembered.
+  const soundBtn = document.getElementById("sound");
+  if (soundBtn) {
+    const paint = (): void => {
+      soundBtn.textContent = sound.muted ? "Sound off" : "Sound on";
+      soundBtn.classList.toggle("muted", sound.muted);
+    };
+    paint();
+    soundBtn.addEventListener("click", () => { sound.toggle(); paint(); });
+  }
+
   function openRules(): void { rules.classList.add("show"); }
   function closeRules(): void { rules.classList.remove("show"); }
   rulesBtn.addEventListener("click", openRules);
@@ -2230,6 +2326,7 @@ function start(): void {
 
   function dawn(): void {
     g.phase = "dawn";
+    sound.play("dawn");
     const { faded } = applyDawn(g);
     const after = litStats(g);
     g.maxFlame -= 1; // the carrier burns
