@@ -431,5 +431,29 @@ for (const lv of pg.LEVELS) {
   ok(q > 0.85, `${lv.id}'s seal is cleanly traceable (q=${q.toFixed(2)})`);
 }
 
+// 23. Frescoes — the hero's body reaching an un-walked place uncovers them.
+const sfr = pg.buildArena(pg.levelById("old-city"));
+for (const e of sfr.shades) park(e, 5, 5); // no swarm to jostle the hero
+sfr.solids = []; sfr.fences = []; sfr.pathways = []; // a clear floor to walk
+// A press always carries a fresco; stand the hero on top of one and step once.
+const press = sfr.scenery.find((n) => n.kind === "press");
+ok(!!press, "the old city has a press to uncover");
+sfr.hero.x = press.x; sfr.hero.y = press.y;
+pg.stepCombat(sfr, 16, still);
+ok(press.seen === true, "walking onto a place marks it first-footed");
+ok(sfr.pendingFresco && pg.FRESCOES.includes(sfr.pendingFresco),
+  "a press uncovers a fresco, queued for the shell to show");
+ok(sfr.shownFrescoes.length === 1, "the uncovered fresco is logged so it shows once");
+// A seen place never re-fires, even pending cleared.
+sfr.pendingFresco = null;
+pg.stepCombat(sfr, 16, still);
+ok(sfr.pendingFresco === null, "a place already first-footed does not re-fire");
+// The pool is finite: once every fresco is shown, no place uncovers more.
+const sfr2 = pg.buildArena(pg.levelById("old-city"));
+sfr2.shownFrescoes = pg.FRESCOES.map((_, i) => i);
+const anyNode = sfr2.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
+if (anyNode) pg.maybeFresco(sfr2, anyNode);
+ok(sfr2.pendingFresco === null, "an exhausted fresco pool uncovers nothing");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

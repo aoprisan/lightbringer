@@ -67,7 +67,7 @@ interface Nova { x: number; y: number; r: number; until: number }
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
 // dwelling can `lit` once the sigil's ring catches it.
-interface ArenaNode { x: number; y: number; kind: NodeKind; lit?: boolean }
+interface ArenaNode { x: number; y: number; kind: NodeKind; lit?: boolean; seen?: boolean }
 
 // A line segment strung between two posts. Fences are low walls (they block the
 // hero and shades, capsule-collision); pathways are open lanes (the hero runs
@@ -157,6 +157,8 @@ interface PgState {
   total: number;        // the finite host: clear them all to win
   dwellingsTotal: number; // dark dwellings the city began with
   litCount: number;     // how many the sigil has kindled (secondary objective)
+  shownFrescoes: number[]; // FRESCO indices already uncovered this descent
+  pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
   phase: Phase;
   boss?: BossState;     // the Veilwarden, raised once the host is cleared
 }
@@ -596,6 +598,7 @@ function buildArena(level: LevelDef): PgState {
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0,
+    shownFrescoes: [], pendingFresco: null,
     phase: "fight",
   };
 }
@@ -822,6 +825,60 @@ function stepPentagram(s: PgState, dt: number): void {
 // One slice of combat time, analogous to app.ts's stepCity: integrate the hero
 // from the input vector, inscribe-or-fade the sigil, move the shades, pulse the
 // pentagram, resolve contact, and check the terminal states.
+// ---------- Frescoes ----------
+// Painted fragments the Keepers whitewashed over. In the contemplative parent
+// they surface as light spreads and reveals the map; here the carrier walks the
+// streets in the flesh, so the trigger is the hero's body reaching a place for
+// the first time. Pure sim, mirroring app.ts's maybeFresco: it only queues the
+// text on s.pendingFresco — the shell pauses the descent and shows the card.
+const FRESCO_REACH = 52; // hero centre within this of an unseen place uncovers it
+
+const FRESCOES: string[] = [
+  "Beneath the whitewash: a sun, and under it, our faces.",
+  "They named the dimness 'mercy' so we would thank them for it.",
+  "Ora pro nobis, Lucifer — pray for us who were taught to fear the morning.",
+  "The Veil is not a wall. It is a habit. Habits can be unlearned.",
+  "Here a press once ran. The ink they burned still smells of psalms.",
+  "Every Keeper was, once, a child told the candle would eat him.",
+  "What is lit cannot be made unseen. That is why they fear you.",
+  "The carrier burns. That was always the price. Carry it anyway.",
+  "We do not win the city. We leave it able to win itself.",
+  "A rumor is oil. A name spoken twice is a wick.",
+  "The morning is not coming to judge you. It is only morning.",
+  "They keep the lamps low and call the dark holy.",
+  "A lamp lit in secret is still a lamp. Begin where no one watches.",
+  "They whitewashed the walls, not the colour beneath. Scratch, and remember.",
+  "Count the windows that answered yours: that is the city waking.",
+  "The dark was never the enemy — only the forgetting that there was light.",
+  "Two flames see farther than one, and fear each other less.",
+];
+
+// A few frescoes have painted art (the rest reveal as text alone), reusing the
+// parent's jpgs — already in sw.js ASSETS, so they show offline too. Keyed by
+// index into FRESCOES, matching app.ts.
+const FRESCO_ART: Record<number, string> = {
+  0: "art/fresco-sun.jpg",
+  3: "art/fresco-veil.jpg",
+  4: "art/fresco-press.jpg",
+  5: "art/fresco-child.jpg",
+  10: "art/fresco-morning.jpg",
+};
+
+function maybeFresco(s: PgState, n: ArenaNode): void {
+  if (s.pendingFresco) return;                          // one at a time
+  if (s.shownFrescoes.length >= FRESCOES.length) return; // pool exhausted
+  // Presses and shrines always carry text; plainer ground rarely — as in app.ts.
+  const chance = n.kind === "press" || n.kind === "shrine" ? 1 : 0.06;
+  if (Math.random() > chance) return;
+  const remaining = FRESCOES
+    .map((_, i) => i)
+    .filter((i) => !s.shownFrescoes.includes(i));
+  if (!remaining.length) return;
+  const idx = remaining[Math.floor(Math.random() * remaining.length)];
+  s.shownFrescoes.push(idx);
+  s.pendingFresco = FRESCOES[idx];
+}
+
 function stepCombat(s: PgState, dt: number, move: Move): void {
   if (s.phase !== "fight") return;
   s.elapsed += dt;
@@ -839,6 +896,21 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // First-footing: the hero's body reaching an un-walked place may uncover a
+  // fresco beneath the whitewash. Queued on the state; the shell pauses to show
+  // it. One at a time — the guard stops scanning once a fresco is pending.
+  if (!s.pendingFresco && s.shownFrescoes.length < FRESCOES.length) {
+    const reach2 = FRESCO_REACH ** 2;
+    for (const n of s.scenery) {
+      if (n.seen || n.kind === "keeper") continue;
+      if ((n.x - h.x) ** 2 + (n.y - h.y) ** 2 <= reach2) {
+        n.seen = true;
+        maybeFresco(s, n);
+        if (s.pendingFresco) break;
+      }
+    }
+  }
 
   // Drift the dark pools, then decide the sigil from where the hero now stands.
   stepVeils(s, dt);
@@ -1984,6 +2056,14 @@ function start(): void {
 
     if (s.phase === "won") { running = false; onWin(); return; }
     if (s.phase === "lost") { running = false; onLost(); return; }
+    // A fresco uncovered this frame freezes the descent until the carrier reads it.
+    if (s.pendingFresco) {
+      const text = s.pendingFresco;
+      s.pendingFresco = null;
+      running = false;
+      showFresco(text);
+      return;
+    }
     requestAnimationFrame(pgFrame);
   }
 
@@ -1994,6 +2074,23 @@ function start(): void {
     move.x = 0; move.y = 0; stick = null; hideStick();
     frameBoss();
     showToast("The Veilwarden rises. Trace its seal with your finger — follow the glowing glyph end to end; a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
+  }
+
+  // A revealed fresco pauses the fight (the overlay is modal, so input is frozen)
+  // and shows the painted fragment; "Carry on" resumes the descent where it stood.
+  function resumeFight(): void {
+    if (!s || s.phase !== "fight" || running) return;
+    hideOverlay();
+    running = true; lastFrame = 0; // reset dt so the pause doesn't lurch the fight
+    requestAnimationFrame(pgFrame);
+  }
+  function showFresco(text: string): void {
+    const idx = FRESCOES.indexOf(text);
+    const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
+    const img = art
+      ? `<img src="${art}" alt="" decoding="async" style="display:block;width:100%;max-width:420px;border-radius:6px;margin:0 auto 16px;">`
+      : "";
+    showOverlay("Beneath the whitewash", `${img}<em>${text}</em>`, "Carry on", resumeFight);
   }
 
   function startCity(level: LevelDef): void {
@@ -2184,7 +2281,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     startBoss, stepBoss, submitTrace, pentagramSegments, traceScore,
     makeSeal, sealSegments, sealPath, hashSeed,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
-    weaveSegments, closestOnSegment,
+    weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_REACH,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
     K: {
