@@ -201,6 +201,16 @@
     transition: border-color 0.15s, background 0.15s;
   }
   #ov-body .city:hover { border-color: rgba(255,106,60,0.5); background: rgba(255,106,60,0.08); }
+  #ov-body .city.sel {
+    border-color: rgba(255,106,60,0.7); background: rgba(255,106,60,0.12);
+  }
+  #ov-body .city.sel .city-name { text-shadow: 0 0 14px rgba(255,106,60,0.45); }
+  #ov-body .city-art {
+    display: block; width: 100%; max-width: 440px; margin: 0 auto 16px;
+    border: 1px solid rgba(255,106,60,0.22); border-radius: 4px;
+    aspect-ratio: 16 / 9; object-fit: cover;
+    filter: drop-shadow(0 0 18px rgba(0,0,0,0.5));
+  }
   #ov-body .city-name {
     display: block; color: var(--gold-bright); font-size: 15px; letter-spacing: 0.05em;
   }
