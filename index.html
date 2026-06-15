@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The Burning Vigil is the headline game: the root redirects there. The
+     original contemplative game still lives in this file — reach it with
+     ?classic (the Vigil's title-bar link points here with that flag). -->
+<script>
+  if (!/[?&]classic\b/.test(location.search)) location.replace("./pentagram.html");
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>The Light-Bringer</title>
 <meta name="description" content="A contemplative inversion game. Carry a stolen flame through a city taught that light burns.">
@@ -472,7 +478,7 @@
 <body>
   <header>
     <h1>The Light&#8209;Bringer</h1>
-    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="mode-switch" title="Switch between the contemplative night and the real-time Lamplighter Run">Lamplighter Run</button><a id="spinoff-link" href="./pentagram.html" title="The Burning Vigil — an action-combat spinoff in the same world" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#ff6a3c;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Burning Vigil</a><button id="sound" title="Toggle sound">Sound</button><button id="rules-btn" title="How to play">Rules</button><button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
+    <div class="stats"><span id="night">Night 1</span><span id="litpct">0% lit</span><span id="flame"></span><button id="mode-switch" title="Switch between the contemplative night and the real-time Lamplighter Run">Lamplighter Run</button><a id="spinoff-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#ff6a3c;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Burning Vigil</a><button id="sound" title="Toggle sound">Sound</button><button id="rules-btn" title="How to play">Rules</button><button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button><button id="reset" title="Start over from the beginning">Begin again</button></div>
   </header>
 
   <div id="citywrap">
