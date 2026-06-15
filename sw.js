@@ -43,12 +43,10 @@ const ASSETS = [
   "./art/conduit-charged.png",
   "./art/press-spent.png",
   "./art/shrine-consecrated.png",
-  // Tiled terrain (Burning Vigil): walkway lane + fence barricade. Optional —
-  // the render tiles them when present and falls back to procedural lines when
-  // absent, so each is listed only once its file exists (addAll 404s the whole
-  // install otherwise). The walkway lane ships; the fence barricade has no
-  // render yet — add "./art/fence.png" here and bump CACHE when it lands.
+  // Tiled terrain (Burning Vigil): walkway lane + fence barricade. The render
+  // tiles them when present and falls back to procedural lines when absent.
   "./art/pathway.png",
+  "./art/fence.png",
   "./art/keeper-node.png",
   "./art/keeper-patrol.png",
   "./art/player-lantern.png",

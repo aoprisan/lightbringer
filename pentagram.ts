@@ -2019,6 +2019,29 @@ function render(s: PgState, layer: SVGGElement): void {
     }
   }
 
+  // Fences — low walls strung between posts, drawn beneath the built world so
+  // dwellings and structures sit on top of them (a fence never covers a home):
+  // when the fence sprite has loaded it tiles a barricade down the segment;
+  // otherwise a stout dark bar with a lighter top edge so they read as solid
+  // blockers either way.
+  const hasFence = sprites.has("fence");
+  for (const f of s.fences) {
+    if (hasFence) {
+      layer.appendChild(tiledSegment("fencePat", f, FENCE_VIS_THICK, 0.95));
+      continue;
+    }
+    layer.appendChild(el("line", {
+      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
+      stroke: "#15101f", "stroke-width": FENCE_HALF * 2,
+      "stroke-linecap": "round", opacity: 0.92,
+    }));
+    layer.appendChild(el("line", {
+      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
+      stroke: "#4a3f63", "stroke-width": 2.5,
+      "stroke-linecap": "round", opacity: 0.7,
+    }));
+  }
+
   // Scenery — the built world, drawn dark for the Diablo gloom. Keeper-posts are
   // spawn-points, not scenery, so they aren't drawn here. Solid structures (press,
   // shrine) draw full-opacity with a faint ring so they read as blockers; a lit
@@ -2069,28 +2092,6 @@ function render(s: PgState, layer: SVGGElement): void {
         fill: "none", stroke: "#3a3050", "stroke-width": 1.5, opacity: 0.4,
       }));
     }
-  }
-
-  // Fences — low walls strung between posts, drawn over the ground/scenery: when
-  // the fence sprite has loaded it tiles a barricade down the segment; otherwise
-  // a stout dark bar with a lighter top edge so they read as solid blockers
-  // either way.
-  const hasFence = sprites.has("fence");
-  for (const f of s.fences) {
-    if (hasFence) {
-      layer.appendChild(tiledSegment("fencePat", f, FENCE_VIS_THICK, 0.95));
-      continue;
-    }
-    layer.appendChild(el("line", {
-      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
-      stroke: "#15101f", "stroke-width": FENCE_HALF * 2,
-      "stroke-linecap": "round", opacity: 0.92,
-    }));
-    layer.appendChild(el("line", {
-      x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
-      stroke: "#4a3f63", "stroke-width": 2.5,
-      "stroke-linecap": "round", opacity: 0.7,
-    }));
   }
 
   // Ember motes — bright gatherable sparks a slain shade left behind; walk over
