@@ -348,16 +348,16 @@ const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh 
 // BOSS_BITE_DMG, so the seal is a race. This is the design surface for the duel.
 const BOSS_RING_R = 150;         // world radius of the seal's containment circle
 const BOSS_HP = 100;             // base warden health (the binding meter; × difficultyMult)
-const BOSS_BITE_MS = 2600;       // the warden snuffs this often (at a fresh, unbound seal)…
+const BOSS_BITE_MS = 3000;       // the warden snuffs this often (at a fresh, unbound seal)…
 const BOSS_BITE_DMG = 12;        // …draining this much hero HP each snuff
 const BOSS_BITE_RAMP = 0.5;      // the bite interval shortens up to this frac as the seal binds (the warden quickens near its end)
 const BOSS_KEY_COST = 6;         // hero HP spent to bind a strand by keyboard (a cruder rite than a clean trace)
 const BOSS_VEILS_BASE = 2;       // drifting veils over the easiest warden's seal…
 const BOSS_VEILS_DIFF = 3;       // …plus up to this many more on the hardest
-const BOSS_VEIL_R = 52;          // a duel-veil's reach (smaller than the field's, so the seal stays traceable)
+const BOSS_VEIL_R = 44;          // a duel-veil's reach (smaller than the field's, so the seal stays traceable)
 const BOSS_VEIL_DRIFT = 34;      // units/s a duel-veil wanders across the seal
-const BOSS_VEIL_UNRAVEL = 0.9;   // a stroke wholly inside the veils loses this frac of its quality
-const TRACE_TOL_FRAC = 0.16;     // how far off the line (× ring r) still scores
+const BOSS_VEIL_UNRAVEL = 0.7;   // a stroke wholly inside the veils loses this frac of its quality
+const TRACE_TOL_FRAC = 0.26;     // how far off the line (× ring r) still scores
 const TRACE_MIN_POINTS = 6;      // a stroke shorter than this can't score
 const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trace
 // The warden's seal — a node-and-edge star polygon, seeded per city so each is
@@ -367,12 +367,12 @@ const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trac
 const SEAL_RING_FRAC = 0.86;     // node-ring radius (× containment r)
 const SEAL_NODES_MIN = 5;        // fewest ring nodes a seal may have…
 const SEAL_NODES_SPAN = 3;       // …plus 0..(span-1) more (so 5..7 points before difficulty)
-const SEAL_DIFF_NODES = 2;       // …plus 0..this more, scaled by the city's difficulty (harder ⇒ a denser seal, more strands to bind)
+const SEAL_DIFF_NODES = 1;       // …plus 0..this more, scaled by the city's difficulty (harder ⇒ a denser seal, more strands to bind)
 const SEAL_HUB_CHANCE = 0.5;     // chance the seal has a centre hub with spokes
 const SEAL_RIM_CHANCE = 0.4;     // chance the plain outer rim is also drawn (rises with difficulty)
 const SEAL_SPOKE_CHANCE = 0.7;   // per-node chance of a spoke to the hub
-const SEAL_SNAP_FRAC = 0.24;     // a stroke end within this (× r) snaps to a node
-const SEAL_EDGE_DONE = 0.62;     // trace quality that binds a strand (0..1)
+const SEAL_SNAP_FRAC = 0.34;     // a stroke end within this (× r) snaps to a node
+const SEAL_EDGE_DONE = 0.48;     // trace quality that binds a strand (0..1)
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -1474,37 +1474,53 @@ function strokeVeiled(b: BossState, stroke: { x: number; y: number }[]): number 
   return veiled / stroke.length;
 }
 
-// Bind one strand of the warden's seal from a finger-stroke. The stroke must begin
-// and end on two of the seal's nodes (snapped) that a strand joins, and follow that
-// strand closely enough (traceScore ≥ SEAL_EDGE_DONE) to bind — but a stroke dragged
-// through the warden's veils is unravelled first. Binding lights the strand, lowers
-// the meter, and may break the warden. Returns what happened, for the toast. Pure sim.
-function submitTrace(s: PgState, stroke: { x: number; y: number }[]): TraceResult {
-  if (s.phase !== "boss" || !s.boss) return { quality: 0, edge: -1, status: "none" };
-  const b = s.boss, seal = b.seal;
-  if (stroke.length < TRACE_MIN_POINTS) return { quality: 0, edge: -1, status: "short" };
+// Read a finger-stroke against the warden's seal WITHOUT touching it: snap its ends
+// to two nodes, find the strand they join, rate the line (traceScore) and bleed it by
+// any veil it crossed. Because intent is fully captured by *which two nodes* the ends
+// snap to, binding is forgiving of penmanship — a deliberate node-to-node stroke that
+// roughly covers the line clears the bar; accuracy only grades the flourish. Pure (no
+// mutation), so the same verdict drives submitTrace's bind, the toast, AND the live
+// render feedback as the carrier draws. Returns the strand, its quality, and a status.
+function evalTrace(b: BossState, stroke: { x: number; y: number }[]): TraceResult & { veilFrac: number } {
+  const seal = b.seal;
+  if (stroke.length < TRACE_MIN_POINTS) return { quality: 0, edge: -1, status: "short", veilFrac: 0 };
 
   const snap = b.r * SEAL_SNAP_FRAC;
   const ai = nearestNode(seal, stroke[0], snap);
   const bi = nearestNode(seal, stroke[stroke.length - 1], snap);
-  if (ai < 0 || bi < 0 || ai === bi) return { quality: 0, edge: -1, status: "offnode" };
+  if (ai < 0 || bi < 0 || ai === bi) return { quality: 0, edge: -1, status: "offnode", veilFrac: 0 };
 
   const idx = seal.edges.findIndex((e) => (e.a === ai && e.b === bi) || (e.a === bi && e.b === ai));
-  if (idx < 0) return { quality: 0, edge: -1, status: "noedge" };
+  if (idx < 0) return { quality: 0, edge: -1, status: "noedge", veilFrac: 0 };
 
   const e = seal.edges[idx];
   const veilFrac = strokeVeiled(b, stroke);
   const raw = traceScore(stroke, [edgeSegment(seal, e)], b.r * TRACE_TOL_FRAC);
   const q = +(raw * (1 - BOSS_VEIL_UNRAVEL * veilFrac)).toFixed(4);
-  if (q > e.quality) { e.quality = q; b.lastQuality = q; b.flash = s.elapsed + TRACE_FLASH_MS; }
 
   let status: TraceStatus;
   if (e.done) status = "already";
-  else if (q >= SEAL_EDGE_DONE) { e.done = true; status = "bound"; }
+  else if (q >= SEAL_EDGE_DONE) status = "bound";
   else status = veilFrac > 0.25 ? "veiled" : "weak";
 
+  return { quality: q, edge: idx, status, veilFrac };
+}
+
+// Bind one strand of the warden's seal from a finger-stroke. Reads the verdict with
+// evalTrace, then mutates: it records the strand's best quality, binds it if the
+// stroke cleared the bar, and refreshes the meter (which may break the warden).
+// Returns what happened, for the toast.
+function submitTrace(s: PgState, stroke: { x: number; y: number }[]): TraceResult {
+  if (s.phase !== "boss" || !s.boss) return { quality: 0, edge: -1, status: "none" };
+  const b = s.boss;
+  const { quality, edge, status } = evalTrace(b, stroke);
+  if (edge >= 0) {
+    const e = b.seal.edges[edge];
+    if (quality > e.quality) { e.quality = quality; b.lastQuality = quality; b.flash = s.elapsed + TRACE_FLASH_MS; }
+    if (status === "bound") e.done = true;
+  }
   refreshBoss(s);
-  return { quality: q, edge: idx, status };
+  return { quality, edge, status };
 }
 
 // Keyboard fallback for the duel (desktop, no pointer-drag): cycle the targeted
@@ -1801,15 +1817,37 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
     }));
   }
 
-  // The carrier's live finger-stroke, burning along behind the fingertip.
-  if (bossTrace && bossTrace.length > 1) {
-    let d = `M${bossTrace[0].x.toFixed(1)} ${bossTrace[0].y.toFixed(1)}`;
-    for (let i = 1; i < bossTrace.length; i++) d += ` L${bossTrace[i].x.toFixed(1)} ${bossTrace[i].y.toFixed(1)}`;
-    layer.appendChild(el("path", {
-      d, fill: "none", stroke: "#ff6a3c", "stroke-width": 4.5,
-      "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.95,
-      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
-    }));
+  // The carrier's live finger-stroke, burning along behind the fingertip. While it's
+  // drawn it teaches (reading the verdict with evalTrace, no mutation): the unbound
+  // strands radiating from the node it sprang from glow as candidates, and the stroke
+  // itself burns green when it would bind, gold when it's close, violet when the dark
+  // is drinking it, and ember-red when it's off the seal's nodes or line.
+  if (bossTrace && bossTrace.length >= 1) {
+    const start = nearestNode(seal, bossTrace[0], b.r * SEAL_SNAP_FRAC);
+    if (start >= 0) {
+      for (const e of seal.edges) {
+        if (e.done || (e.a !== start && e.b !== start)) continue;
+        const a = seal.nodes[e.a], z = seal.nodes[e.b];
+        layer.appendChild(el("line", {
+          x1: a.x, y1: a.y, x2: z.x, y2: z.y, stroke: "#fff3d2", "stroke-width": 2.4,
+          "stroke-linecap": "round", "stroke-dasharray": "3 6", opacity: 0.7,
+        }));
+      }
+    }
+    if (bossTrace.length > 1) {
+      const v = evalTrace(b, bossTrace);
+      const col = v.status === "bound" ? "#9dffa0"  // would bind — green
+        : v.status === "weak" ? "#ffd87a"           // close — warm gold
+        : v.status === "veiled" ? "#8a5cff"         // the dark is drinking it — violet
+        : "#ff6a3c";                                // off the nodes/line — ember red
+      let d = `M${bossTrace[0].x.toFixed(1)} ${bossTrace[0].y.toFixed(1)}`;
+      for (let i = 1; i < bossTrace.length; i++) d += ` L${bossTrace[i].x.toFixed(1)} ${bossTrace[i].y.toFixed(1)}`;
+      layer.appendChild(el("path", {
+        d, fill: "none", stroke: col, "stroke-width": 4.5,
+        "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.95,
+        filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
   }
 
   // The warden's health, in world space above it.
@@ -2746,7 +2784,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress,
     nearScar, inShrineAura, litReadout,
-    startBoss, stepBoss, submitTrace, cycleSel, keyBind,
+    startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,

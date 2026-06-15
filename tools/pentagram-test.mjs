@@ -384,7 +384,9 @@ for (let t = 0; t <= 1; t += 0.02) {
   oneEdge.push({ x: segG[0].x1 + (segG[0].x2 - segG[0].x1) * t, y: segG[0].y1 + (segG[0].y2 - segG[0].y1) * t });
 }
 const qEdge = pg.traceScore(oneEdge, segG, tolG);
-ok(qEdge > 0 && qEdge < 0.4, `tracing only one edge is gated low by coverage (${qEdge})`);
+// One of five edges is still gated well below a full trace's 0.85+ by coverage —
+// the wider duel slack (TRACE_TOL_FRAC) credits a little shared-endpoint overlap.
+ok(qEdge > 0 && qEdge <= 0.45, `tracing only one edge is gated low by coverage (${qEdge})`);
 // A noisy-but-faithful trace (jittered within the slack band) still scores well.
 const noisy = fullTrace.map((p) => ({ x: p.x + (Math.random() - 0.5) * tolG * 0.6, y: p.y + (Math.random() - 0.5) * tolG * 0.6 }));
 ok(pg.traceScore(noisy, segG, tolG) > 0.5, "a faithful but jittery trace still scores well");
@@ -543,7 +545,29 @@ let kbGuard = 0;
 while (skb.phase === "boss" && kbGuard++ < 200) pg.keyBind(skb);
 ok(skb.phase === "won", "binding every strand by keyboard wins the duel");
 
-// 28. Snuffed dwellings — a shade brushing a lit dwelling claws it back to dark,
+// 28. evalTrace — the pure verdict that drives the bind, the toast, AND the live
+//     drawing feedback. It must read the same outcome submitTrace acts on, without
+//     ever mutating the seal (render calls it every frame while the finger draws).
+const sev = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sev);
+sev.boss.veils = [];
+const evEdge = sev.boss.seal.edges[0];
+const evStroke = strandStroke(sev.boss.seal, evEdge);
+const evVerdict = pg.evalTrace(sev.boss, evStroke);
+ok(evVerdict.status === "bound" && !evEdge.done, "evalTrace reads a clean strand as binding without mutating it");
+const evRes = pg.submitTrace(sev, evStroke);
+ok(evRes.status === evVerdict.status && evRes.edge === evVerdict.edge,
+  "submitTrace acts on exactly the verdict evalTrace read");
+ok(evEdge.done, "and only submitTrace actually binds the strand");
+// A deliberate node-to-node stroke is forgiving of penmanship: a jittery line that
+// stays roughly on the strand still binds (the whole point of the loosened duel).
+const evJittery = strandStroke(sev.boss.seal, sev.boss.seal.edges[1]).map((p) => ({
+  x: p.x + (Math.random() - 0.5) * 150 * K.TRACE_TOL_FRAC * 0.7,
+  y: p.y + (Math.random() - 0.5) * 150 * K.TRACE_TOL_FRAC * 0.7,
+}));
+ok(pg.evalTrace(sev.boss, evJittery).status === "bound", "a jittery-but-faithful strand still binds");
+
+// 29. Snuffed dwellings — a shade brushing a lit dwelling claws it back to dark,
 //     scarring the ground; consecrated ground (a shrine's aura) protects it.
 const ssn = pg.buildArena(pg.levelById("old-city"));
 ssn.solids = []; ssn.fences = []; ssn.pathways = [];
@@ -581,7 +605,7 @@ ssv.penta.charge = 0;
 run(ssv, K.PENTA_CHARGE_MS + 30, still);
 ok(ssv.penta.charge > 0.9, "a hero on consecrated ground inscribes even inside a veil");
 
-// 29. Awakened dwellings — a lit dwelling held long enough awakens into an ally
+// 30. Awakened dwellings — a lit dwelling held long enough awakens into an ally
 //     emitter that pulses the dark around it on its own.
 const saw = pg.buildArena(pg.levelById("old-city"));
 saw.solids = []; saw.fences = []; saw.pathways = []; saw.veils = [];
@@ -597,7 +621,7 @@ saw.penta.charge = 1; // the pulse clock runs while inscribed (hero's own ring i
 for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) pg.stepPentagram(saw, 16);
 ok(esh.hp < ehp0 || esh.dead, "an awakened dwelling pulses shades in its reach");
 
-// 30. Conduits — a lit dwelling relays its flame down a conduit to the next dark
+// 31. Conduits — a lit dwelling relays its flame down a conduit to the next dark
 //     dwelling, a beat later (the fuse).
 const scon = pg.buildArena(pg.levelById("old-city"));
 const cd1 = { x: 400, y: 400, kind: "dwelling" };
@@ -616,7 +640,7 @@ ok(scon.litCount === 2 && scon.spreadQueue.length === 0, "a relayed kindle count
 ok(scon.conduitLinks !== undefined && pg.buildArena(pg.levelById("old-city")).conduitLinks.length >= 0,
   "buildArena computes a conduit relay graph");
 
-// 31. Presses — standing beside a press at a full inscription fires a one-shot
+// 32. Presses — standing beside a press at a full inscription fires a one-shot
 //     cascade that lights dwellings and burns shades in reach, then it is spent.
 const spr = pg.buildArena(pg.levelById("old-city"));
 spr.solids = []; spr.fences = []; spr.pathways = []; spr.veils = [];
