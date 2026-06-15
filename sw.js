@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v53";
+const CACHE = "lightbringer-v54";
 
 const ASSETS = [
   "./",
@@ -38,6 +38,11 @@ const ASSETS = [
   "./art/conduit.png",
   "./art/press.png",
   "./art/shrine.png",
+  // Live-terrain object states (Burning Vigil): charged conduit, spent press,
+  // consecrated shrine. Base sprites; the loader falls back if absent.
+  "./art/conduit-charged.png",
+  "./art/press-spent.png",
+  "./art/shrine-consecrated.png",
   "./art/keeper-node.png",
   "./art/keeper-patrol.png",
   "./art/player-lantern.png",

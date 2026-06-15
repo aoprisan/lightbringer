@@ -1574,6 +1574,11 @@ const LOW_FX = typeof matchMedia === "function" && matchMedia("(pointer: coarse)
 const SPRITE_NAMES = [
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
   "conduit", "press", "shrine",
+  // Live-terrain object states (Burning Vigil): a conduit alive with travelling
+  // flame, a press discharged after its cascade, a shrine's consecrated ground.
+  // Swap onto the same node as their base; the loader falls back to the base if
+  // a state PNG is absent. Not in CITY_SPRITES — universal, not yet re-skinned.
+  "conduit-charged", "press-spent", "shrine-consecrated",
   "keeper-node", "keeper-patrol", "player-lantern",
 ] as const;
 
@@ -1694,13 +1699,37 @@ const SCENERY_SIZE: Record<NodeKind, number> = {
 };
 
 // Resolve a node's sprite name from its live state: a dwelling shows its dark/
-// lit/awakened/snuffed face (a still-active scar reads snuffed), everything else
-// is its single sprite. Both render passes go through this so they never diverge.
-function scenerySprite(n: ArenaNode, elapsed: number): string {
-  if (n.kind !== "dwelling") return SCENERY_SPRITE[n.kind];
-  if (n.lit) return n.awoke ? "dwelling-awakened" : "dwelling-lit";
-  if (n.veil && n.veil > elapsed) return "dwelling-snuffed";
-  return "dwelling-dark";
+// lit/awakened/snuffed face (a still-active scar reads snuffed); a conduit shows
+// its charged face while it carries flame, a press its spent face once fired, a
+// shrine its consecrated face (its ground is always snuff-proof). Each state
+// sprite falls back to the base when its PNG isn't loaded, so missing art never
+// drops a node to a bare rect. Both render passes go through this so they never
+// diverge.
+function scenerySprite(s: PgState, n: ArenaNode): string {
+  switch (n.kind) {
+    case "dwelling":
+      if (n.lit) return n.awoke ? "dwelling-awakened" : "dwelling-lit";
+      if (n.veil && n.veil > s.elapsed) return "dwelling-snuffed";
+      return "dwelling-dark";
+    case "conduit":
+      return conduitLive(s, n) && sprites.has("conduit-charged") ? "conduit-charged" : "conduit";
+    case "press":
+      return n.spent && sprites.has("press-spent") ? "press-spent" : "press";
+    case "shrine":
+      return sprites.has("shrine-consecrated") ? "shrine-consecrated" : "shrine";
+    default:
+      return SCENERY_SPRITE[n.kind];
+  }
+}
+
+// A conduit is "charged" while any dwelling it fuses is lit or has a relay in
+// flight to it — the same liveness the brighter fuse line draws, so the sprite
+// and the fuse can never disagree.
+function conduitLive(s: PgState, c: ArenaNode): boolean {
+  const link = s.conduitLinks.find((l) => l.c === c);
+  return !!link && link.dwellings.some(
+    (d) => d.lit || s.spreadQueue.some((q) => q.node === d),
+  );
 }
 
 // The carrier's in-progress finger-stroke during the warden duel, in world
@@ -1719,7 +1748,7 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
   // The city, dimmed — context behind the duel.
   for (const n of s.scenery) {
     if (n.kind === "keeper") continue;
-    const key = spriteFor(s.level, scenerySprite(n, s.elapsed));
+    const key = spriteFor(s.level, scenerySprite(s, n));
     if (key) layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], 0.16));
   }
 
@@ -1976,7 +2005,7 @@ function render(s: PgState, layer: SVGGElement): void {
         }));
       }
     }
-    const spriteName = scenerySprite(n, s.elapsed);
+    const spriteName = scenerySprite(s, n);
     const key = spriteFor(s.level, spriteName);
     const op = solid ? (n.spent ? 0.4 : 1) : 0.5; // a spent press dims
     if (key) {

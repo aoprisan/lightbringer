@@ -1,0 +1,24 @@
+# art/conduit-charged.png  (IMAGE-EDIT of art/conduit.png)
+
+The Burning Vigil — "conduit CARRIES flame" live-terrain state. Swaps onto the
+SAME node as art/conduit.png, so silhouette/position/angles must match exactly:
+this is an IMAGE-EDIT of the existing base sprite, not a repaint. Continuity beats
+per-image beauty.
+
+RULES:
+- Base palette (warm candle-gold, indigo night) — NOT a city re-skin.
+- No transparency. Isolate on a flat solid #0B0E1A background (never white — the
+  flame glow would halo at the sprite's edge).
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- View: three-quarter top-down ~60°, light from the object's own flame only,
+  matching the base set.
+
+PROMPT:
+Edit this image: the same narrow medieval alley / open stone gutter, now ALIVE
+WITH TRAVELLING FLAME. A bright ribbon of warm candle-gold #F5C66B and ember
+fire runs the length of the open channel as if lamp-oil had caught — a fuse
+mid-burn, racing from one end toward the other. Sparks lift off the channel, the
+wet stone throws warm reflections up the alley walls, a faint heat-shimmer over
+the gutter. The fire stays WITHIN the channel (a carried flame, not a building
+ablaze). Keep the exact same alley silhouette, gutter path and position. Flat
+solid #0B0E1A background, no text, 1024×1024.
