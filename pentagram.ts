@@ -287,6 +287,11 @@ const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
+const HEAL_CAP = 0.6;            // …but the city can only rally you to this frac of maxHp.
+                                 // A clean run above the cap isn't pulled down; once a swarm
+                                 // bites you below it, relighting mends only back up to the cap —
+                                 // so a real hit can't be fully facetanked away. This is what
+                                 // keeps the watch lethal while relighting stays worth doing.
 // A lit dwelling held long enough AWAKENS into an ally emitter; the watch can
 // snuff a lit one back to dark, scarring the ground. The whole loop is live-play
 // terrain (never persisted), the same ethos as decoys/fences.
@@ -806,7 +811,12 @@ function kindleDwelling(s: PgState, n: ArenaNode, heal: number): void {
   if (n.veil && n.veil > s.elapsed) return; // the scar still damps relighting here
   n.lit = true; n.litAt = s.elapsed; n.awoke = false; n.veil = 0;
   s.litCount++;
-  if (heal) s.hero.hp = Math.min(s.hero.maxHp, s.hero.hp + heal);
+  if (heal) {
+    // The city rallies you only up to HEAL_CAP·maxHp; if you're already above it
+    // (e.g. fresh, full HP) the heal is a no-op rather than a pull-down.
+    const ceil = Math.max(s.hero.hp, s.hero.maxHp * HEAL_CAP);
+    s.hero.hp = Math.min(ceil, s.hero.hp + heal);
+  }
   // Relay along every conduit this dwelling touches, to its other dark ends.
   for (const link of s.conduitLinks) {
     if (!link.dwellings.includes(n)) continue;
@@ -2967,7 +2977,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
-      OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,

@@ -202,6 +202,28 @@ ok(home.lit === true, "a dark dwelling in the ring kindles alight");
 ok(s9.litCount === 1, "lighting a dwelling counts toward the relit tally");
 ok(s9.hero.hp === 40 + K.DWELLING_HEAL, `lighting a dwelling mends the hero (40 -> ${s9.hero.hp})`);
 
+// 11b. The city's mend is capped: a near-full hero can't be topped back to full by
+// relighting, so a swarm bite can't be fully facetanked away.
+const s9b = pg.buildArena(pg.levelById("old-city"));
+for (const e of s9b.shades) park(e, 5, 5);
+const home2 = s9b.scenery.find((n) => n.kind === "dwelling");
+s9b.scenery = [home2]; s9b.conduitLinks = [];
+home2.lit = false; home2.x = s9b.hero.x + 30; home2.y = s9b.hero.y;
+const cap = s9b.hero.maxHp * K.HEAL_CAP;
+s9b.hero.hp = cap - 2; // just under the rally cap
+run(s9b, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 2, still);
+ok(s9b.hero.hp <= cap, `the city rallies the hero only to the cap (${s9b.hero.hp} <= ${cap})`);
+
+// A hero already above the cap is not pulled down by lighting a dwelling.
+const s9c = pg.buildArena(pg.levelById("old-city"));
+for (const e of s9c.shades) park(e, 5, 5);
+const home3 = s9c.scenery.find((n) => n.kind === "dwelling");
+s9c.scenery = [home3]; s9c.conduitLinks = [];
+home3.lit = false; home3.x = s9c.hero.x + 30; home3.y = s9c.hero.y;
+s9c.hero.hp = s9c.hero.maxHp; // full health, above the cap
+run(s9c, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 2, still);
+ok(s9c.hero.hp === s9c.hero.maxHp, "a full-health hero is not pulled down to the cap by relighting");
+
 // 12. Fences are walls — the hero cannot pass through one.
 const sf = pg.buildArena(pg.levelById("old-city"));
 for (const e of sf.shades) park(e, 5, 5); // no swarm to jostle the hero
