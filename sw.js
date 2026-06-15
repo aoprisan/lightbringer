@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v68";
+const CACHE = "lightbringer-v69";
 
 const ASSETS = [
   "./",
@@ -94,6 +94,15 @@ const ASSETS = [
   "./art/drowned/conduit.png",
   "./art/drowned/press.png",
   "./art/drowned/shrine.png",
+  // Vesper Row: ground + four dwelling states + conduit + press + shrine.
+  "./art/vesper/ground.png",
+  "./art/vesper/dwelling-dark.png",
+  "./art/vesper/dwelling-lit.png",
+  "./art/vesper/dwelling-awakened.png",
+  "./art/vesper/dwelling-snuffed.png",
+  "./art/vesper/conduit.png",
+  "./art/vesper/press.png",
+  "./art/vesper/shrine.png",
 ];
 
 self.addEventListener("install", (event) => {
