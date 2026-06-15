@@ -1,0 +1,23 @@
+# art/shrine-consecrated.png  (IMAGE-EDIT of art/shrine.png)
+
+The Burning Vigil — "shrine ground is CONSECRATED (snuff-proof)" live-terrain
+state. Swaps onto the SAME node as art/shrine.png, so silhouette/position/angles
+must match exactly: this is an IMAGE-EDIT of the existing base sprite, not a
+repaint. Continuity beats per-image beauty.
+
+RULES:
+- Base palette (warm candle-gold, indigo night) — NOT a city re-skin.
+- No transparency. Isolate on a flat solid #0B0E1A background (never white — the
+  flame glow would halo at the sprite's edge).
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- View: three-quarter top-down ~60°, light from the object's own flame only,
+  matching the base set.
+
+PROMPT:
+Edit this image: the same small open-air street shrine, now CONSECRATED and
+radiant. The carved figure in the niche glows with a serene warm gold #F5C66B
+inner light, the votive candles all lit with steady calm flames, a soft sacred
+halo of warm light pooling on the ground around its base, faint gold filigree
+catching the stonework. Peaceful, protective, holy — a place of sanctuary, NOT
+a fire. Keep the exact same shrine silhouette, niche shape and position. Flat
+solid #0B0E1A background, no text, 1024×1024.

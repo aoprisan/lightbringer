@@ -38,6 +38,11 @@ const ASSETS = [
   "./art/conduit.png",
   "./art/press.png",
   "./art/shrine.png",
+  // Live-terrain object states (Burning Vigil): charged conduit, spent press,
+  // consecrated shrine. Base sprites; the loader falls back if absent.
+  "./art/conduit-charged.png",
+  "./art/press-spent.png",
+  "./art/shrine-consecrated.png",
   "./art/keeper-node.png",
   "./art/keeper-patrol.png",
   "./art/player-lantern.png",

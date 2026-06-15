@@ -1,0 +1,24 @@
+# art/press-spent.png  (IMAGE-EDIT of art/press.png)
+
+The Burning Vigil — "press SPENDS its one-shot cascade" live-terrain state. Swaps
+onto the SAME node as art/press.png, so silhouette/position/angles must match
+exactly: this is an IMAGE-EDIT of the existing base sprite, not a repaint.
+Continuity beats per-image beauty.
+
+RULES:
+- Base palette (warm candle-gold, indigo night) — NOT a city re-skin.
+- No transparency. Isolate on a flat solid #0B0E1A background (never white — the
+  flame glow would halo at the sprite's edge).
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- View: three-quarter top-down ~60°, light from the object's own flame only,
+  matching the base set.
+
+PROMPT:
+Edit this image: the same medieval print-shop, now SPENT and discharged after
+firing. The workshop doors hang open on a cold, dim, smoke-hazed interior; the
+heavy press inside is dark and still, a few last embers dying orange in the
+ash; thin spent smoke curling up from the doorway; the scattered printed pages
+singed and settling. Drained, exhausted, used-up — clearly the AFTER of a burst,
+no bright active glow left, only fading cinders. Keep the exact same print-shop
+silhouette, door angle and position. Flat solid #0B0E1A background, no text,
+1024×1024.
