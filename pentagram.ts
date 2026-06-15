@@ -253,6 +253,7 @@ const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 
 // shades, but NOT the pentagram's flame, which burns straight through. The hero
 // weaves them as cover to break a swarm's contact.
 const FENCE_HALF = 8;            // half-thickness of a fence wall (collision)
+const FENCE_VIS_THICK = 26;      // drawn thickness of the fence sprite (reads taller than its slim collision)
 
 // Pathways — open lanes the flame-hero runs swift along (the cleared streets).
 // Travelling within this half-width of a pathway grants a speed boost, rewarding
@@ -1579,6 +1580,11 @@ const SPRITE_NAMES = [
   // Swap onto the same node as their base; the loader falls back to the base if
   // a state PNG is absent. Not in CITY_SPRITES — universal, not yet re-skinned.
   "conduit-charged", "press-spent", "shrine-consecrated",
+  // Terrain laid along a segment, tiled by a pattern (walkway = pathway lane,
+  // fence = the linear blocker). Universal forces like the Keepers — never a
+  // city re-skin, so not in CITY_SPRITES. Optional: render falls back to the
+  // procedural lines when the PNG is absent.
+  "pathway", "fence",
   "keeper-node", "keeper-patrol", "player-lantern",
 ] as const;
 
@@ -1629,6 +1635,21 @@ function spriteImage(
   });
 }
 
+// A tileable terrain texture (walkway / fence) laid along a segment: a rect the
+// length of the segment, exactly one tile tall, rotated to the segment's heading
+// and filled with a horizontally-tiling pattern. The segment runs down the
+// rect's centre (the trailing translate lifts it by half the thickness) so the
+// art sits one clean row tall and never splits across the centreline. Used only
+// when the PNG has loaded — callers fall back to the procedural lines otherwise.
+function tiledSegment(patId: string, seg: Segment, thick: number, opacity: number): SVGRectElement {
+  const len = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+  const ang = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) * 180 / Math.PI;
+  return el("rect", {
+    x: 0, y: 0, width: len, height: thick, fill: `url(#${patId})`, opacity,
+    transform: `translate(${seg.x1.toFixed(1)} ${seg.y1.toFixed(1)}) rotate(${ang.toFixed(2)}) translate(0 ${(-thick / 2).toFixed(1)})`,
+  });
+}
+
 // ---------- Render (reads PgState; wholesale rebuild each frame) ----------
 
 // Built once: filters/gradients + the camera group. Adds the infernal #penta
@@ -1674,6 +1695,12 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
     </mask>
     <pattern id="groundPat" patternUnits="userSpaceOnUse" width="512" height="512">
       <image href="art/ground.png" width="512" height="512"/>
+    </pattern>
+    <pattern id="walkwayPat" patternUnits="userSpaceOnUse" width="${PATHWAY_HALF * 2}" height="${PATHWAY_HALF * 2}">
+      <image href="art/pathway.png" width="${PATHWAY_HALF * 2}" height="${PATHWAY_HALF * 2}"/>
+    </pattern>
+    <pattern id="fencePat" patternUnits="userSpaceOnUse" width="${FENCE_VIS_THICK}" height="${FENCE_VIS_THICK}">
+      <image href="art/fence.png" width="${FENCE_VIS_THICK}" height="${FENCE_VIS_THICK}"/>
     </pattern>`;
   svg.appendChild(defs);
   const cam = el("g", {});
@@ -1956,9 +1983,16 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
-  // Pathways — open lanes drawn on the ground beneath the built world: a pale
-  // worn road with a faint warm centre line, so the swift routes read at a glance.
+  // Pathways — open lanes drawn on the ground beneath the built world: when the
+  // walkway sprite has loaded it tiles a worn road down the lane; otherwise a
+  // pale road bar with a faint warm centre line, so the swift routes read either
+  // way at a glance.
+  const hasWalkway = sprites.has("pathway");
   for (const p of s.pathways) {
+    if (hasWalkway) {
+      layer.appendChild(tiledSegment("walkwayPat", p, PATHWAY_HALF * 2, 0.7));
+      continue;
+    }
     layer.appendChild(el("line", {
       x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
       stroke: "#2a2a1c", "stroke-width": PATHWAY_HALF * 2,
@@ -2037,9 +2071,16 @@ function render(s: PgState, layer: SVGGElement): void {
     }
   }
 
-  // Fences — low walls strung between posts, drawn over the ground/scenery as a
-  // stout dark bar with a lighter top edge so they read as solid blockers.
+  // Fences — low walls strung between posts, drawn over the ground/scenery: when
+  // the fence sprite has loaded it tiles a barricade down the segment; otherwise
+  // a stout dark bar with a lighter top edge so they read as solid blockers
+  // either way.
+  const hasFence = sprites.has("fence");
   for (const f of s.fences) {
+    if (hasFence) {
+      layer.appendChild(tiledSegment("fencePat", f, FENCE_VIS_THICK, 0.95));
+      continue;
+    }
     layer.appendChild(el("line", {
       x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
       stroke: "#15101f", "stroke-width": FENCE_HALF * 2,

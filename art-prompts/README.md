@@ -31,6 +31,8 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `09d-sprites-vesper.txt` | Per-city sprite set — Vesper Row (`art/vesper/*.png`) |
 | `10-pentagram-sigil.txt` | Pentagram sigil — the spinoff's weapon (procedural, no PNG) |
 | `11-sprites-vigil-states.txt` | Burning Vigil scenery states — charged conduit, spent press, consecrated shrine (`art/*.png`) |
+| `12a-walkway.txt` | Burning Vigil walkway / speed-lane tile — tiled down each pathway (`art/pathway.png`) |
+| `12b-fence.txt` | Burning Vigil obstacle / fence-barricade tile — tiled down each fence (`art/fence.png`) |
 
 Aspect ratios and transparent-background notes are already written into each
 prompt where they apply.
@@ -56,3 +58,15 @@ city's PNGs in and they appear immediately — no code change. The only follow-u
 when you ship a set is **offline**: add the new `art/<cityId>/*.png` files to
 `sw.js` `ASSETS` and bump `CACHE`, or returning offline users keep the base
 look (they're fetched/cached opportunistically online in the meantime).
+
+The `12*` files are **tiled terrain** for the Burning Vigil: `art/pathway.png`
+(the swift walkway lanes) and `art/fence.png` (the linear obstacle barricades).
+Unlike the point sprites, these are laid as an **SVG pattern tiled down each
+segment**, so they must be **seamless left-to-right tiles** (the left edge wraps
+into the right). **The loader is already wired** (`pathway`/`fence` in
+`SPRITE_NAMES`, the `walkwayPat`/`fencePat` patterns in `scaffold`): when a PNG
+is present the render tiles it down the lane/wall, and when absent it silently
+falls back to the procedural lines — so you can drop either file in and it
+appears, no code change. Like the city sprites they are **optional and so NOT in
+`sw.js` `ASSETS`** (a 404 there breaks the whole offline install); when you ship
+them, add `./art/pathway.png` / `./art/fence.png` to `ASSETS` and bump `CACHE`.

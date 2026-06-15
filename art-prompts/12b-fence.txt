@@ -1,0 +1,36 @@
+# art/fence.png  (the Burning Vigil obstacle / fence-barricade tile)
+
+The Burning Vigil (pentagram.ts) strings "fences" — low linear walls the hero and
+shades must weave around for cover (they block bodies, NOT the pentagram's flame,
+which burns straight through). The render TILES this sprite down the length of
+each fence segment (an SVG pattern, ~26px tile), so it must be SEAMLESSLY
+TILEABLE left-to-right: the LEFT and RIGHT edges have to wrap perfectly with no
+visible seam. One row tall is all that shows (the tile's full height is the wall's
+drawn thickness), so the top and bottom edges fade into the dark ground.
+
+RULES:
+- Base palette (warm candle-gold, indigo night) — NOT a city re-skin. This is a
+  universal terrain texture, shared across every city like the Keepers.
+- SEAMLESS HORIZONTAL TILE: left edge must continue into the right edge exactly
+  (a repeating run of barricade). Do not center a single feature — design it to
+  repeat into a continuous wall.
+- It reads as a LOW SOLID BLOCKER: a stout barricade of dark weathered timber
+  posts and planks (or piled rubble / a broken stone wall), chunky and opaque, a
+  faint cool indigo top-edge highlight so it reads as raised cover, a touch of
+  warm reflected firelight catching its near face. Clearly something you take
+  cover BEHIND — heavy, impassable, grim. No gaps, no people.
+- 1024×1024, square, no text, no watermark, no border.
+- Top-down ~60° three-quarter view, matching the base sprite set.
+- The barricade fills the central horizontal band; the very top and bottom edges
+  sink toward the indigo night #0B0E1A so the wall blends into the ground.
+
+PROMPT:
+A seamless horizontally-tiling top-down texture of a low medieval street
+barricade — a continuous run of stout dark weathered timber posts and lashed
+planks (with piled rubble at the base) forming a solid impassable wall running
+left to right across the frame, chunky and grim, a faint cool indigo #4A3F63
+highlight along its raised top edge, a touch of warm candle-gold #F5C66B
+firelight catching its near face. Clearly cover you hide behind. The left and
+right edges must wrap seamlessly so the barricade repeats endlessly when tiled.
+The top and bottom edges fade down into deep indigo night #0B0E1A. No gaps, no
+people, no text. 1024×1024.
