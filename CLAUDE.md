@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The Light-Bringer is a contemplative inversion game shipped as an installable, offline-capable **PWA**. It is plain HTML/CSS + a single hand-written TypeScript module (`app.ts`) rendering layered SVG. `tsc` compiles `app.ts` → `app.js`, and `app.js` is what GitHub Pages serves. The only dependency is `typescript` itself (a devDependency); the shipped runtime still has zero dependencies.
 
+> **Active development is on The Burning Vigil (`pentagram.ts` / `pentagram.html`).** That action-combat spinoff (documented in detail under "The Burning Vigil" below) is where new gameplay work happens; treat it as the primary game going forward. The original contemplative game (`app.ts` / `index.html`) is now in maintenance — keep it building and shipping, but direct new features to `pentagram.ts`. The original is **not** retired: both still ship, share art, and are cross-linked from each other's title screens.
+
 ## Commands
 
 ```sh
