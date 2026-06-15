@@ -135,4 +135,12 @@ One-time setup: **Settings → Pages → Build and deployment → Source:
 `https://<user>.github.io/<repo>/` — for this repository,
 [`https://aoprisan.github.io/lightbringer/`](https://aoprisan.github.io/lightbringer/).
 
+## License
+
+**Proprietary — All Rights Reserved.** Copyright © 2026 Andrei Oprisan.
+
+The source is public for demonstration only. It is **not** open source: no
+permission is granted to use, copy, modify, distribute, or commercialize it.
+See [`LICENSE`](LICENSE). For licensing inquiries, contact aoprisan@gmail.com.
+
 *Ora pro nobis, Lucifer.*

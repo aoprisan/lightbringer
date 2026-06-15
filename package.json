@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "The Light-Bringer — a contemplative inversion game shipped as an offline-capable PWA.",
   "private": true,
+  "license": "UNLICENSED",
+  "author": "Andrei Oprisan <aoprisan@gmail.com>",
   "type": "module",
   "scripts": {
     "build": "tsc",
