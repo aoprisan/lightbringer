@@ -2592,8 +2592,11 @@ function start(): void {
     const scale = Math.min(MM_MAX / s.w, MM_MAX / s.h);
     const mw = s.w * scale, mh = s.h * scale;
     mmEl.style.display = "block";
-    mmEl.setAttribute("width", mw.toFixed(1));
-    mmEl.setAttribute("height", mh.toFixed(1));
+    // Inline width/height (not the `width`/`height` attributes): the global
+    // `svg { width:100%; height:100% }` rule for the arena would otherwise win
+    // over presentation attributes and stretch the map across the whole screen.
+    mmEl.style.width = `${mw.toFixed(1)}px`;
+    mmEl.style.height = `${mh.toFixed(1)}px`;
     mmEl.setAttribute("viewBox", `0 0 ${mw.toFixed(1)} ${mh.toFixed(1)}`);
     mmEl.innerHTML = "";
     mmEl.appendChild(el("rect", { x: 0, y: 0, width: mw, height: mh, fill: "#070912", opacity: 0.5 }));
