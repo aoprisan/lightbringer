@@ -1842,10 +1842,21 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
         : "#ff6a3c";                                // off the nodes/line — ember red
       let d = `M${bossTrace[0].x.toFixed(1)} ${bossTrace[0].y.toFixed(1)}`;
       for (let i = 1; i < bossTrace.length; i++) d += ` L${bossTrace[i].x.toFixed(1)} ${bossTrace[i].y.toFixed(1)}`;
+      // A diffuse halo underneath (the #bloom filter is pure blur, no crisp source)…
       layer.appendChild(el("path", {
-        d, fill: "none", stroke: col, "stroke-width": 4.5,
-        "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.95,
+        d, fill: "none", stroke: col, "stroke-width": 7,
+        "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.55,
         filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      // …then a crisp, unblurred core on top so the line the finger draws reads sharply.
+      layer.appendChild(el("path", {
+        d, fill: "none", stroke: col, "stroke-width": 3,
+        "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 1,
+      }));
+      // A bright white centreline keeps the stroke legible against the glow.
+      layer.appendChild(el("path", {
+        d, fill: "none", stroke: "#ffffff", "stroke-width": 1.3,
+        "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.85,
       }));
     }
   }
