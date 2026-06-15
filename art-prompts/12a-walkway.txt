@@ -1,0 +1,32 @@
+# art/pathway.png  (the Burning Vigil walkway / speed-lane tile)
+
+The Burning Vigil (pentagram.ts) lays "pathways" — open swept lanes the
+flame-hero runs swift along to kite the swarm. The render TILES this sprite down
+the length of each lane (an SVG pattern, ~60px tile), so it must be SEAMLESSLY
+TILEABLE left-to-right: the LEFT and RIGHT edges have to wrap perfectly with no
+visible seam. One row tall is all that shows (the tile's full height is the lane
+width), so the top and bottom edges fade naturally into the dark ground.
+
+RULES:
+- Base palette (warm candle-gold, indigo night) — NOT a city re-skin. This is a
+  universal terrain texture, shared across every city like the Keepers.
+- SEAMLESS HORIZONTAL TILE: left edge must continue into the right edge exactly
+  (a repeating cobbled run). Do not center a single feature — design it to repeat.
+- The lane reads as a CLEARED, WORN STREET: a swept stone/cobble road, paler and
+  smoother than the surrounding rubble, faint cart-rut grooves running left-to-
+  right along its length, a hint of warm reflected lamplight on the stones. A
+  road you run FAST down — open, inviting, unobstructed. No people, no props.
+- 1024×1024, square, no text, no watermark, no border.
+- Top-down ~60° three-quarter view, matching the base sprite set.
+- The road occupies the central horizontal band; let the very top and bottom
+  edges sink toward the indigo night #0B0E1A so the lane blends into the ground.
+
+PROMPT:
+A seamless horizontally-tiling top-down texture of a cleared medieval cobbled
+street — a swept worn stone road running left to right across the frame, pale
+warm grey-gold flagstones smoother and brighter than the dark rubble around them,
+shallow cart-rut grooves tracking along its length, faint warm candle-gold #F5C66B
+lamplight glinting off the wet stones. An open, inviting, unobstructed lane meant
+to be run down fast. The left and right edges must wrap seamlessly so the road
+repeats endlessly when tiled. The top and bottom edges fade down into deep indigo
+night #0B0E1A. No people, no carts, no props, no text. 1024×1024.

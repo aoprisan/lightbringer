@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v55";
+const CACHE = "lightbringer-v56";
 
 const ASSETS = [
   "./",
@@ -43,6 +43,11 @@ const ASSETS = [
   "./art/conduit-charged.png",
   "./art/press-spent.png",
   "./art/shrine-consecrated.png",
+  // Tiled terrain (Burning Vigil): walkway lane + fence barricade. Optional —
+  // the render tiles them when present and falls back to procedural lines when
+  // absent, so they are NOT listed here until art/pathway.png + art/fence.png
+  // exist (addAll 404s the whole install otherwise). When you ship them, add
+  // "./art/pathway.png" and "./art/fence.png" here and bump CACHE.
   "./art/keeper-node.png",
   "./art/keeper-patrol.png",
   "./art/player-lantern.png",
