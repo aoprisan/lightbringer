@@ -438,10 +438,22 @@ const FRESCOES: string[] = [
 // alone). Keyed by index into FRESCOES; see art-prompts/06*.txt.
 const FRESCO_ART: Record<number, string> = {
   0: "art/fresco-sun.jpg",     // "Beneath the whitewash: a sun, and under it, our faces."
+  1: "art/fresco-mercy.jpg",   // "They named the dimness 'mercy'…"
+  2: "art/fresco-star.jpg",    // "Ora pro nobis, Lucifer…"
   3: "art/fresco-veil.jpg",    // "The Veil is not a wall. It is a habit."
   4: "art/fresco-press.jpg",   // "Here a press once ran…"
   5: "art/fresco-child.jpg",   // "Every Keeper was, once, a child…"
+  6: "art/fresco-window.jpg",  // "What is lit cannot be made unseen…"
+  7: "art/fresco-carrier.jpg", // "The carrier burns…"
+  8: "art/fresco-city.jpg",    // "We do not win the city…"
+  9: "art/fresco-rumor.jpg",   // "A rumor is oil…"
   10: "art/fresco-morning.jpg",// "The morning is not coming to judge you. It is only morning."
+  11: "art/fresco-lamps.jpg",  // "They keep the lamps low and call the dark holy."
+  12: "art/fresco-secret.jpg", // "A lamp lit in secret is still a lamp…"
+  13: "art/fresco-scratch.jpg",// "They whitewashed the walls, not the colour beneath…"
+  14: "art/fresco-answer.jpg", // "Count the windows that answered yours…"
+  15: "art/fresco-ember.jpg",  // "The dark was never the enemy…"
+  16: "art/fresco-twoflames.jpg", // "Two flames see farther than one…"
 };
 
 // ---------- City generation ----------
@@ -2012,11 +2024,17 @@ function start(): void {
     const idx = FRESCOES.indexOf(text);
     const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
     if (!art) { showToast(text); return; }
+    // Show the painted card only once the jpg actually decodes; if the art is
+    // absent (not yet generated), fall back to the quiet text toast — same
+    // "fails silently when absent" ethos as the city cards, no broken image.
+    frescoImg.onload = () => {
+      frescoCap.textContent = text;
+      fresco.classList.add("show");
+      clearTimeout(frescoTimer);
+      frescoTimer = setTimeout(hideFresco, 7000);
+    };
+    frescoImg.onerror = () => { showToast(text); };
     frescoImg.src = art;
-    frescoCap.textContent = text;
-    fresco.classList.add("show");
-    clearTimeout(frescoTimer);
-    frescoTimer = setTimeout(hideFresco, 7000);
   }
   fresco.addEventListener("click", hideFresco);
 

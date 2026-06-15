@@ -1083,10 +1083,22 @@ const FRESCOES: string[] = [
 // index into FRESCOES, matching app.ts.
 const FRESCO_ART: Record<number, string> = {
   0: "art/fresco-sun.jpg",
+  1: "art/fresco-mercy.jpg",
+  2: "art/fresco-star.jpg",
   3: "art/fresco-veil.jpg",
   4: "art/fresco-press.jpg",
   5: "art/fresco-child.jpg",
+  6: "art/fresco-window.jpg",
+  7: "art/fresco-carrier.jpg",
+  8: "art/fresco-city.jpg",
+  9: "art/fresco-rumor.jpg",
   10: "art/fresco-morning.jpg",
+  11: "art/fresco-lamps.jpg",
+  12: "art/fresco-secret.jpg",
+  13: "art/fresco-scratch.jpg",
+  14: "art/fresco-answer.jpg",
+  15: "art/fresco-ember.jpg",
+  16: "art/fresco-twoflames.jpg",
 };
 
 function maybeFresco(s: PgState, n: ArenaNode): void {
@@ -2726,11 +2738,16 @@ function start(): void {
     const idx = FRESCOES.indexOf(text);
     const art = idx >= 0 ? FRESCO_ART[idx] : undefined;
     if (!art) { showToast(text); return; }
+    // Show the painted card only once the jpg decodes; if the art is absent
+    // (not yet generated), fall back to the quiet toast — no broken image.
+    frescoImg.onload = () => {
+      frescoCap.textContent = text;
+      frescoEl.classList.add("show");
+      clearTimeout(frescoTimer);
+      frescoTimer = setTimeout(() => frescoEl.classList.remove("show"), 6000);
+    };
+    frescoImg.onerror = () => { showToast(text); };
     frescoImg.src = art;
-    frescoCap.textContent = text;
-    frescoEl.classList.add("show");
-    clearTimeout(frescoTimer);
-    frescoTimer = setTimeout(() => frescoEl.classList.remove("show"), 6000);
   }
 
   function startCity(level: LevelDef): void {

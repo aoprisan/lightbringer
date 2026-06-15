@@ -18,6 +18,18 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `06c-fresco-child-and-candle.txt` | Fresco — child reaching for a candle |
 | `06d-fresco-veil-curtain.txt` | Fresco — veil as a lifted curtain |
 | `06e-fresco-sunrise.txt` | Fresco — sunrise over a sleeping city |
+| `06f-fresco-shrouded-mercy.txt` | Fresco — the dimness called mercy |
+| `06g-fresco-morning-star.txt` | Fresco — pray for us, morning star |
+| `06h-fresco-lit-window.txt` | Fresco — what is lit cannot be unseen |
+| `06i-fresco-the-carrier.txt` | Fresco — the carrier burns |
+| `06j-fresco-city-self-lighting.txt` | Fresco — the city wins itself |
+| `06k-fresco-rumor-wick.txt` | Fresco — a rumor is oil, a name a wick |
+| `06l-fresco-lamps-kept-low.txt` | Fresco — lamps kept low, dark called holy |
+| `06m-fresco-secret-lamp.txt` | Fresco — a lamp lit in secret |
+| `06n-fresco-scratched-whitewash.txt` | Fresco — scratch the whitewash, remember |
+| `06o-fresco-answering-windows.txt` | Fresco — the windows that answered |
+| `06p-fresco-remembered-ember.txt` | Fresco — the dark was never the enemy |
+| `06q-fresco-two-flames.txt` | Fresco — two flames see farther |
 | `07a-texture-vellum-whitewash.txt` | Texture — vellum / whitewash grain |
 | `07b-texture-ink-veil.txt` | Texture — ink veil (thickening dark) |
 | `08a-city-old.txt` | City card — The Old City (`art/city-old.jpg`) |

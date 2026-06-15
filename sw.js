@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v63";
+const CACHE = "lightbringer-v64";
 
 const ASSETS = [
   "./",
@@ -21,10 +21,22 @@ const ASSETS = [
   "./art/title-backdrop.jpg",
   "./art/keeper-sigil.png",
   "./art/fresco-sun.jpg",
+  "./art/fresco-mercy.jpg",
+  "./art/fresco-star.jpg",
   "./art/fresco-veil.jpg",
   "./art/fresco-press.jpg",
   "./art/fresco-child.jpg",
+  "./art/fresco-window.jpg",
+  "./art/fresco-carrier.jpg",
+  "./art/fresco-city.jpg",
+  "./art/fresco-rumor.jpg",
   "./art/fresco-morning.jpg",
+  "./art/fresco-lamps.jpg",
+  "./art/fresco-secret.jpg",
+  "./art/fresco-scratch.jpg",
+  "./art/fresco-answer.jpg",
+  "./art/fresco-ember.jpg",
+  "./art/fresco-twoflames.jpg",
   "./art/texture-vellum.jpg",
   "./art/texture-ink.jpg",
   // Gameplay sprites (see ART_PLAN.md), optimized from art/prompts/*.png.
