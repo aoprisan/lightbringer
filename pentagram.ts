@@ -2661,10 +2661,15 @@ function start(): void {
     );
   }
 
-  function showPicker(): void {
+  function showPicker(selId?: string): void {
     s = null; running = false;
     const l = loadPgLegacy();
+    // The selected city — defaults to the first, and supplies the establishing
+    // art shown at the top of the card (mirrors the parent's Lamplighter intro).
+    const sel = levelById(selId || "") || LEVELS[0];
+    const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
     let html =
+      card +
       `<p class="lede">Choose a city to descend into. Stand still to inscribe a ` +
       `pentagram that burns the shades around you; move to dodge their touch and ` +
       `weave around the solid presses, shrines and fences. Run the pathways to outpace ` +
@@ -2674,7 +2679,7 @@ function start(): void {
       const done = l.best[lv.id];
       const mark = done ? ` <span class="legacy-new">cleansed ${fmtTime(done)}</span>` : "";
       html +=
-        `<button class="city" data-id="${lv.id}">` +
+        `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
         `<span class="city-name">${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
@@ -2712,13 +2717,17 @@ function start(): void {
         `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div>` +
         `<div><dt>Dwellings awakened</dt><dd>${l.dwellingsAwakened}</dd></div></dl></div>`;
     }
-    showOverlay("The Burning Vigil", html, "", () => {});
-    ovBtn.style.display = "none";
+    showOverlay("The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel));
     ovBtn2.style.display = "none";
+    // The establishing image fails silently when its art isn't shipped offline.
+    const img = ovBody.querySelector<HTMLImageElement>(".city-art");
+    if (img) img.onerror = () => { img.style.display = "none"; };
+    // Picking a city re-renders the card so its art and highlight follow the
+    // selection; the descent begins from the primary button.
     overlay.querySelectorAll<HTMLButtonElement>(".city").forEach((b) => {
       b.onclick = () => {
         const lv = levelById(b.dataset.id || "");
-        if (lv) startCity(lv);
+        if (lv) showPicker(lv.id);
       };
     });
     overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
