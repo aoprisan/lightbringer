@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v67";
+const CACHE = "lightbringer-v68";
 
 const ASSETS = [
   "./",
@@ -76,6 +76,24 @@ const ASSETS = [
   "./art/ashfold/conduit.png",
   "./art/ashfold/press.png",
   "./art/ashfold/shrine.png",
+  // Glassworks: ground + four dwelling states + conduit + press + shrine.
+  "./art/glassworks/ground.png",
+  "./art/glassworks/dwelling-dark.png",
+  "./art/glassworks/dwelling-lit.png",
+  "./art/glassworks/dwelling-awakened.png",
+  "./art/glassworks/dwelling-snuffed.png",
+  "./art/glassworks/conduit.png",
+  "./art/glassworks/press.png",
+  "./art/glassworks/shrine.png",
+  // The Drowned Quarter: ground + four dwelling states + conduit + press + shrine.
+  "./art/drowned/ground.png",
+  "./art/drowned/dwelling-dark.png",
+  "./art/drowned/dwelling-lit.png",
+  "./art/drowned/dwelling-awakened.png",
+  "./art/drowned/dwelling-snuffed.png",
+  "./art/drowned/conduit.png",
+  "./art/drowned/press.png",
+  "./art/drowned/shrine.png",
 ];
 
 self.addEventListener("install", (event) => {
