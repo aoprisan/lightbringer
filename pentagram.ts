@@ -102,6 +102,18 @@ interface Shade {
   hit: number;         // s.elapsed time until which it flashes from a fresh blow (0 = none)
   elite?: boolean;     // a champion: more hp, bites harder, and begins veil-shielded
   shielded?: boolean;  // while true it takes no damage — only a FULL-charge pulse breaks it
+  spitter?: boolean;   // a ranged shade: holds its distance and lobs bolts (punishes standing still)
+  darter?: boolean;    // a quick, frail shade: closes the gap fast before the sigil ramps
+  cooldown?: number;   // ms until a spitter can lob its next bolt
+}
+
+// A spitter's bolt — the watch's only ranged attack, the module's one projectile.
+// Slow enough to sidestep if you're already moving; punishing if you stand to
+// inscribe. It is mere matter — fences and solid structures stop it (the
+// pentagram's flame burns through; this does not). Live-play FX, never persisted.
+interface Bolt {
+  x: number; y: number; vx: number; vy: number;
+  born: number; // s.elapsed at fire — for lifetime cull; set to -1 to retire (spent)
 }
 
 interface Penta {
@@ -179,6 +191,7 @@ interface PgState {
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
   motes: Mote[];         // gatherable ember sparks dropped by slain shades
+  bolts: Bolt[];         // spitters' in-flight bolts (live FX, not persisted)
   surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
@@ -268,6 +281,27 @@ const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
 // inscription. Once broken it fights as any other shade.
 const ELITE_HP_MUL = 2.6;        // a champion's hp over a common shade
 const ELITE_CONTACT_DMG = 16;    // hero HP lost per elite touch (vs SHADE_CONTACT_DMG)
+
+// Spitter shades — the city's ranged watch. A spitter does NOT close; it holds a
+// standoff distance and lobs a slow bolt at where the hero is, so standing still
+// to inscribe is punished and you must break the sigil to reposition. Frail (it
+// is artillery, not a brawler) and dies to the pulse like any shade. The bolt is
+// the module's only projectile (see stepBolts / the Bolt interface).
+const SPITTER_HP = 30;           // frailer than a common shade (44)
+const SPITTER_STANDOFF = 210;    // the range it tries to hold from the hero
+const SPITTER_SPEED_MUL = 0.7;   // it repositions slower than a chaser closes
+const SPITTER_RANGE = 380;       // won't lob past this
+const SPITTER_COOLDOWN_MS = 1900; // between lobs
+const BOLT_SPEED = 230;          // units/s — slow enough to sidestep while moving
+const BOLT_DMG = 12;             // hero HP per bolt (gated by the same i-frames as a touch)
+const BOLT_RADIUS = 9;
+const BOLT_LIFETIME_MS = 2600;   // a bolt fades if it reaches nothing
+
+// Darter shades — a quick, frail melee shade. It closes the gap before the sigil
+// ramps, making pathways and fences matter defensively rather than offensively.
+// Common contact damage; just faster and softer. No projectile — pure chaser.
+const DARTER_HP = 26;            // very frail
+const DARTER_SPEED_MUL = 1.7;    // far quicker than a common chaser (SHADE_SPEED)
 
 // Veil pools — drifting patches of the old dark. A still hero standing in one
 // doesn't inscribe; the sigil UNRAVELS, charge bleeding away this much faster
@@ -439,6 +473,8 @@ interface LevelDef {
   pathwayCount: number; // open lanes the hero runs swift along
   veilCount?: number;  // drifting dark pools that unravel the sigil (default 0)
   eliteCount?: number; // keeper-posts whose champion rises veil-shielded (default 0)
+  spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
+  darterCount?: number;  // keeper-posts whose wave includes a quick darter (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -461,7 +497,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, sizeScale: 1.0,
+    fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
   },
   {
     id: "drowned",
@@ -471,7 +507,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, sizeScale: 1.15,
+    fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
   },
   {
     id: "glassworks",
@@ -481,7 +517,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, sizeScale: 1.0,
+    fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
   },
   {
     id: "vesper",
@@ -491,7 +527,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, sizeScale: 1.1,
+    fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
   },
 ];
 
@@ -639,12 +675,19 @@ function buildArena(level: LevelDef): PgState {
   };
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
-  // The first `eliteCount` posts each raise a shielded champion (its first shade).
+  // Each post raises SHADE_PER_KEEPER shades in distinct slots so the roles never
+  // collide: slot 0 may be an elite champion, slot 1 a ranged spitter, slot 2 a
+  // quick darter — each gated by the city's per-role count. The rest are common.
   const eliteCount = Math.min(level.eliteCount ?? 0, posts.length);
+  const spitterCount = Math.min(level.spitterCount ?? 0, posts.length);
+  const darterCount = Math.min(level.darterCount ?? 0, posts.length);
   posts.forEach((post, pi) => {
     for (let j = 0; j < SHADE_PER_KEEPER; j++) {
       const elite = j === 0 && pi < eliteCount;
-      const hp = SHADE_HP * (elite ? ELITE_HP_MUL : 1);
+      const spitter = !elite && j === 1 && pi < spitterCount;
+      const darter = !elite && !spitter && j === 2 && pi < darterCount;
+      const hp = elite ? SHADE_HP * ELITE_HP_MUL
+        : spitter ? SPITTER_HP : darter ? DARTER_HP : SHADE_HP;
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
@@ -656,7 +699,7 @@ function buildArena(level: LevelDef): PgState {
         wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
         hit: 0,
-        elite, shielded: elite,
+        elite, shielded: elite, spitter, darter, cooldown: 0,
       });
     }
   });
@@ -690,7 +733,7 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], surgeUntil: 0,
+    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
     arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
@@ -718,7 +761,7 @@ function clearedPct(s: PgState): number {
 // total, with a star mark for any that have awakened into ally emitters.
 function litReadout(s: PgState): string {
   const awoke = s.scenery.reduce((c, n) => c + (n.awoke ? 1 : 0), 0);
-  const base = `${s.litCount} / ${s.dwellingsTotal} lit`;
+  const base = `+${s.litCount} / ${s.dwellingsTotal} lit`;
   return awoke ? `${base} · ${awoke}✦` : base;
 }
 
@@ -926,7 +969,7 @@ function stepShades(s: PgState, dt: number): void {
     let dx: number, dy: number, speed: number;
     if (e.state === "chase") {
       dx = h.x - e.x; dy = h.y - e.y;
-      const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      const dist = Math.hypot(dx, dy) || 1; dx /= dist; dy /= dist;
       // Separation among fellow chasers, so a crowd packs rather than overlaps.
       for (const o of s.shades) {
         if (o === e || o.dead || o.state !== "chase") continue;
@@ -935,6 +978,22 @@ function stepShades(s: PgState, dt: number): void {
       }
       const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
       speed = SHADE_SPEED;
+      if (e.darter) {
+        // A darter rushes — far quicker than a common chaser, but frail.
+        speed = SHADE_SPEED * DARTER_SPEED_MUL;
+      } else if (e.spitter) {
+        // A spitter holds standoff range and lobs bolts: back off if the hero
+        // crowds it, hold ground in the band, drift in (slowly) if too far.
+        speed = SHADE_SPEED * SPITTER_SPEED_MUL;
+        if (dist < SPITTER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
+        else if (dist <= SPITTER_STANDOFF * 1.15) { speed = 0; }
+        e.cooldown = (e.cooldown ?? 0) - dt;
+        if (e.cooldown <= 0 && dist <= SPITTER_RANGE) {
+          const ax = h.x - e.x, ay = h.y - e.y, ad = Math.hypot(ax, ay) || 1;
+          s.bolts.push({ x: e.x, y: e.y, vx: (ax / ad) * BOLT_SPEED, vy: (ay / ad) * BOLT_SPEED, born: s.elapsed });
+          e.cooldown = SPITTER_COOLDOWN_MS;
+        }
+      }
     } else {
       // Wander: drift along the heading, re-rolling on a timer; steer home if the
       // leash is taut so a wanderer never strays far from its post.
@@ -962,6 +1021,37 @@ function stepShades(s: PgState, dt: number): void {
       snuffDwelling(s, n);
     }
   }
+}
+
+// Advance spitters' bolts. A bolt flies straight, bites the hero on contact
+// (gated by the same i-frames as a touch, so a bolt and a brush can't double-dip
+// one slice), and is stopped by fences and solid structures — cover the hero can
+// duck behind. The pentagram's flame burns through them; the watch's bolts are
+// mere matter and do not. Spent/expired bolts are culled. Live FX, not persisted.
+function stepBolts(s: PgState, dt: number): void {
+  if (!s.bolts.length) return;
+  const h = s.hero;
+  for (const b of s.bolts) {
+    if (b.born < 0) continue;
+    const nx = b.x + (b.vx * dt) / 1000, ny = b.y + (b.vy * dt) / 1000;
+    // Cover: a fence or a solid (press/shrine) stops the bolt dead.
+    let blocked = false;
+    for (const f of s.fences) {
+      if (closestOnSegment(nx, ny, f.x1, f.y1, f.x2, f.y2).d <= BOLT_RADIUS + FENCE_HALF) { blocked = true; break; }
+    }
+    if (!blocked) {
+      for (const n of s.solids) {
+        const rr = BOLT_RADIUS + (OBSTACLE_RADIUS[n.kind] || 0);
+        if ((nx - n.x) ** 2 + (ny - n.y) ** 2 <= rr * rr) { blocked = true; break; }
+      }
+    }
+    if (blocked) { b.born = -1; continue; }
+    b.x = nx; b.y = ny;
+    if (h.hurt <= 0 && (b.x - h.x) ** 2 + (b.y - h.y) ** 2 <= (HERO_RADIUS + BOLT_RADIUS) ** 2) {
+      h.hp -= BOLT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS; b.born = -1;
+    }
+  }
+  s.bolts = s.bolts.filter((b) => b.born >= 0 && s.elapsed - b.born < BOLT_LIFETIME_MS);
 }
 
 // The pentagram pulses on its own clock: every PENTA_PULSE_MS it burns every
@@ -1184,6 +1274,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   stepMotes(s);
 
   stepShades(s, dt);
+  stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
   stepPentagram(s, dt);
   stepSpread(s);     // advance any conduit relays whose travel time has elapsed
   stepDwellings(s);  // mature lit dwellings into awakened ally emitters
@@ -2005,6 +2096,29 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
+  // Spitters' bolts — motes of the old dark hurled at the hero. Drawn as a small
+  // comet: a fading motion trail behind it (so it reads as hurtling, and you can
+  // see where it came from), a cold-ringed dark body, and a hot core pip that
+  // keeps it legible against the warm sigil it crosses.
+  for (const b of s.bolts) {
+    if (b.born < 0) continue;
+    const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+    const sp = Math.hypot(b.vx, b.vy) || 1;
+    const tl = BOLT_RADIUS * 2.6; // trail length
+    layer.appendChild(el("line", {
+      x1: b.x - (b.vx / sp) * tl, y1: b.y - (b.vy / sp) * tl, x2: b.x, y2: b.y,
+      stroke: "#6fa8e8", "stroke-width": BOLT_RADIUS, "stroke-linecap": "round",
+      opacity: 0.4, ...(LOW_FX ? {} : { filter: "url(#glow)" }),
+    }));
+    layer.appendChild(el("circle", {
+      cx: b.x, cy: b.y, r: BOLT_RADIUS, fill: "#0e1530",
+      stroke: "#a9d2ff", "stroke-width": 2, opacity: 0.95, ...fx,
+    }));
+    layer.appendChild(el("circle", {
+      cx: b.x, cy: b.y, r: BOLT_RADIUS * 0.42, fill: "#eaf3ff", opacity: 0.95,
+    }));
+  }
+
   // Pathways — open lanes drawn on the ground beneath the built world: when the
   // walkway sprite has loaded it tiles a worn road down the lane; otherwise a
   // pale road bar with a faint warm centre line, so the swift routes read either
@@ -2163,7 +2277,7 @@ function render(s: PgState, layer: SVGGElement): void {
     // spark, the Wrath's hollow violet ring — so the bite matches the brand.
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / SHADE_HIT_MS) : 0;
     const recoil = flash * (s.type.power === "chain" ? 0.26 : s.type.power === "scorch" ? 0.12 : 0.18);
-    const sz = (e.elite ? 60 : 44) * (1 + recoil); // champions loom larger; recoil pop on impact
+    const sz = (e.elite ? 60 : e.darter ? 34 : 44) * (1 + recoil); // champions loom larger, darters smaller; recoil pop on impact
     if (shadeKey) {
       layer.appendChild(spriteImage(shadeKey, e.x, e.y, sz, op));
     } else {
@@ -2194,6 +2308,14 @@ function render(s: PgState, layer: SVGGElement): void {
           stroke: "#5a2a6a", "stroke-width": 2, opacity: 0.5 * op,
         }));
       }
+    }
+    // A spitter wears a faint dashed warm ring — the watch that lobs from afar.
+    if (e.spitter) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: SHADE_RADIUS + 7, fill: "none",
+        stroke: "#e8a24a", "stroke-width": 1.5, opacity: 0.55 * op,
+        "stroke-dasharray": "3 5",
+      }));
     }
     if (flash > 0) {
       const grow = 1 - flash; // 0 at impact → 1 as it fades, so the burst expands
@@ -2580,7 +2702,9 @@ function start(): void {
       return;
     }
     const alive = aliveShades(s);
-    let foes = `${alive} / ${s.total} shades`;
+    // The win condition. Lead with the verb so the persistent readout reads as
+    // THE objective, not a collectible like the (secondary) lit count beside it.
+    let foes = alive > 0 ? `Clear ${alive} / ${s.total} shades` : `City cleansed`;
     // When only a handful remain, point toward the nearest so the last few of a
     // big map aren't a blind hunt.
     if (alive > 0 && alive <= 3) {
@@ -2752,6 +2876,19 @@ function start(): void {
     // (not yet generated), fall back to the quiet toast — no broken image.
     frescoImg.onload = () => {
       frescoCap.textContent = text;
+      // Place it away from the hero: if the hero is in the lower half of the
+      // viewport (camera clamped at the arena's bottom edge), the bottom card
+      // would sit over the action and joystick — flip it to the top, clearing
+      // the live header height the way the minimap does.
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const heroY = s ? cam.y + s.hero.y * cam.k : 0;
+      if (heroY > vh * 0.5) {
+        frescoEl.style.top = `${(headerEl ? headerEl.offsetHeight : 50) + 10}px`;
+        frescoEl.classList.add("at-top");
+      } else {
+        frescoEl.style.top = "";
+        frescoEl.classList.remove("at-top");
+      }
       frescoEl.classList.add("show");
       clearTimeout(frescoTimer);
       frescoTimer = setTimeout(() => frescoEl.classList.remove("show"), 6000);
@@ -2768,7 +2905,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Stand still to inscribe the pentagram. Move to dodge — weave around presses, shrines and fences, run the pathways to kite the swarm, and light the dark dwellings. Keep out of the drifting veil pools (they unravel the sigil), break a shielded champion with a FULL inscription, and gather the embers the fallen leave to bite harder.");
+    showToast("Cleanse the city: clear EVERY shade to win (watch the count, top-right). Stand still to inscribe the pentagram — it burns shades and lights the dark dwellings around you; move to dodge. Weave around presses, shrines and fences, run the pathways to kite the swarm. Keep out of the drifting veil pools (they unravel the sigil), break a shielded champion with a FULL inscription, and gather the embers the fallen leave to bite harder. (Lighting dwellings heals you and is worth score, but clearing the shades is what wins.)");
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -2959,7 +3096,7 @@ const testGlobal = globalThis as unknown as {
 };
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
-    generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
+    generateCity, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress,
     nearScar, inShrineAura, litReadout,
@@ -2983,6 +3120,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
       SCORCH_RADIUS, SCORCH_MAX,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
+      SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
+      BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,
+      DARTER_HP, DARTER_SPEED_MUL,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
       BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG, BOSS_BITE_RAMP, BOSS_KEY_COST,

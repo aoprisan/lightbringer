@@ -687,5 +687,67 @@ spr2.hero.x = 100; spr2.hero.y = 100; spr2.penta.charge = 0.9;
 pg.stepPress(spr2);
 ok(!spr2.scenery[0].spent, "a press needs a FULL inscription to fire");
 
+// 33. Spitters — a ranged shade holds its distance, lobs bolts that bite a STILL
+//     hero, and those bolts are stopped by fences (cover). A moving hero dodges.
+const sspit = pg.buildArena(pg.levelById("old-city"));
+sspit.fences = []; sspit.solids = []; sspit.veils = []; sspit.pathways = [];
+// One spitter due east of the hero, just inside its lob range; park the rest away.
+const spit = sspit.shades[0];
+spit.spitter = true; spit.elite = false; spit.shielded = false; spit.darter = false;
+spit.cooldown = 0; spit.hp = K.SPITTER_HP; spit.maxHp = K.SPITTER_HP;
+spit.x = sspit.hero.x + K.SPITTER_STANDOFF; spit.y = sspit.hero.y; wake(spit);
+spit.homeX = spit.x; spit.homeY = spit.y;
+for (let i = 1; i < sspit.shades.length; i++) park(sspit.shades[i], 5, 5);
+const hpBeforeSpit = sspit.hero.hp;
+run(sspit, K.SPITTER_COOLDOWN_MS + 200, still); // hero stands still and inscribes
+ok(sspit.bolts !== undefined, "state carries a bolts array");
+ok(sspit.hero.hp < hpBeforeSpit, "a spitter's bolt bites a hero who stands still");
+// It keeps its distance rather than piling onto the hero like a chaser.
+ok(Math.hypot(spit.x - sspit.hero.x, spit.y - sspit.hero.y) > K.HERO_RADIUS + K.SHADE_RADIUS + 20,
+  "a spitter holds standoff range, not contact");
+
+// A fence between spitter and hero eats the bolts — cover works.
+const sfen = pg.buildArena(pg.levelById("old-city"));
+sfen.solids = []; sfen.veils = []; sfen.pathways = [];
+const spc = sfen.shades[0];
+spc.spitter = true; spc.elite = false; spc.shielded = false; spc.darter = false;
+spc.cooldown = 0; spc.hp = K.SPITTER_HP;
+spc.x = sfen.hero.x + K.SPITTER_STANDOFF; spc.y = sfen.hero.y; wake(spc);
+spc.homeX = spc.x; spc.homeY = spc.y;
+for (let i = 1; i < sfen.shades.length; i++) park(sfen.shades[i], 5, 5);
+// A vertical fence wall standing between the two, across the bolt's path.
+const fx = sfen.hero.x + K.SPITTER_STANDOFF / 2;
+sfen.fences = [{ x1: fx, y1: sfen.hero.y - 80, x2: fx, y2: sfen.hero.y + 80 }];
+const hpBeforeFence = sfen.hero.hp;
+run(sfen, K.SPITTER_COOLDOWN_MS * 2 + 200, still);
+ok(sfen.hero.hp === hpBeforeFence, "a fence between them stops the bolts (cover)");
+
+// 34. Darters — a quick, frail shade closes far faster than a common chaser.
+const sdar = pg.buildArena(pg.levelById("old-city"));
+sdar.fences = []; sdar.solids = []; sdar.veils = []; sdar.pathways = [];
+const dar = sdar.shades[0];
+dar.darter = true; dar.elite = false; dar.shielded = false; dar.spitter = false;
+dar.hp = K.DARTER_HP; dar.maxHp = K.DARTER_HP;
+const startGap = 300;
+dar.x = sdar.hero.x + startGap; dar.y = sdar.hero.y; wake(dar);
+const common = sdar.shades[1];
+common.elite = false; common.shielded = false; common.spitter = false; common.darter = false;
+common.x = sdar.hero.x - startGap; common.y = sdar.hero.y; wake(common);
+for (let i = 2; i < sdar.shades.length; i++) park(sdar.shades[i], 5, 5);
+const heroX = sdar.hero.x;
+// Step a short, fixed window and compare how far each closed (hero held still).
+for (let t = 0; t < 600; t += 16) pg.stepShades(sdar, 16); // movement only, no pulses
+const darClosed = startGap - Math.abs(dar.x - heroX);
+const comClosed = startGap - Math.abs(common.x - heroX);
+ok(darClosed > comClosed * 1.3, `a darter closes faster than a common shade (${darClosed.toFixed(0)} vs ${comClosed.toFixed(0)})`);
+ok(K.DARTER_HP < K.SHADE_HP, "a darter is frailer than a common shade");
+
+// Roles are rostered from a city's per-role counts, in distinct slots (no collision).
+const sroster = pg.buildArena(pg.levelById("vesper"));
+ok(sroster.shades.some((e) => e.spitter) && sroster.shades.some((e) => e.darter),
+  "a leaning city rosters both spitters and darters");
+ok(sroster.shades.every((e) => !(e.spitter && e.darter) && !(e.elite && e.spitter) && !(e.elite && e.darter)),
+  "no shade holds two roles at once");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

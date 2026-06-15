@@ -95,8 +95,10 @@
     flex-wrap: wrap; justify-content: flex-end; margin-left: auto; row-gap: 6px; }
   .stats span { white-space: nowrap; }
   #cityname { color: var(--gold-bright); letter-spacing: 0.1em; }
-  #foes { color: var(--cold); }
-  #lights { color: var(--gold); }
+  /* #foes is the win condition (clear the shades) — primary. #lights is the
+     secondary, optional objective (relighting heals + scores) — subordinate. */
+  #foes { color: var(--cold); font-weight: 700; }
+  #lights { color: var(--gold); opacity: 0.78; font-size: 11px; }
   .hpbar {
     width: 132px; height: 9px; border: 1px solid rgba(255,106,60,0.5);
     border-radius: 4px; background: rgba(40,10,10,0.55); overflow: hidden;
@@ -153,6 +155,12 @@
     opacity: 0; pointer-events: none; transition: opacity .6s ease, transform .6s ease;
   }
   #fresco.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* When the hero sits in the lower screen (camera clamped at the arena's
+     bottom edge), the bottom-pinned card covers the action and the joystick —
+     so revealFresco flips it to the top instead (top set inline to clear the
+     live header height). Slides down-in from above rather than up-in. */
+  #fresco.at-top { bottom: auto; transform: translateX(-50%) translateY(-8px); }
+  #fresco.at-top.show { transform: translateX(-50%) translateY(0); }
   #fresco-img {
     width: 100%; height: auto; display: block; border-radius: 2px;
     border: 1px solid rgba(232,179,75,0.3);
