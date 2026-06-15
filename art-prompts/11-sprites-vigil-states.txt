@@ -1,0 +1,65 @@
+=== 11. Burning Vigil — new scenery STATES (the live-terrain layer) ===
+
+The spinoff (The Burning Vigil, pentagram.ts) makes the built world fight: a lit
+dwelling can AWAKEN into an ally beacon or be SNUFFED back to dark; a conduit
+CARRIES flame as a fuse; a press SPENDS its one-shot cascade; a shrine's ground
+is CONSECRATED (snuff-proof). Most of these already have art or are drawn
+procedurally — this file fills only the genuinely-missing object states.
+
+ALREADY COVERED — do NOT regenerate:
+  - dwelling-awakened / dwelling-snuffed → the base art/dwelling-awakened.png and
+    art/dwelling-snuffed.png already exist (the parent uses them). Wire the spinoff
+    to load them; no new art.
+  - the snuffed-dwelling SCAR pool, the awakened BEACON ring, the shrine AURA ring,
+    and the conduit FUSE line are drawn procedurally (dynamic, sized by tuning
+    constants) — keep them procedural; a static PNG can't scale with them.
+  - veil-scar.png (universal) already exists if a painted scar decal is ever wanted.
+
+TO PRODUCE (new object states only), into art/  — same names the loader expects:
+  conduit-charged.png   press-spent.png   shrine-consecrated.png
+
+RULES (read once):
+- No transparency. Generate every sprite isolated on a flat solid #0B0E1A.
+  Never a white background — the flame glow would halo at the sprite's edge.
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- STATE CONTINUITY: each is an IMAGE-EDIT of its existing base sprite, so the
+  silhouette, position and roof/wall angles match exactly — the game swaps states
+  on the SAME node, so continuity beats per-image beauty. Edit, don't repaint.
+- View: three-quarter top-down ~60°, light from the object's own flame only,
+  matching the base set.
+
+These mirror the base palette (warm candle-gold, indigo night), NOT a city
+re-skin. They may later be re-skinned per city like the other CITY_SPRITES
+(art/<cityId>/<name>.png), but the base versions ship first and the loader falls
+back to them.
+
+Each block below is self-contained — copy any one whole.
+
+--- conduit-charged.png (IMAGE-EDIT of art/conduit.png) ---
+Edit this image: the same narrow medieval alley / open stone gutter, now ALIVE
+WITH TRAVELLING FLAME. A bright ribbon of warm candle-gold #F5C66B and ember
+fire runs the length of the open channel as if lamp-oil had caught — a fuse
+mid-burn, racing from one end toward the other. Sparks lift off the channel, the
+wet stone throws warm reflections up the alley walls, a faint heat-shimmer over
+the gutter. The fire stays WITHIN the channel (a carried flame, not a building
+ablaze). Keep the exact same alley silhouette, gutter path and position. Flat
+solid #0B0E1A background, no text, 1024×1024.
+
+--- press-spent.png (IMAGE-EDIT of art/press.png) ---
+Edit this image: the same medieval print-shop, now SPENT and discharged after
+firing. The workshop doors hang open on a cold, dim, smoke-hazed interior; the
+heavy press inside is dark and still, a few last embers dying orange in the
+ash; thin spent smoke curling up from the doorway; the scattered printed pages
+singed and settling. Drained, exhausted, used-up — clearly the AFTER of a burst,
+no bright active glow left, only fading cinders. Keep the exact same print-shop
+silhouette, door angle and position. Flat solid #0B0E1A background, no text,
+1024×1024.
+
+--- shrine-consecrated.png (IMAGE-EDIT of art/shrine.png) ---
+Edit this image: the same small open-air street shrine, now CONSECRATED and
+radiant. The carved figure in the niche glows with a serene warm gold #F5C66B
+inner light, the votive candles all lit with steady calm flames, a soft sacred
+halo of warm light pooling on the ground around its base, faint gold filigree
+catching the stonework. Peaceful, protective, holy — a place of sanctuary, NOT
+a fire. Keep the exact same shrine silhouette, niche shape and position. Flat
+solid #0B0E1A background, no text, 1024×1024.

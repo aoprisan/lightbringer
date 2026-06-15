@@ -29,6 +29,8 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `09b-sprites-drowned.txt` | Per-city sprite set — The Drowned Quarter (`art/drowned/*.png`) |
 | `09c-sprites-glassworks.txt` | Per-city sprite set — The Glassworks (`art/glassworks/*.png`) |
 | `09d-sprites-vesper.txt` | Per-city sprite set — Vesper Row (`art/vesper/*.png`) |
+| `10-pentagram-sigil.txt` | Pentagram sigil — the spinoff's weapon (procedural, no PNG) |
+| `11-sprites-vigil-states.txt` | Burning Vigil scenery states — charged conduit, spent press, consecrated shrine (`art/*.png`) |
 
 Aspect ratios and transparent-background notes are already written into each
 prompt where they apply.
