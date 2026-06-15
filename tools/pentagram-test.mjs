@@ -117,6 +117,9 @@ const s6 = pg.buildArena(pg.levelById("old-city"));
 const biter = s6.shades[0];
 biter.x = s6.hero.x; biter.y = s6.hero.y; wake(biter); biter.hp = 1e9; // unkillable, for the test
 for (let i = 1; i < s6.shades.length; i++) park(s6.shades[i], 5, 5);
+// Isolate the contact-death: no dwellings to mend the hero, no walls to break the
+// biter's contact — so this measures only blows landed.
+s6.scenery = []; s6.solids = []; s6.fences = []; s6.conduitLinks = [];
 pg.stepCombat(s6, 16, still);
 const hp1 = s6.hero.hp;
 ok(hp1 < K.HERO_HP, `a shade in contact bites the hero (${K.HERO_HP} -> ${hp1})`);
@@ -188,9 +191,10 @@ ok(dWall >= K.HERO_RADIUS + wr - 1, `the hero is stopped at a solid's edge (d=${
 const s9 = pg.buildArena(pg.levelById("old-city"));
 for (const e of s9.shades) park(e, 5, 5);
 s9.solids = []; // isolate: nothing nudges the hero off its mark
-// Light only the one dwelling we place; pre-light the rest so they don't fire.
+// Isolate one dwelling as the only scenery, so nothing else lights, relays, or is
+// snuffed by a drifting shade (which would skew the tally).
 const home = s9.scenery.find((n) => n.kind === "dwelling");
-for (const n of s9.scenery) if (n.kind === "dwelling" && n !== home) n.lit = true;
+s9.scenery = [home]; s9.conduitLinks = [];
 home.lit = false; home.x = s9.hero.x + 30; home.y = s9.hero.y;
 s9.hero.hp = 40; // wounded, so the mend is visible
 run(s9, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 2, still);
@@ -329,6 +333,7 @@ ok(champ.hp < champ.maxHp, "once unshielded an elite takes damage");
 // 18. Veil pools — a still hero standing in one cannot inscribe; the sigil unravels.
 const sv = pg.buildArena(pg.levelById("drowned")); // a city with several pools
 for (const e of sv.shades) park(e, 5, 5);
+sv.scenery = sv.scenery.filter((n) => n.kind !== "shrine"); // a shrine aura would let the hero inscribe in a veil — keep it out of this test
 ok(sv.veils.length > 0, `the city drifts with veil pools (${sv.veils.length})`);
 // Charge up on clean ground first.
 run(sv, K.PENTA_CHARGE_MS + 30, still);
@@ -549,8 +554,8 @@ for (let i = 1; i < ssn.shades.length; i++) park(ssn.shades[i], 5, 5);
 pg.stepShades(ssn, 16);
 ok(!dw.lit && !dw.awoke && dw.veil > ssn.elapsed, "a shade brushing a lit dwelling snuffs it to dark");
 ok(ssn.litCount === 0 && ssn.snuffed === 1, "snuffing drops the lit tally and counts the loss");
-ok(pg.nearScar(ssn, dw.x, dw.y), "a snuffed dwelling scars the ground (damping relight)");
-// A still-scarred dwelling resists relighting.
+ok(pg.nearScar(ssn, dw.x, dw.y), "a snuffed dwelling marks a scar on the ground");
+// A still-scarred dwelling resists relighting (the scar bars the flame, not the hero).
 const litBefore = ssn.litCount;
 pg.kindleDwelling(ssn, dw, 0);
 ok(!dw.lit && ssn.litCount === litBefore, "the scar bars relighting until it fades");

@@ -293,8 +293,8 @@ const DWELLING_AWAKEN_MS = 5200; // a lit dwelling that holds this long awakens�
 const AWAKENED_RADIUS = 96;      // …and then pulses the dark within this each pentagram pulse
 const AWAKENED_DMG = 9;          // …for this much (autonomous, charge-independent)
 const SNUFF_REACH = 26;          // a shade within this (+its radius) of a lit dwelling snuffs it
-const SNUFF_VEIL_MS = 6000;      // a snuffed dwelling scars the ground this long…
-const SCAR_RADIUS = 60;          // …damping the hero's sigil (like a veil pool) and barring relight within this
+const SNUFF_VEIL_MS = 6000;      // a snuffed dwelling scars the ground this long (barring its own relight)…
+const SCAR_RADIUS = 60;          // …drawn this wide (the scar's visual reach; it bars relighting, not the hero's sigil)
 
 // Conduits — a lit dwelling relays its flame along the conduits it touches to the
 // next dark dwelling down the line, a beat later: a fuse you light one end of.
@@ -775,8 +775,9 @@ function inVeil(s: PgState, x: number, y: number): boolean {
   return s.veils.some((v) => (x - v.x) ** 2 + (y - v.y) ** 2 <= v.r ** 2);
 }
 
-// Is the point over a snuffed dwelling's lingering scar? A scar damps the sigil
-// like a veil pool and bars relighting that dwelling until it fades.
+// Is the point over a snuffed dwelling's lingering scar? (A scar marks ground the
+// watch clawed back; the dwelling under it resists relighting until it fades. Used
+// for the visual reach and tests — the relight bar itself is in kindleDwelling.)
 function nearScar(s: PgState, x: number, y: number): boolean {
   for (const n of s.scenery) {
     if (n.kind !== "dwelling" || !n.veil || n.veil <= s.elapsed) continue;
@@ -1136,10 +1137,12 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
 
   // Drift the dark pools, then decide the sigil from where the hero now stands.
-  // A drifting veil pool OR a snuffed dwelling's scar unravels the sigil — unless
-  // the hero stands on consecrated ground, where it inscribes regardless.
+  // A drifting veil pool unravels the sigil — unless the hero stands on
+  // consecrated ground (a shrine's aura), where it inscribes regardless. (A
+  // snuffed dwelling's scar bars *relighting* that dwelling, not the hero's own
+  // sigil — the parent's asymmetry — so it never traps a hero standing on it.)
   stepVeils(s, dt);
-  const veiled = (inVeil(s, h.x, h.y) || nearScar(s, h.x, h.y)) && !inShrineAura(s, h.x, h.y);
+  const veiled = inVeil(s, h.x, h.y) && !inShrineAura(s, h.x, h.y);
 
   // Stand still on clean ground and the sigil inscribes itself; move and it fades.
   // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
@@ -1549,16 +1552,20 @@ function el<K extends keyof SVGElementTagNameMap>(
 
 const LOW_FX = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
-// The base sprites this spinoff draws. Scenery uses the dark dwelling/conduit/
-// press/shrine art; the hero is the player-lantern; the shades are the Keepers.
+// The base sprites this spinoff draws. Scenery uses the dwelling (dark/lit/
+// awakened/snuffed)/conduit/press/shrine art; the hero is the player-lantern; the
+// shades are the Keepers.
 const SPRITE_NAMES = [
-  "ground", "dwelling-dark", "dwelling-lit", "conduit", "press", "shrine",
+  "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
+  "conduit", "press", "shrine",
   "keeper-node", "keeper-patrol", "player-lantern",
 ] as const;
 
 // Which sprites a city may re-skin (art/<cityId>/<name>.png) — the built world.
+// The four dwelling states match the parent's re-skinnable set.
 const CITY_SPRITES = new Set<string>([
-  "ground", "dwelling-dark", "dwelling-lit", "conduit", "press", "shrine",
+  "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
+  "conduit", "press", "shrine",
 ]);
 
 const sprites = new Set<string>();
@@ -1670,6 +1677,16 @@ const SCENERY_SIZE: Record<NodeKind, number> = {
   dwelling: 46, conduit: 40, press: 56, shrine: 50, keeper: 0,
 };
 
+// Resolve a node's sprite name from its live state: a dwelling shows its dark/
+// lit/awakened/snuffed face (a still-active scar reads snuffed), everything else
+// is its single sprite. Both render passes go through this so they never diverge.
+function scenerySprite(n: ArenaNode, elapsed: number): string {
+  if (n.kind !== "dwelling") return SCENERY_SPRITE[n.kind];
+  if (n.lit) return n.awoke ? "dwelling-awakened" : "dwelling-lit";
+  if (n.veil && n.veil > elapsed) return "dwelling-snuffed";
+  return "dwelling-dark";
+}
+
 // The carrier's in-progress finger-stroke during the warden duel, in world
 // space. The shell appends to it as the finger moves and clears it on release;
 // renderBossScene draws it. Module-scoped so both the shell and render share it
@@ -1686,8 +1703,7 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
   // The city, dimmed — context behind the duel.
   for (const n of s.scenery) {
     if (n.kind === "keeper") continue;
-    const spriteName = n.kind === "dwelling" && n.lit ? "dwelling-lit" : SCENERY_SPRITE[n.kind];
-    const key = spriteFor(s.level, spriteName);
+    const key = spriteFor(s.level, scenerySprite(n, s.elapsed));
     if (key) layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], 0.16));
   }
 
@@ -1922,7 +1938,7 @@ function render(s: PgState, layer: SVGGElement): void {
         }));
       }
     }
-    const spriteName = n.kind === "dwelling" && n.lit ? "dwelling-lit" : SCENERY_SPRITE[n.kind];
+    const spriteName = scenerySprite(n, s.elapsed);
     const key = spriteFor(s.level, spriteName);
     const op = solid ? (n.spent ? 0.4 : 1) : 0.5; // a spent press dims
     if (key) {
