@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The Burning Vigil is the headline game: the root redirects there. The
+     original contemplative game still lives in this file — reach it with
+     ?classic (the Vigil's title-bar link points here with that flag). -->
+<script>
+  if (!/[?&]classic\b/.test(location.search)) location.replace("./pentagram.html");
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>The Light-Bringer</title>
 <meta name="description" content="A contemplative inversion game. Carry a stolen flame through a city taught that light burns.">
