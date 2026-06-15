@@ -38,8 +38,11 @@ function perfectStroke(segs, step = 0.05) {
 }
 // A pristine trace of a single seal strand (node a → node b).
 function strandStroke(seal, e) { return perfectStroke([pg.edgeSegment(seal, e)], 0.04); }
-// Bind every strand of a warden's seal, one clean stroke each.
+// Bind every strand of a warden's seal, one clean stroke each. The drifting duel-
+// veils are cleared first so the bind is deterministic — the veils' own unravel
+// effect is exercised on its own in §24.
 function bindSeal(s) {
+  s.boss.veils = [];
   for (const e of [...s.boss.seal.edges]) pg.submitTrace(s, strandStroke(s.boss.seal, e));
 }
 
@@ -385,6 +388,7 @@ ok(pg.traceScore(noisy, segG, tolG) > 0.5, "a faithful but jittery trace still s
 //     wears down an exhausted hero.
 const sb = pg.buildArena(pg.levelById("vesper"));
 pg.startBoss(sb);
+sb.boss.veils = []; // clear the drifting veils so the clean-bind assertions are deterministic (veils tested in §24)
 const expectHp = Math.round(K.BOSS_HP * pg.difficultyMult(pg.levelById("vesper")));
 ok(sb.phase === "boss" && sb.boss.maxHp === expectHp, `startBoss raises a city-scaled warden (${sb.boss.maxHp})`);
 // A clean strand binds (status "bound") and lowers the binding meter.
@@ -467,6 +471,71 @@ sfr2.shownFrescoes = pg.FRESCOES.map((_, i) => i);
 const anyNode = sfr2.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
 if (anyNode) pg.maybeFresco(sfr2, anyNode);
 ok(sfr2.pendingFresco === null, "an exhausted fresco pool uncovers nothing");
+
+// 24. Difficulty is real — a harder city raises a DENSER seal (more strands to
+//     bind), not merely a bigger health number. Same seed, two difficulties.
+const seedX = pg.hashSeed("old-city");
+const easySeal = pg.makeSeal(0, 0, 150, seedX, 0.6);
+const hardSeal = pg.makeSeal(0, 0, 150, seedX, 1.3);
+ok(hardSeal.nodes.length > easySeal.nodes.length,
+  `a harder warden raises a denser seal (${easySeal.nodes.length} -> ${hardSeal.nodes.length} nodes)`);
+const worstHard = Math.min(...hardSeal.edges.map((e) =>
+  pg.traceScore(strandStroke(hardSeal, e), [pg.edgeSegment(hardSeal, e)], 150 * K.TRACE_TOL_FRAC)));
+ok(worstHard >= K.SEAL_EDGE_DONE, `the difficulty-scaled seal still binds cleanly (worst q=${worstHard.toFixed(2)})`);
+
+// 25. Escalation — the warden's bite quickens as its seal binds, so the endgame is
+//     a real race rather than a flat timer.
+const sesc = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sesc);
+const i0 = pg.bossBiteInterval(sesc.boss);
+ok(Math.abs(i0 - K.BOSS_BITE_MS) < 1e-6, "a fresh, unbound seal bites at the base interval");
+const eedges = sesc.boss.seal.edges;
+for (let i = 0; i < eedges.length - 1; i++) eedges[i].done = true; // bind all but one (no win)
+const i1 = pg.bossBiteInterval(sesc.boss);
+ok(i1 < i0, `the warden quickens as the seal binds (${i0.toFixed(0)} -> ${i1.toFixed(0)} ms)`);
+// Functionally: a near-bound warden drains the hero faster over the same window.
+const sLo = pg.buildArena(pg.levelById("old-city")); pg.startBoss(sLo);
+const sHi = pg.buildArena(pg.levelById("old-city")); pg.startBoss(sHi);
+const he = sHi.boss.seal.edges; for (let i = 0; i < he.length - 1; i++) he[i].done = true;
+for (let t = 0; t < K.BOSS_BITE_MS * 3; t += 16) { pg.stepBoss(sLo, 16); pg.stepBoss(sHi, 16); }
+ok(sHi.hero.hp < sLo.hero.hp, `a near-bound warden bites harder (${sLo.hero.hp} vs ${sHi.hero.hp})`);
+
+// 26. Counterplay — drifting veils over the seal unravel a stroke dragged through
+//     them, so the duel is a contested seal, not a checklist. Count scales too.
+const sveil = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(sveil);
+const ved = sveil.boss.seal.edges[0];
+const vseg = pg.edgeSegment(sveil.boss.seal, ved);
+const vmx = (vseg.x1 + vseg.x2) / 2, vmy = (vseg.y1 + vseg.y2) / 2;
+const vhalf = Math.hypot(vseg.x2 - vseg.x1, vseg.y2 - vseg.y1) / 2 + 10;
+sveil.boss.veils = [{ x: vmx, y: vmy, vx: 0, vy: 0, r: vhalf }]; // swallow the whole strand
+const vstroke = strandStroke(sveil.boss.seal, ved);
+ok(pg.strokeVeiled(sveil.boss, vstroke) > 0.9, "a stroke through a veil reads as unravelled");
+const rVeiled = pg.submitTrace(sveil, vstroke);
+ok(rVeiled.status === "veiled" && !ved.done, `the veil unravels an otherwise-clean trace (q=${rVeiled.quality})`);
+sveil.boss.veils = []; // the veil drifts clear…
+const rClear = pg.submitTrace(sveil, strandStroke(sveil.boss.seal, ved));
+ok(rClear.status === "bound" && ved.done, "with the veil drifted clear, the same trace binds");
+ok(pg.makeBossVeils(0, 0, 150, 1, 1.3).length > pg.makeBossVeils(0, 0, 150, 1, 0.6).length,
+  "a harder warden drifts more veils over its seal");
+
+// 27. Keyboard fallback — the desktop carrier (no pointer-drag) cycles the targeted
+//     strand and binds it by rote, a cruder rite that costs a little flame.
+const skb = pg.buildArena(pg.levelById("old-city"));
+pg.startBoss(skb);
+skb.boss.veils = [];
+ok(skb.boss.sel === 0, "the duel begins with the first strand targeted");
+const kbHp0 = skb.hero.hp, kbBefore = skb.boss.seal.edges.filter((e) => e.done).length;
+const rKey = pg.keyBind(skb);
+ok(rKey.status === "bound" && skb.boss.seal.edges.filter((e) => e.done).length === kbBefore + 1,
+  "keyBind binds the targeted strand");
+ok(skb.hero.hp === kbHp0 - K.BOSS_KEY_COST, "a keyboard bind costs the carrier flame");
+pg.cycleSel(skb, 1);
+ok(skb.boss.sel >= 0 && !skb.boss.seal.edges[skb.boss.sel].done, "cycleSel targets a still-unbound strand");
+skb.hero.hp = 9999; // hold the flame so the keyboard clear can finish
+let kbGuard = 0;
+while (skb.phase === "boss" && kbGuard++ < 200) pg.keyBind(skb);
+ok(skb.phase === "won", "binding every strand by keyboard wins the duel");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

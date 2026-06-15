@@ -132,6 +132,7 @@ type TraceStatus =
   | "offnode"  // didn't begin and end on the seal's nodes
   | "noedge"   // those two nodes aren't joined by a strand
   | "weak"     // on a strand, but too loose to bind
+  | "veiled"   // a strand, but the warden's veil unravelled the line
   | "already"  // that strand already holds
   | "bound";   // a strand just bound
 interface TraceResult { quality: number; edge: number; status: TraceStatus; }
@@ -141,6 +142,8 @@ interface BossState {
   biteAcc: number;      // ms accumulated toward the next snuff (the warden's bite)
   cx: number; cy: number; r: number; // the seal's centre + reach, in world space
   seal: Sigil;          // this warden's unique Goetic seal (the thing you trace)
+  veils: Veil[];        // drifting dark pools over the seal — a stroke crossing one is unravelled
+  sel: number;          // keyboard-targeted strand (index into seal.edges; -1 = none left)
   lastQuality: number;  // 0..1 of the most recent trace (for the toast/flash)
   flash: number;        // s.elapsed time until which it flares from a fresh trace
 }
@@ -303,9 +306,16 @@ const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh 
 // BOSS_BITE_DMG, so the seal is a race. This is the design surface for the duel.
 const BOSS_RING_R = 150;         // world radius of the seal's containment circle
 const BOSS_HP = 100;             // base warden health (the binding meter; × difficultyMult)
-const BOSS_BITE_MS = 2600;       // the warden snuffs this often…
+const BOSS_BITE_MS = 2600;       // the warden snuffs this often (at a fresh, unbound seal)…
 const BOSS_BITE_DMG = 12;        // …draining this much hero HP each snuff
-const TRACE_TOL_FRAC = 0.2;      // how far off the line (× ring r) still scores
+const BOSS_BITE_RAMP = 0.5;      // the bite interval shortens up to this frac as the seal binds (the warden quickens near its end)
+const BOSS_KEY_COST = 6;         // hero HP spent to bind a strand by keyboard (a cruder rite than a clean trace)
+const BOSS_VEILS_BASE = 2;       // drifting veils over the easiest warden's seal…
+const BOSS_VEILS_DIFF = 3;       // …plus up to this many more on the hardest
+const BOSS_VEIL_R = 52;          // a duel-veil's reach (smaller than the field's, so the seal stays traceable)
+const BOSS_VEIL_DRIFT = 34;      // units/s a duel-veil wanders across the seal
+const BOSS_VEIL_UNRAVEL = 0.9;   // a stroke wholly inside the veils loses this frac of its quality
+const TRACE_TOL_FRAC = 0.16;     // how far off the line (× ring r) still scores
 const TRACE_MIN_POINTS = 6;      // a stroke shorter than this can't score
 const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trace
 // The warden's seal — a node-and-edge star polygon, seeded per city so each is
@@ -314,12 +324,13 @@ const TRACE_FLASH_MS = 260;      // how long the warden flares from a fresh trac
 // dials are the design surface for the seal's shape and forgiveness.
 const SEAL_RING_FRAC = 0.86;     // node-ring radius (× containment r)
 const SEAL_NODES_MIN = 5;        // fewest ring nodes a seal may have…
-const SEAL_NODES_SPAN = 3;       // …plus 0..(span-1) more (so 5..7 points)
+const SEAL_NODES_SPAN = 3;       // …plus 0..(span-1) more (so 5..7 points before difficulty)
+const SEAL_DIFF_NODES = 2;       // …plus 0..this more, scaled by the city's difficulty (harder ⇒ a denser seal, more strands to bind)
 const SEAL_HUB_CHANCE = 0.5;     // chance the seal has a centre hub with spokes
-const SEAL_RIM_CHANCE = 0.4;     // chance the plain outer rim is also drawn
+const SEAL_RIM_CHANCE = 0.4;     // chance the plain outer rim is also drawn (rises with difficulty)
 const SEAL_SPOKE_CHANCE = 0.7;   // per-node chance of a spoke to the hub
-const SEAL_SNAP_FRAC = 0.3;      // a stroke end within this (× r) snaps to a node
-const SEAL_EDGE_DONE = 0.5;      // trace quality that binds a strand (0..1)
+const SEAL_SNAP_FRAC = 0.24;     // a stroke end within this (× r) snaps to a node
+const SEAL_EDGE_DONE = 0.62;     // trace quality that binds a strand (0..1)
 
 const PG_LEGACY_KEY = "pentagram.legacy.v1";
 
@@ -1089,10 +1100,14 @@ function gcd(a: number, b: number): number { while (b) { const t = b; b = a % b;
 // and a central hub with spokes. No art — pure geometry, like the parent's edges.
 // The seed (city id hash) fixes the count, tilt, skip, hub and which extras appear,
 // so the warden's seal rebuilds identically every time.
-function makeSeal(cx: number, cy: number, r: number, seed: number): Sigil {
+function makeSeal(cx: number, cy: number, r: number, seed: number, difficulty = 1): Sigil {
   const rnd = mulberry32(seed);
+  // 0 at the easiest city (difficultyMult ~0.6), 1 at the hardest (~1.3). Drives
+  // the *amount of binding work*, so a harder warden is genuinely a longer seal —
+  // not just a bigger health number (the old difficulty knob touched only maxHp).
+  const diffT = clamp((difficulty - 0.6) / 0.7, 0, 1);
   const tilt = rnd() * Math.PI * 2;
-  const n = SEAL_NODES_MIN + Math.floor(rnd() * SEAL_NODES_SPAN);
+  const n = SEAL_NODES_MIN + Math.floor(rnd() * SEAL_NODES_SPAN) + Math.round(diffT * SEAL_DIFF_NODES);
   const ringR = r * SEAL_RING_FRAC;
   const nodes: Pt[] = [];
   for (let i = 0; i < n; i++) {
@@ -1120,8 +1135,8 @@ function makeSeal(cx: number, cy: number, r: number, seed: number): Sigil {
     let cur = o;
     do { const nxt = (cur + skip) % n; addEdge(cur, nxt); cur = nxt; } while (cur !== o);
   }
-  // Sometimes the plain outer rim too, for a denser seal.
-  if (rnd() < SEAL_RIM_CHANCE) for (let i = 0; i < n; i++) addEdge(i, (i + 1) % n);
+  // Sometimes the plain outer rim too, for a denser seal — likelier on hard cities.
+  if (rnd() < SEAL_RIM_CHANCE + diffT * 0.4) for (let i = 0; i < n; i++) addEdge(i, (i + 1) % n);
   // Spokes from the hub (never leave the hub stranded).
   if (hub >= 0) {
     let spokes = 0;
@@ -1154,39 +1169,117 @@ function nearestNode(seal: Sigil, p: Pt, maxD: number): number {
   return best;
 }
 
-// Raise the warden: a city-scaled health pool and its unique Goetic seal centred
-// on the arena's heart. Flips the run into the turn-based duel.
+// The warden's counterplay: a handful of dark pools drifting over its own seal,
+// seeded per city so the duel is deterministic. A finger-stroke crossing one is
+// unravelled (submitTrace bleeds its quality), so the carrier must wait for a
+// clean lane between the drifting veils — the action phase's veil-unravel idea,
+// carried into the duel so it is a contested seal, not a checklist. Count scales
+// with difficulty. (stepBoss drifts and bounces them inside the containment box.)
+function makeBossVeils(cx: number, cy: number, r: number, seed: number, difficulty: number): Veil[] {
+  const rnd = mulberry32((seed ^ 0x9e3779b9) >>> 0);
+  const diffT = clamp((difficulty - 0.6) / 0.7, 0, 1);
+  const count = BOSS_VEILS_BASE + Math.round(diffT * BOSS_VEILS_DIFF);
+  const veils: Veil[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = rnd() * Math.PI * 2, rad = (0.2 + 0.6 * rnd()) * r, dir = rnd() * Math.PI * 2;
+    veils.push({
+      x: cx + Math.cos(a) * rad, y: cy + Math.sin(a) * rad,
+      vx: Math.cos(dir) * BOSS_VEIL_DRIFT, vy: Math.sin(dir) * BOSS_VEIL_DRIFT, r: BOSS_VEIL_R,
+    });
+  }
+  return veils;
+}
+
+// The warden's bite interval, shortening as the seal binds (BOSS_BITE_RAMP) — the
+// quickening that makes the endgame a real race. Shared by stepBoss and the render
+// telegraph so the violet ring and the actual snuff can never drift apart.
+function bossBiteInterval(b: BossState): number {
+  const total = b.seal.edges.length;
+  const frac = total ? b.seal.edges.filter((e) => e.done).length / total : 0;
+  return BOSS_BITE_MS * (1 - BOSS_BITE_RAMP * frac);
+}
+
+// The next still-unbound strand after `from` (wrapping), or -1 if the seal is
+// whole. Drives both the bind-and-advance and the keyboard target (`sel`).
+function nextUnbound(seal: Sigil, from: number): number {
+  const n = seal.edges.length;
+  for (let k = 1; k <= n; k++) {
+    const i = ((from + k) % n + n) % n;
+    if (!seal.edges[i].done) return i;
+  }
+  return -1;
+}
+
+// Recompute the binding meter from how much of the seal holds, advance the keyboard
+// target off any strand that just bound, and break the warden once every strand
+// holds. The single place the duel's win is decided (trace or keyboard alike).
+function refreshBoss(s: PgState): void {
+  const b = s.boss; if (!b) return;
+  const edges = b.seal.edges, bound = edges.filter((e) => e.done).length;
+  b.hp = b.maxHp * (1 - bound / edges.length);
+  if (b.sel < 0 || b.sel >= edges.length || edges[b.sel].done) b.sel = nextUnbound(b.seal, b.sel);
+  if (bound === edges.length) { b.hp = 0; s.phase = "won"; }
+}
+
+// Raise the warden: a city-scaled seal (its difficulty now drives the *amount* of
+// binding work, not just a health number), the drifting veils that contest it, and
+// the keyboard target. Flips the run into the turn-based duel.
 function startBoss(s: PgState): void {
-  const hp = Math.round(BOSS_HP * difficultyMult(s.level));
+  const dm = difficultyMult(s.level);
+  const hp = Math.round(BOSS_HP * dm);
   const cx = s.w / 2, cy = s.h / 2;
+  const seed = hashSeed(s.level.id);
+  const seal = makeSeal(cx, cy, BOSS_RING_R, seed, dm);
   s.boss = {
     hp, maxHp: hp, biteAcc: 0,
-    cx, cy, r: BOSS_RING_R,
-    seal: makeSeal(cx, cy, BOSS_RING_R, hashSeed(s.level.id)),
+    cx, cy, r: BOSS_RING_R, seal,
+    veils: makeBossVeils(cx, cy, BOSS_RING_R, seed, dm),
+    sel: seal.edges.length ? 0 : -1,
     lastQuality: 0, flash: 0,
   };
   s.phase = "boss";
 }
 
-// The warden's own clock: it snuffs on a cadence, draining the carrier's flame.
-// (The carrier's answer is submitTrace — a finger-traced seal.) Pure sim.
+// The warden's own clock: it drifts its veils and snuffs on a cadence that quickens
+// as its seal binds, draining the carrier's flame. (The carrier's answer is
+// submitTrace / keyBind.) Pure sim.
 function stepBoss(s: PgState, dt: number): void {
   if (s.phase !== "boss" || !s.boss) return;
   s.elapsed += dt;
   const b = s.boss;
+  // Drift the duel-veils, bouncing them inside the seal's containment box so they
+  // keep orbiting the glyph rather than wandering off across the dead arena.
+  for (const v of b.veils) {
+    v.x += (v.vx * dt) / 1000; v.y += (v.vy * dt) / 1000;
+    const lo = b.cx - b.r, hi = b.cx + b.r, ty = b.cy - b.r, by = b.cy + b.r;
+    if (v.x < lo || v.x > hi) { v.vx = -v.vx; v.x = clamp(v.x, lo, hi); }
+    if (v.y < ty || v.y > by) { v.vy = -v.vy; v.y = clamp(v.y, ty, by); }
+  }
+  const interval = bossBiteInterval(b);
   b.biteAcc += dt;
-  while (b.biteAcc >= BOSS_BITE_MS) {
-    b.biteAcc -= BOSS_BITE_MS;
+  while (b.biteAcc >= interval) {
+    b.biteAcc -= interval;
     s.hero.hp -= BOSS_BITE_DMG;
   }
   if (s.hero.hp <= 0) { s.hero.hp = 0; s.phase = "lost"; }
 }
 
+// How much of a stroke lies in the warden's drifting veils, 0..1 — the unravel
+// fraction (submitTrace bleeds the trace's quality by it).
+function strokeVeiled(b: BossState, stroke: { x: number; y: number }[]): number {
+  if (!b.veils.length || !stroke.length) return 0;
+  let veiled = 0;
+  for (const p of stroke) {
+    if (b.veils.some((v) => (p.x - v.x) ** 2 + (p.y - v.y) ** 2 <= v.r * v.r)) veiled++;
+  }
+  return veiled / stroke.length;
+}
+
 // Bind one strand of the warden's seal from a finger-stroke. The stroke must begin
 // and end on two of the seal's nodes (snapped) that a strand joins, and follow that
-// strand closely enough (traceScore ≥ SEAL_EDGE_DONE) to bind. Binding lights the
-// strand and lowers the warden's binding meter (its "health"); bind every strand
-// and the warden breaks. Returns what happened, for the duel's toast. Pure sim.
+// strand closely enough (traceScore ≥ SEAL_EDGE_DONE) to bind — but a stroke dragged
+// through the warden's veils is unravelled first. Binding lights the strand, lowers
+// the meter, and may break the warden. Returns what happened, for the toast. Pure sim.
 function submitTrace(s: PgState, stroke: { x: number; y: number }[]): TraceResult {
   if (s.phase !== "boss" || !s.boss) return { quality: 0, edge: -1, status: "none" };
   const b = s.boss, seal = b.seal;
@@ -1201,18 +1294,49 @@ function submitTrace(s: PgState, stroke: { x: number; y: number }[]): TraceResul
   if (idx < 0) return { quality: 0, edge: -1, status: "noedge" };
 
   const e = seal.edges[idx];
-  const q = traceScore(stroke, [edgeSegment(seal, e)], b.r * TRACE_TOL_FRAC);
+  const veilFrac = strokeVeiled(b, stroke);
+  const raw = traceScore(stroke, [edgeSegment(seal, e)], b.r * TRACE_TOL_FRAC);
+  const q = +(raw * (1 - BOSS_VEIL_UNRAVEL * veilFrac)).toFixed(4);
   if (q > e.quality) { e.quality = q; b.lastQuality = q; b.flash = s.elapsed + TRACE_FLASH_MS; }
 
   let status: TraceStatus;
   if (e.done) status = "already";
   else if (q >= SEAL_EDGE_DONE) { e.done = true; status = "bound"; }
-  else status = "weak";
+  else status = veilFrac > 0.25 ? "veiled" : "weak";
 
-  const bound = seal.edges.filter((x) => x.done).length;
-  b.hp = b.maxHp * (1 - bound / seal.edges.length);
-  if (bound === seal.edges.length) { b.hp = 0; s.phase = "won"; }
+  refreshBoss(s);
   return { quality: q, edge: idx, status };
+}
+
+// Keyboard fallback for the duel (desktop, no pointer-drag): cycle the targeted
+// strand and bind it by rote. cycleSel walks `sel` to the next/prev unbound strand;
+// keyBind binds the targeted one — a cruder rite than a clean trace, so it costs the
+// carrier a little flame (BOSS_KEY_COST). Pure sim, so the harness can prove it.
+function cycleSel(s: PgState, dir: number): void {
+  if (s.phase !== "boss" || !s.boss) return;
+  const seal = s.boss.seal, n = seal.edges.length;
+  if (!n) return;
+  let i = s.boss.sel < 0 ? (dir > 0 ? -1 : 0) : s.boss.sel;
+  for (let k = 0; k < n; k++) {
+    i = ((i + dir) % n + n) % n;
+    if (!seal.edges[i].done) { s.boss.sel = i; return; }
+  }
+  s.boss.sel = -1;
+}
+function keyBind(s: PgState): TraceResult {
+  if (s.phase !== "boss" || !s.boss) return { quality: 0, edge: -1, status: "none" };
+  const b = s.boss, seal = b.seal;
+  let idx = b.sel;
+  if (idx < 0 || idx >= seal.edges.length || seal.edges[idx].done) idx = nextUnbound(seal, b.sel);
+  if (idx < 0) return { quality: 0, edge: -1, status: "already" };
+  const e = seal.edges[idx];
+  e.done = true;
+  e.quality = Math.max(e.quality, SEAL_EDGE_DONE);
+  b.lastQuality = e.quality; b.flash = s.elapsed + TRACE_FLASH_MS;
+  s.hero.hp -= BOSS_KEY_COST;
+  refreshBoss(s); // win takes priority over a flame that just hit zero…
+  if (s.phase === "boss" && s.hero.hp <= 0) { s.hero.hp = 0; s.phase = "lost"; }
+  return { quality: e.quality, edge: idx, status: "bound" };
 }
 
 // ---------- Sprites (reused from app.ts) ----------
@@ -1388,7 +1512,8 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
   }
 
   // The snuff telegraph — a violet ring that fills as the warden's next bite nears.
-  const frac = clamp(b.biteAcc / BOSS_BITE_MS, 0, 1);
+  // (Measured against the *current* interval, which shortens as the seal binds.)
+  const frac = clamp(b.biteAcc / bossBiteInterval(b), 0, 1);
   const tr = b.r * 1.22, circ = 2 * Math.PI * tr;
   layer.appendChild(el("circle", { cx: b.cx, cy: b.cy, r: tr, fill: "none", stroke: "#3a2150", "stroke-width": 3, opacity: 0.5 }));
   layer.appendChild(el("circle", {
@@ -1430,6 +1555,15 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
       }));
     }
   }
+  // The keyboard-targeted strand (desktop fallback) — a brighter dashed marker over
+  // the unbound strand `sel` points at, so the hand knows what Enter will bind.
+  if (b.sel >= 0 && b.sel < seal.edges.length && !seal.edges[b.sel].done) {
+    const e = seal.edges[b.sel], a = seal.nodes[e.a], z = seal.nodes[e.b];
+    layer.appendChild(el("line", {
+      x1: a.x, y1: a.y, x2: z.x, y2: z.y, stroke: "#fff3d2", "stroke-width": 2.6,
+      "stroke-linecap": "round", "stroke-dasharray": "2 7", opacity: 0.9,
+    }));
+  }
   // The nodes — the glowing points you connect. A node whose strands are all bound
   // burns full; one still waiting on a strand glows to beckon the hand.
   for (let i = 0; i < seal.nodes.length; i++) {
@@ -1441,6 +1575,17 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
     layer.appendChild(el("circle", {
       cx: n.x, cy: n.y, r: 6, fill: allBound ? "#fff3d2" : "#1a1206",
       stroke: "#ffe9b0", "stroke-width": 2, opacity: 0.95,
+    }));
+  }
+
+  // The warden's drifting veils — pools of the old dark sliding over the seal. A
+  // stroke dragged across one is unravelled (strokeVeiled), so they are lanes to
+  // wait out, not walls. Drawn over the glyph so they genuinely occlude the lines.
+  for (const v of b.veils) {
+    layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
+    layer.appendChild(el("circle", {
+      cx: v.x, cy: v.y, r: v.r, fill: "none",
+      stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
     }));
   }
 
@@ -1964,6 +2109,7 @@ function start(): void {
         showToast(
           res.status === "bound" ? "The strand takes — the seal binds tighter."
           : res.status === "already" ? "That strand already holds — trace another."
+          : res.status === "veiled" ? "The dark drank your line — wait for a veil to drift clear, then trace."
           : res.status === "weak" ? "Closer — draw straight from one point to the next."
           : res.status === "short" ? "Too brief — draw a line from node to node."
           : "Begin and end your line on the seal's glowing points.",
@@ -1990,6 +2136,20 @@ function start(): void {
   const MOVE_KEYS = ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
+    // The duel's keyboard fallback (desktop, no pointer-drag): cycle the targeted
+    // strand and bind it by rote. The pgFrame loop renders the change next frame.
+    if (s && s.phase === "boss") {
+      if (k === "tab" || k === "arrowright" || k === "arrowdown" || k === "d") { cycleSel(s, 1); e.preventDefault(); }
+      else if (k === "arrowleft" || k === "arrowup" || k === "a") { cycleSel(s, -1); e.preventDefault(); }
+      else if (k === " " || k === "enter") {
+        const res = keyBind(s);
+        showToast(res.status === "bound"
+          ? "Bound by rote — the seal holds, though the flame pays for it."
+          : "Every strand already holds.");
+        e.preventDefault();
+      }
+      return;
+    }
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
@@ -2015,9 +2175,11 @@ function start(): void {
     cityEl.textContent = s.level.name;
     sigilEl.textContent = s.type.name;
     sigilEl.style.color = s.type.star;
-    // The duel: show the warden's health where the shade count would be.
+    // The duel: show the seal's binding progress where the shade count would be —
+    // strands bound, the honest measure (the warden's "health" IS this fraction).
     if (s.boss && s.phase === "boss") {
-      foesEl.textContent = `Veilwarden ${Math.ceil((s.boss.hp / s.boss.maxHp) * 100)}%`;
+      const edges = s.boss.seal.edges, bound = edges.filter((e) => e.done).length;
+      foesEl.textContent = `Seal ${bound} / ${edges.length} bound`;
       lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
       return;
     }
@@ -2119,7 +2281,7 @@ function start(): void {
     bossTrace = null; bossPtr = null;
     move.x = 0; move.y = 0; stick = null; hideStick();
     frameBoss();
-    showToast("The Veilwarden rises. Trace its seal with your finger — follow the glowing glyph end to end; a clean, complete line burns deepest. It snuffs when the violet ring fills; race it down.");
+    showToast("The Veilwarden rises. Trace its seal end to end — node to glowing node — to bind each strand; keep clear of the drifting veils, which unravel a line dragged through them. It snuffs faster as the seal binds, so race the violet ring. (Desktop: arrows pick a strand, Enter binds it.)");
   }
 
   // A revealed fresco surfaces without halting the descent: a painted fragment gets
@@ -2190,9 +2352,10 @@ function start(): void {
   function onLost(): void {
     if (!s) return;
     recordDeath(s.litCount);
+    const unbound = s.boss ? s.boss.seal.edges.filter((e) => !e.done).length : 0;
     const how = s.boss
       ? `The Veilwarden of <em>${s.level.name}</em> snuffed your flame with ` +
-        `<em>${Math.ceil((s.boss.hp / s.boss.maxHp) * 100)}%</em> of it still standing.`
+        `<em>${unbound}</em> of its ${s.boss.seal.edges.length} strands still unbound.`
       : `The watch of <em>${s.level.name}</em> pulled you down with ` +
         `<em>${aliveShades(s)}</em> shades still standing.`;
     showOverlay(
@@ -2325,7 +2488,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
-    startBoss, stepBoss, submitTrace, pentagramSegments, traceScore,
+    startBoss, stepBoss, submitTrace, cycleSel, keyBind,
+    bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
+    pentagramSegments, traceScore,
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
@@ -2342,9 +2507,10 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
-      BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG,
+      BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG, BOSS_BITE_RAMP, BOSS_KEY_COST,
+      BOSS_VEILS_BASE, BOSS_VEILS_DIFF, BOSS_VEIL_R, BOSS_VEIL_DRIFT, BOSS_VEIL_UNRAVEL,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS, TRACE_FLASH_MS,
-      SEAL_RING_FRAC, SEAL_NODES_MIN, SEAL_NODES_SPAN, SEAL_SNAP_FRAC, SEAL_EDGE_DONE,
+      SEAL_RING_FRAC, SEAL_NODES_MIN, SEAL_NODES_SPAN, SEAL_DIFF_NODES, SEAL_SNAP_FRAC, SEAL_EDGE_DONE,
     },
   };
 } else {

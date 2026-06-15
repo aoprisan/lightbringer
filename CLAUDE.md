@@ -100,6 +100,18 @@ Four terrain mechanics dress the descent on top of the kill-the-host core:
 
 Fences and pathways are woven at build (`buildArena`) and held on `s.fences`/`s.pathways` — like decoys in the parent, they are **live-play terrain, not persisted** (there is no mid-combat save anyway). Tune their per-city counts via `fenceCount`/`pathwayCount` on each `LevelDef`; the gap bands and `FENCE_HALF`/`PATHWAY_HALF`/`PATHWAY_BOOST` are the global design surface.
 
+#### The Veilwarden — the per-city final boss (the duel)
+
+Clearing the host doesn't end the descent: the city's master Keeper rises and the run flips from real-time action to a **turn-based seal-tracing duel** (`s.phase` `"fight"` → `"boss"`, raised in `startBoss`). A procedurally-seeded **Goetic seal** (`makeSeal` — a node-and-edge star polygon, deterministic from the city id so it rebuilds identically) glows over the warden; the carrier **binds it strand by strand** by finger-tracing each line node-to-node. `traceScore` (pure geometry: accuracy × coverage) rates a stroke; a strand of quality ≥ `SEAL_EDGE_DONE` binds. **Bind every strand to win.** The duel is pure-sim/test-driven like the rest of the module (`submitTrace`/`keyBind`/`cycleSel` mutate state, `renderBossScene` reads it), and the harness proves every city's seal is non-degenerate.
+
+Four dials make it a *fight*, not a checklist of penmanship — all bend the warden's tuning, the same "balance = constants" ethos:
+- **Difficulty is the seal's size, not a cosmetic number.** `makeSeal` takes the city's `difficultyMult` and adds ring nodes (`SEAL_DIFF_NODES`) and rim density — so a harder city is a genuinely longer seal (more strands to bind), where before `difficultyMult` only inflated a `maxHp` that had no gameplay effect.
+- **The bite quickens** (`BOSS_BITE_RAMP`): the warden snuffs (`BOSS_BITE_DMG`) on a cadence that *shortens* as the seal binds (`bossBiteInterval`, shared by `stepBoss` and the render telegraph), so the endgame is a real race.
+- **Counterplay — drifting veils** (`makeBossVeils`, `b.veils`): dark pools orbit the seal (drifted/bounced in `stepBoss`); a stroke dragged through one is **unravelled** — its quality bled by `BOSS_VEIL_UNRAVEL` (`strokeVeiled` in `submitTrace`, status `"veiled"`). This carries the action phase's veil-unravel idea into the duel, so you wait for a clean lane. Count scales with difficulty. Like decoys, **not persisted**.
+- **Honest readout + keyboard fallback.** The HUD/overlays show **strands bound `n/m`** (the warden's "health" *is* that fraction). For desktop (no pointer-drag), `cycleSel`/`keyBind` let arrows pick a strand (`b.sel`, highlighted in render) and Enter bind it by rote — a cruder rite that costs `BOSS_KEY_COST` flame, so a clean mouse trace stays the optimal path.
+
+The duel state lives on `s.boss` (transient — there is no mid-combat save); the seal, veils, and `sel` are all rebuilt fresh each time the warden rises.
+
 Key differences from `app.ts`:
 - **It is a TS module** (note the trailing `export {};`), not a global script like `app.ts`. This is required: both files are in `tsconfig.json`'s `include`, and two scriptless files would collide on every top-level name (`W`, `el`, `render`, `start`, …). Module scope keeps `pentagram.ts` isolated. The page loads it with `<script type="module">`; don't remove the `export {};` or convert it to a global script.
 - **Combat is real-time per-frame**, not the turn-based "breath": `stepCombat(s, dt, move)` integrates the hero, shades, and pentagram pulses every RAF frame (dt-clamped), analogous to `app.ts`'s `actionFrame` but with no fixed-step city breath.
