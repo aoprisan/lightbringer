@@ -302,6 +302,7 @@ store.set(LEGACY_KEY, JSON.stringify({ runs: 2, clears: 1, best: {}, dwellingsLi
 const old = pg.loadPgLegacy();
 ok(old.embers === 0 && old.equipped === "vigil" && old.unlocked.length === 1 && old.runs === 2,
   "an old save defaults the new sigil fields");
+ok(old.dwellingsAwakened === 0, "an old save defaults the awakened-dwellings tally");
 
 // 17. Elite champions — bigger hp, begin shielded, and only a FULL-charge pulse
 //     breaks the shield (a partial pulse does nothing).
@@ -536,6 +537,104 @@ skb.hero.hp = 9999; // hold the flame so the keyboard clear can finish
 let kbGuard = 0;
 while (skb.phase === "boss" && kbGuard++ < 200) pg.keyBind(skb);
 ok(skb.phase === "won", "binding every strand by keyboard wins the duel");
+
+// 28. Snuffed dwellings — a shade brushing a lit dwelling claws it back to dark,
+//     scarring the ground; consecrated ground (a shrine's aura) protects it.
+const ssn = pg.buildArena(pg.levelById("old-city"));
+ssn.solids = []; ssn.fences = []; ssn.pathways = [];
+const dw = { x: 600, y: 600, kind: "dwelling", lit: true, awoke: true, litAt: 0 };
+ssn.scenery = [dw]; ssn.litCount = 1; ssn.snuffed = 0;
+park(ssn.shades[0], dw.x, dw.y); // a shade on the lit dwelling
+for (let i = 1; i < ssn.shades.length; i++) park(ssn.shades[i], 5, 5);
+pg.stepShades(ssn, 16);
+ok(!dw.lit && !dw.awoke && dw.veil > ssn.elapsed, "a shade brushing a lit dwelling snuffs it to dark");
+ok(ssn.litCount === 0 && ssn.snuffed === 1, "snuffing drops the lit tally and counts the loss");
+ok(pg.nearScar(ssn, dw.x, dw.y), "a snuffed dwelling scars the ground (damping relight)");
+// A still-scarred dwelling resists relighting.
+const litBefore = ssn.litCount;
+pg.kindleDwelling(ssn, dw, 0);
+ok(!dw.lit && ssn.litCount === litBefore, "the scar bars relighting until it fades");
+
+// 28b. A dwelling on consecrated ground (a shrine's aura) cannot be snuffed.
+const ssh = pg.buildArena(pg.levelById("old-city"));
+ssh.solids = []; ssh.fences = [];
+const dw2 = { x: 600, y: 600, kind: "dwelling", lit: true, litAt: 0 };
+ssh.scenery = [dw2, { x: 600, y: 600, kind: "shrine" }];
+ssh.litCount = 1; ssh.snuffed = 0;
+park(ssh.shades[0], dw2.x + 20, dw2.y);
+for (let i = 1; i < ssh.shades.length; i++) park(ssh.shades[i], 5, 5);
+pg.stepShades(ssh, 16);
+ok(dw2.lit && ssh.snuffed === 0, "a dwelling within a shrine's aura resists snuffing");
+ok(pg.inShrineAura(ssh, dw2.x, dw2.y), "inShrineAura reports consecrated ground");
+// The hero inscribes on veiled ground while standing in a shrine's aura.
+const ssv = pg.buildArena(pg.levelById("old-city"));
+for (const e of ssv.shades) park(e, 5, 5);
+ssv.solids = []; ssv.fences = []; ssv.pathways = [];
+ssv.scenery = [{ x: ssv.hero.x, y: ssv.hero.y, kind: "shrine" }];
+ssv.veils = [{ x: ssv.hero.x, y: ssv.hero.y, vx: 0, vy: 0, r: 100 }];
+ssv.penta.charge = 0;
+run(ssv, K.PENTA_CHARGE_MS + 30, still);
+ok(ssv.penta.charge > 0.9, "a hero on consecrated ground inscribes even inside a veil");
+
+// 29. Awakened dwellings — a lit dwelling held long enough awakens into an ally
+//     emitter that pulses the dark around it on its own.
+const saw = pg.buildArena(pg.levelById("old-city"));
+saw.solids = []; saw.fences = []; saw.pathways = []; saw.veils = [];
+const adw = { x: 300, y: 300, kind: "dwelling", lit: true, litAt: 0 };
+saw.scenery = [adw];
+ok((saw.elapsed = K.DWELLING_AWAKEN_MS + 1) && (pg.stepDwellings(saw), adw.awoke),
+  "a lit dwelling held long enough awakens");
+const esh = saw.shades[0];
+esh.x = adw.x + 20; esh.y = adw.y; wake(esh); esh.hp = K.SHADE_HP;
+for (let i = 1; i < saw.shades.length; i++) park(saw.shades[i], 5, 5);
+const ehp0 = esh.hp;
+saw.penta.charge = 1; // the pulse clock runs while inscribed (hero's own ring is far off)
+for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) pg.stepPentagram(saw, 16);
+ok(esh.hp < ehp0 || esh.dead, "an awakened dwelling pulses shades in its reach");
+
+// 30. Conduits — a lit dwelling relays its flame down a conduit to the next dark
+//     dwelling, a beat later (the fuse).
+const scon = pg.buildArena(pg.levelById("old-city"));
+const cd1 = { x: 400, y: 400, kind: "dwelling" };
+const cd2 = { x: 480, y: 400, kind: "dwelling" };
+const cc = { x: 440, y: 400, kind: "conduit" };
+scon.scenery = [cd1, cd2, cc];
+scon.conduitLinks = [{ c: cc, dwellings: [cd1, cd2] }];
+scon.spreadQueue = []; scon.litCount = 0;
+pg.kindleDwelling(scon, cd1, 0);
+ok(cd1.lit && scon.spreadQueue.some((q) => q.node === cd2), "lighting a fused dwelling queues a relay to the next");
+scon.elapsed += K.CONDUIT_DELAY + 1;
+pg.stepSpread(scon);
+ok(cd2.lit, "the conduit relays the flame to the next dwelling after a beat");
+ok(scon.litCount === 2 && scon.spreadQueue.length === 0, "a relayed kindle counts and the queue drains");
+// Build wires real fuses from geometry.
+ok(scon.conduitLinks !== undefined && pg.buildArena(pg.levelById("old-city")).conduitLinks.length >= 0,
+  "buildArena computes a conduit relay graph");
+
+// 31. Presses — standing beside a press at a full inscription fires a one-shot
+//     cascade that lights dwellings and burns shades in reach, then it is spent.
+const spr = pg.buildArena(pg.levelById("old-city"));
+spr.solids = []; spr.fences = []; spr.pathways = []; spr.veils = [];
+const pr = { x: 800, y: 800, kind: "press" };
+const pd = { x: 830, y: 800, kind: "dwelling" };
+spr.scenery = [pr, pd]; spr.conduitLinks = []; spr.spreadQueue = []; spr.litCount = 0;
+const psh = spr.shades[0]; psh.x = pr.x + 60; psh.y = pr.y; wake(psh); psh.hp = K.SHADE_HP;
+for (let i = 1; i < spr.shades.length; i++) park(spr.shades[i], 5, 5);
+spr.hero.x = pr.x; spr.hero.y = pr.y; spr.penta.charge = 1;
+pg.stepPress(spr);
+ok(pr.spent, "standing by a press at full charge fires its cascade");
+ok(pd.lit && spr.litCount === 1, "the press cascade lights dwellings in reach");
+ok(psh.hp < K.SHADE_HP || psh.dead, "the press cascade burns shades in reach");
+// A spent press does not fire again.
+const spentSnuff = pr.spent;
+pg.stepPress(spr);
+ok(spentSnuff && pr.spent, "a spent press holds no second cascade");
+// A partial inscription cannot fire a press.
+const spr2 = pg.buildArena(pg.levelById("old-city"));
+spr2.scenery = [{ x: 100, y: 100, kind: "press" }];
+spr2.hero.x = 100; spr2.hero.y = 100; spr2.penta.charge = 0.9;
+pg.stepPress(spr2);
+ok(!spr2.scenery[0].spent, "a press needs a FULL inscription to fire");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -66,8 +66,19 @@ interface Nova { x: number; y: number; r: number; until: number }
 
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
-// dwelling can `lit` once the sigil's ring catches it.
-interface ArenaNode { x: number; y: number; kind: NodeKind; lit?: boolean; seen?: boolean }
+// dwelling can `lit` once the sigil's ring catches it; held long enough a lit one
+// `awoke`s into an ally emitter; a shade can snuff one back to dark, scarring the
+// ground (`veil`, an s.elapsed time the scar lasts to). A press carries a one-shot
+// cascade until `spent`. All of these are live-play state — never persisted.
+interface ArenaNode {
+  x: number; y: number; kind: NodeKind;
+  lit?: boolean;   // a dwelling kindled alight by the sigil/conduit/press
+  litAt?: number;  // s.elapsed when it was kindled (ages toward awakening)
+  awoke?: boolean; // a lit dwelling that held long enough — now pulses the dark
+  veil?: number;   // a snuffed dwelling's scar: s.elapsed time it damps relighting to
+  spent?: boolean; // a press whose one-shot cascade has fired
+  seen?: boolean;  // the hero's body has reached it (fresco first-footing)
+}
 
 // A line segment strung between two posts. Fences are low walls (they block the
 // hero and shades, capsule-collision); pathways are open lanes (the hero runs
@@ -153,6 +164,8 @@ interface PgState {
   w: number; h: number;  // this arena's world size (W/H scaled by level.sizeScale)
   scenery: ArenaNode[];
   solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
+  conduitLinks: { c: ArenaNode; dwellings: ArenaNode[] }[]; // each conduit and the dwellings it fuses (a relay graph, built once)
+  spreadQueue: { node: ArenaNode; at: number }[]; // dwellings awaiting a conduit relay's delayed kindle (live, not persisted)
   fences: Segment[];     // low walls the hero/shades must weave around
   pathways: Segment[];   // open lanes the hero runs swift along
   hero: Hero;
@@ -176,7 +189,8 @@ interface PgState {
   hits: number;         // times a shade has landed a blow (flawless-clear bonus)
   total: number;        // the finite host: clear them all to win
   dwellingsTotal: number; // dark dwellings the city began with
-  litCount: number;     // how many the sigil has kindled (secondary objective)
+  litCount: number;     // how many are kindled right now (secondary objective)
+  snuffed: number;      // lights the watch has clawed back this descent
   shownFrescoes: number[]; // FRESCO indices already uncovered this descent
   pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
   phase: Phase;
@@ -272,6 +286,34 @@ const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
+// A lit dwelling held long enough AWAKENS into an ally emitter; the watch can
+// snuff a lit one back to dark, scarring the ground. The whole loop is live-play
+// terrain (never persisted), the same ethos as decoys/fences.
+const DWELLING_AWAKEN_MS = 5200; // a lit dwelling that holds this long awakens…
+const AWAKENED_RADIUS = 96;      // …and then pulses the dark within this each pentagram pulse
+const AWAKENED_DMG = 9;          // …for this much (autonomous, charge-independent)
+const SNUFF_REACH = 26;          // a shade within this (+its radius) of a lit dwelling snuffs it
+const SNUFF_VEIL_MS = 6000;      // a snuffed dwelling scars the ground this long…
+const SCAR_RADIUS = 60;          // …damping the hero's sigil (like a veil pool) and barring relight within this
+
+// Conduits — a lit dwelling relays its flame along the conduits it touches to the
+// next dark dwelling down the line, a beat later: a fuse you light one end of.
+const CONDUIT_REACH = 150;       // a conduit fuses dwellings within this of it
+const CONDUIT_DELAY = 520;       // ms the flame takes to travel one conduit hop
+const CONDUIT_HEAL = 3;          // a relayed kindle mends less than a direct ring catch
+const CONDUIT_MAX_LINKS = 4;     // cap on dwellings a single conduit fuses (nearest first)
+
+// Presses — a built press, body-blocking, holds a one-shot cascade. Stand by it
+// at a FULL inscription and it fires: a wide burst that lights every dwelling and
+// burns every (unshielded) shade in reach, then the press is spent.
+const PRESS_TRIGGER_REACH = 46;  // hero centre within this (+the press radius) fires it
+const PRESS_BURST_R = 200;       // the cascade's reach
+const PRESS_BURST_DMG = 60;      // damage dealt to every shade caught
+
+// Shrines — consecrated ground. Dwellings within a shrine's aura can't be snuffed
+// (a safe quarter to relight), and a hero standing in the aura inscribes even on
+// veiled/scarred ground (a place to make a stand).
+const SHRINE_AURA = 150;         // radius of a shrine's consecrated ground
 
 // Scoring — a clear banks a score (and embers, the unlock currency). Tuned for
 // relationships, not magnitudes: faster pays, a relit/unscathed city pays, and a
@@ -612,11 +654,28 @@ function buildArena(level: LevelDef): PgState {
       });
     }
   });
+  // Conduit fuses: each conduit links the nearest few dwellings within reach, so a
+  // lit dwelling can relay its flame to the next down the line. Pure geometry,
+  // built once (mirrors fences/pathways). A fuse needs at least two ends to carry.
+  const dwellingsAll = scenery.filter((n) => n.kind === "dwelling");
+  const conduitLinks = scenery
+    .filter((n) => n.kind === "conduit")
+    .map((c) => ({
+      c,
+      dwellings: dwellingsAll
+        .map((n) => ({ n, d: (n.x - c.x) ** 2 + (n.y - c.y) ** 2 }))
+        .filter((o) => o.d <= CONDUIT_REACH ** 2)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, CONDUIT_MAX_LINKS)
+        .map((o) => o.n),
+    }))
+    .filter((l) => l.dwellings.length >= 2);
   // Resolve the equipped sigil and bake its stat lean into effective constants.
   const type = pentaTypeById(loadPgLegacy().equipped);
   return {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
+    conduitLinks, spreadQueue: [],
     fences, pathways,
     hero, shades,
     penta: { charge: 0, angle: 0 },
@@ -629,7 +688,7 @@ function buildArena(level: LevelDef): PgState {
     arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
-    litCount: 0,
+    litCount: 0, snuffed: 0,
     shownFrescoes: [], pendingFresco: null,
     phase: "fight",
   };
@@ -647,6 +706,14 @@ function aliveShades(s: PgState): number {
 
 function clearedPct(s: PgState): number {
   return s.total ? s.kills / s.total : 1;
+}
+
+// The lights readout for the HUD: how many dwellings burn now, of the city's
+// total, with a star mark for any that have awakened into ally emitters.
+function litReadout(s: PgState): string {
+  const awoke = s.scenery.reduce((c, n) => c + (n.awoke ? 1 : 0), 0);
+  const base = `${s.litCount} / ${s.dwellingsTotal} lit`;
+  return awoke ? `${base} · ${awoke}✦` : base;
 }
 
 // How much a city multiplies a clear's score. Leans on the difficulty the data
@@ -706,6 +773,109 @@ function stepVeils(s: PgState, dt: number): void {
 // inscribes the sigil or has it unravelled.)
 function inVeil(s: PgState, x: number, y: number): boolean {
   return s.veils.some((v) => (x - v.x) ** 2 + (y - v.y) ** 2 <= v.r ** 2);
+}
+
+// Is the point over a snuffed dwelling's lingering scar? A scar damps the sigil
+// like a veil pool and bars relighting that dwelling until it fades.
+function nearScar(s: PgState, x: number, y: number): boolean {
+  for (const n of s.scenery) {
+    if (n.kind !== "dwelling" || !n.veil || n.veil <= s.elapsed) continue;
+    if ((x - n.x) ** 2 + (y - n.y) ** 2 <= SCAR_RADIUS ** 2) return true;
+  }
+  return false;
+}
+
+// Is the point on consecrated ground (within any shrine's aura)? Dwellings here
+// can't be snuffed and the hero inscribes even when veiled/scarred.
+function inShrineAura(s: PgState, x: number, y: number): boolean {
+  for (const n of s.scenery) {
+    if (n.kind !== "shrine") continue;
+    if ((x - n.x) ** 2 + (y - n.y) ** 2 <= SHRINE_AURA ** 2) return true;
+  }
+  return false;
+}
+
+// Kindle a dark dwelling alight: count it, mend the hero, and send its flame down
+// any conduit it touches to the next dark dwelling (a delayed relay). The single
+// kindle path, so the ring, the conduit relay, and the press cascade all light a
+// dwelling the same way. A still-scarred dwelling resists the flame (no relight).
+function kindleDwelling(s: PgState, n: ArenaNode, heal: number): void {
+  if (n.kind !== "dwelling" || n.lit) return;
+  if (n.veil && n.veil > s.elapsed) return; // the scar still damps relighting here
+  n.lit = true; n.litAt = s.elapsed; n.awoke = false; n.veil = 0;
+  s.litCount++;
+  if (heal) s.hero.hp = Math.min(s.hero.maxHp, s.hero.hp + heal);
+  // Relay along every conduit this dwelling touches, to its other dark ends.
+  for (const link of s.conduitLinks) {
+    if (!link.dwellings.includes(n)) continue;
+    for (const d of link.dwellings) {
+      if (d === n || d.lit) continue;
+      if (!s.spreadQueue.some((q) => q.node === d)) {
+        s.spreadQueue.push({ node: d, at: s.elapsed + CONDUIT_DELAY });
+      }
+    }
+  }
+}
+
+// Snuff a lit dwelling back to dark: scar the ground (a charge-damping veil that
+// bars relighting for a while) and tally the loss. The single snuff path.
+function snuffDwelling(s: PgState, n: ArenaNode): void {
+  n.lit = false; n.awoke = false;
+  n.veil = s.elapsed + SNUFF_VEIL_MS;
+  if (s.litCount > 0) s.litCount--;
+  s.snuffed++;
+}
+
+// Advance the conduit relays: any queued dwelling whose travel time has elapsed
+// kindles now (which may itself relay on down the line — the fuse cascades).
+function stepSpread(s: PgState): void {
+  if (!s.spreadQueue.length) return;
+  const ready: { node: ArenaNode; at: number }[] = [];
+  s.spreadQueue = s.spreadQueue.filter((q) => {
+    if (s.elapsed >= q.at) { ready.push(q); return false; }
+    return true;
+  });
+  for (const q of ready) kindleDwelling(s, q.node, CONDUIT_HEAL);
+}
+
+// Lit dwellings that have held their flame long enough AWAKEN into ally emitters
+// (they answer the pentagram's pulse in stepPentagram). Autonomous — they mature
+// even after the hero has moved on.
+function stepDwellings(s: PgState): void {
+  for (const n of s.scenery) {
+    if (n.kind === "dwelling" && n.lit && !n.awoke
+      && n.litAt !== undefined && s.elapsed - n.litAt >= DWELLING_AWAKEN_MS) {
+      n.awoke = true;
+    }
+  }
+}
+
+// A press fires its one-shot cascade when the hero stands beside it at a FULL
+// inscription: a wide burst that burns every unshielded shade and lights every
+// dwelling in reach, then the press is spent.
+function stepPress(s: PgState): void {
+  if (s.penta.charge < 1) return;
+  const h = s.hero;
+  for (const n of s.scenery) {
+    if (n.kind !== "press" || n.spent) continue;
+    const rr = (PRESS_TRIGGER_REACH + (OBSTACLE_RADIUS.press || 0)) ** 2;
+    if ((n.x - h.x) ** 2 + (n.y - h.y) ** 2 > rr) continue;
+    n.spent = true;
+    const br2 = PRESS_BURST_R ** 2;
+    for (const e of s.shades) {
+      if (e.dead || e.shielded) continue;
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= br2) {
+        e.hp -= PRESS_BURST_DMG;
+        e.hit = s.elapsed + SHADE_HIT_MS;
+        if (e.hp <= 0) killShade(s, e);
+      }
+    }
+    for (const d of s.scenery) {
+      if (d.kind !== "dwelling" || d.lit) continue;
+      if ((d.x - n.x) ** 2 + (d.y - n.y) ** 2 <= br2) kindleDwelling(s, d, 0);
+    }
+    s.novas.push({ x: n.x, y: n.y, r: PRESS_BURST_R, until: s.elapsed + NOVA_FX_MS });
+  }
 }
 
 // Gather any ember mote the hero has walked onto: snap the sigil to full and open
@@ -769,6 +939,16 @@ function stepShades(s: PgState, dt: number): void {
     e.vx = dx * speed; e.vy = dy * speed;
     const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
+
+    // A shade brushing a lit dwelling snuffs it back to dark — unless that
+    // dwelling stands on consecrated ground (a shrine's aura protects it).
+    const sr2 = (SHADE_RADIUS + SNUFF_REACH) ** 2;
+    for (const n of s.scenery) {
+      if (n.kind !== "dwelling" || !n.lit) continue;
+      if ((n.x - e.x) ** 2 + (n.y - e.y) ** 2 > sr2) continue;
+      if (inShrineAura(s, n.x, n.y)) continue;
+      snuffDwelling(s, n);
+    }
   }
 }
 
@@ -842,13 +1022,24 @@ function stepPentagram(s: PgState, dt: number): void {
       s.scorch.push({ x: hero.x, y: hero.y, until: s.elapsed + SCORCH_MS });
       if (s.scorch.length > SCORCH_MAX) s.scorch.shift();
     }
-    // Dwellings caught in the ring kindle, mending the hero.
+    // Dwellings caught in the ring kindle (mending the hero, and relaying down any
+    // conduit); awakened dwellings answer the pulse, biting the dark around them.
     for (const n of s.scenery) {
-      if (n.kind !== "dwelling" || n.lit) continue;
-      if ((n.x - hero.x) ** 2 + (n.y - hero.y) ** 2 <= r2) {
-        n.lit = true;
-        s.litCount++;
-        s.hero.hp = Math.min(s.hero.maxHp, s.hero.hp + DWELLING_HEAL);
+      if (n.kind !== "dwelling") continue;
+      if (!n.lit) {
+        if ((n.x - hero.x) ** 2 + (n.y - hero.y) ** 2 <= r2) kindleDwelling(s, n, DWELLING_HEAL);
+        continue;
+      }
+      if (n.awoke) {
+        const ar2 = AWAKENED_RADIUS ** 2;
+        for (const e of s.shades) {
+          if (e.dead || e.shielded) continue;
+          if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= ar2) {
+            e.hp -= AWAKENED_DMG;
+            e.hit = s.elapsed + SHADE_HIT_MS;
+            if (e.hp <= 0) killShade(s, e);
+          }
+        }
       }
     }
   }
@@ -945,8 +1136,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
 
   // Drift the dark pools, then decide the sigil from where the hero now stands.
+  // A drifting veil pool OR a snuffed dwelling's scar unravels the sigil — unless
+  // the hero stands on consecrated ground, where it inscribes regardless.
   stepVeils(s, dt);
-  const veiled = inVeil(s, h.x, h.y);
+  const veiled = (inVeil(s, h.x, h.y) || nearScar(s, h.x, h.y)) && !inShrineAura(s, h.x, h.y);
 
   // Stand still on clean ground and the sigil inscribes itself; move and it fades.
   // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
@@ -966,6 +1159,9 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
 
   stepShades(s, dt);
   stepPentagram(s, dt);
+  stepSpread(s);     // advance any conduit relays whose travel time has elapsed
+  stepDwellings(s);  // mature lit dwellings into awakened ally emitters
+  stepPress(s);      // a press by the hero, at full charge, fires its cascade
 
   // Nova (Wrath): the first full inscription erupts, hurling chasers back in a
   // searing ring. It re-arms once the charge has dropped (move, then re-still).
@@ -1681,6 +1877,20 @@ function render(s: PgState, layer: SVGGElement): void {
     }));
   }
 
+  // Conduit fuses — faint dashed lines from each conduit to the dwellings it can
+  // relay to, so the player can read the streets that carry flame. A live fuse (a
+  // lit source, or a relay in flight) burns a touch brighter.
+  for (const link of s.conduitLinks) {
+    for (const d of link.dwellings) {
+      const live = d.lit || s.spreadQueue.some((q) => q.node === d);
+      layer.appendChild(el("line", {
+        x1: link.c.x, y1: link.c.y, x2: d.x, y2: d.y,
+        stroke: "#7a6a3a", "stroke-width": live ? 2 : 1,
+        "stroke-dasharray": "3 7", opacity: live ? 0.5 : 0.16,
+      }));
+    }
+  }
+
   // Scenery — the built world, drawn dark for the Diablo gloom. Keeper-posts are
   // spawn-points, not scenery, so they aren't drawn here. Solid structures (press,
   // shrine) draw full-opacity with a faint ring so they read as blockers; a lit
@@ -1688,19 +1898,41 @@ function render(s: PgState, layer: SVGGElement): void {
   for (const n of s.scenery) {
     if (n.kind === "keeper") continue;
     const solid = OBSTACLE_KINDS.has(n.kind);
+    // Consecrated ground — a faint protective ring marking a shrine's snuff-proof aura.
+    if (n.kind === "shrine") {
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: SHRINE_AURA, fill: "none",
+        stroke: "#9fe8c4", "stroke-width": 1.2, "stroke-dasharray": "4 10", opacity: 0.16,
+      }));
+    }
+    // A snuffed dwelling's lingering scar — a small pool of clawed-back dark.
+    if (n.kind === "dwelling" && n.veil && n.veil > s.elapsed) {
+      const life = (n.veil - s.elapsed) / SNUFF_VEIL_MS;
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: SCAR_RADIUS, fill: "#0a0710", opacity: 0.3 * life }));
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: SCAR_RADIUS * 0.6, fill: "#160c22", opacity: 0.3 * life }));
+    }
     if (n.kind === "dwelling" && n.lit) {
-      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 30, fill: "url(#haloAwake)", opacity: 0.7 }));
+      // An awakened dwelling burns brighter and shows its emitter reach.
+      const halo = n.awoke ? 32 + 6 * Math.sin(s.elapsed / 220) : 30;
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: halo, fill: "url(#haloAwake)", opacity: n.awoke ? 0.85 : 0.7 }));
+      if (n.awoke) {
+        layer.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: AWAKENED_RADIUS, fill: "none",
+          stroke: "#ffd87a", "stroke-width": 1.2, opacity: 0.2,
+        }));
+      }
     }
     const spriteName = n.kind === "dwelling" && n.lit ? "dwelling-lit" : SCENERY_SPRITE[n.kind];
     const key = spriteFor(s.level, spriteName);
+    const op = solid ? (n.spent ? 0.4 : 1) : 0.5; // a spent press dims
     if (key) {
-      layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], solid ? 1 : 0.5));
+      layer.appendChild(spriteImage(key, n.x, n.y, SCENERY_SIZE[n.kind], op));
     } else {
       layer.appendChild(el("rect", {
         x: n.x - 8, y: n.y - 8, width: 16, height: 16, rx: 2,
         fill: n.lit ? "#3a2a14" : "#161a2c",
         stroke: solid ? "#3a3050" : n.lit ? "#ffd87a" : "#222842",
-        "stroke-width": 1, opacity: solid ? 0.95 : 0.7,
+        "stroke-width": 1, opacity: solid ? (n.spent ? 0.5 : 0.95) : 0.7,
       }));
     }
     if (solid) {
@@ -1878,14 +2110,15 @@ function render(s: PgState, layer: SVGGElement): void {
 
 interface PgLegacy {
   runs: number; clears: number; best: Record<string, number>;
-  dwellingsLit: number; // lifetime dwellings kindled across all descents
+  dwellingsLit: number;      // lifetime dwellings kindled across all descents
+  dwellingsAwakened: number; // lifetime dwellings that awakened into ally emitters
   embers: number;       // unlock currency, banked from clears
   unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
   equipped: string;     // the sigil id currently equipped
 }
 
 function emptyPgLegacy(): PgLegacy {
-  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil" };
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil" };
 }
 
 function loadPgLegacy(): PgLegacy {
@@ -1903,6 +2136,7 @@ function loadPgLegacy(): PgLegacy {
     return {
       runs: l.runs || 0, clears: l.clears || 0, best: l.best || {},
       dwellingsLit: l.dwellingsLit || 0,
+      dwellingsAwakened: l.dwellingsAwakened || 0,
       embers: l.embers || 0, unlocked: [...owned], equipped,
     };
   } catch { return emptyPgLegacy(); }
@@ -1912,10 +2146,11 @@ function savePgLegacy(l: PgLegacy): void {
   try { localStorage.setItem(PG_LEGACY_KEY, JSON.stringify(l)); } catch { /* ignore */ }
 }
 
-function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0): PgLegacy {
+function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0, awoke = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++; l.clears++;
   l.dwellingsLit += lit;
+  l.dwellingsAwakened += awoke;
   l.embers += embers;
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
   savePgLegacy(l);
@@ -1943,10 +2178,11 @@ function equipType(id: string): PgLegacy {
   return l;
 }
 
-function recordDeath(lit = 0): PgLegacy {
+function recordDeath(lit = 0, awoke = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++;
   l.dwellingsLit += lit;
+  l.dwellingsAwakened += awoke;
   savePgLegacy(l);
   return l;
 }
@@ -2180,7 +2416,7 @@ function start(): void {
     if (s.boss && s.phase === "boss") {
       const edges = s.boss.seal.edges, bound = edges.filter((e) => e.done).length;
       foesEl.textContent = `Seal ${bound} / ${edges.length} bound`;
-      lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
+      lightsEl.textContent = litReadout(s);
       return;
     }
     const alive = aliveShades(s);
@@ -2200,7 +2436,7 @@ function start(): void {
       }
     }
     foesEl.textContent = foes;
-    lightsEl.textContent = `${s.litCount} / ${s.dwellingsTotal} lit`;
+    lightsEl.textContent = litReadout(s);
     cityEl.textContent = s.level.name;
     sigilEl.textContent = s.type.name;
     sigilEl.style.color = s.type.star;
@@ -2318,12 +2554,15 @@ function start(): void {
     if (!s) return;
     const ms = s.elapsed;
     const lit = s.litCount, total = s.dwellingsTotal;
+    const awoke = s.scenery.filter((n) => n.awoke).length;
     const sc = scoreRun(s);
-    const l = recordClear(s.level, ms, lit, sc.embers);
+    const l = recordClear(s.level, ms, lit, sc.embers, awoke);
     const best = l.best[s.level.id];
-    const relit = lit >= total && total > 0
+    const relit = (lit >= total && total > 0
       ? `You relit every dwelling — <em>${total}</em>. The city is whole again.`
-      : `You relit <em>${lit}</em> of ${total} dwellings.`;
+      : `You relit <em>${lit}</em> of ${total} dwellings.`)
+      + (awoke ? ` <em>${awoke}</em> awakened to fight beside you.` : "")
+      + (s.snuffed ? ` The watch clawed <em>${s.snuffed}</em> back into the dark.` : "");
     const row = (label: string, val: string) =>
       `<div><dt>${label}</dt><dd>${val}</dd></div>`;
     const breakdown =
@@ -2351,7 +2590,7 @@ function start(): void {
 
   function onLost(): void {
     if (!s) return;
-    recordDeath(s.litCount);
+    recordDeath(s.litCount, s.scenery.filter((n) => n.awoke).length);
     const unbound = s.boss ? s.boss.seal.edges.filter((e) => !e.done).length : 0;
     const how = s.boss
       ? `The Veilwarden of <em>${s.level.name}</em> snuffed your flame with ` +
@@ -2416,7 +2655,8 @@ function start(): void {
         `<div class="legacy"><div class="legacy-head">Your descents</div><dl>` +
         `<div><dt>Descents</dt><dd>${l.runs}</dd></div>` +
         `<div><dt>Cities cleansed</dt><dd>${l.clears}</dd></div>` +
-        `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div></dl></div>`;
+        `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div>` +
+        `<div><dt>Dwellings awakened</dt><dd>${l.dwellingsAwakened}</dd></div></dl></div>`;
     }
     showOverlay("The Burning Vigil", html, "", () => {});
     ovBtn.style.display = "none";
@@ -2488,6 +2728,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
+    kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress,
+    nearScar, inShrineAura, litReadout,
     startBoss, stepBoss, submitTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
@@ -2503,6 +2745,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
       OBSTACLE_RADIUS, DWELLING_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
+      CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
+      PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
       SCORCH_RADIUS, SCORCH_MAX,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
