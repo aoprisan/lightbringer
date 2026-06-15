@@ -2352,6 +2352,7 @@ function start(): void {
   const frescoCap = byId("fresco-cap");
   const stickEl = byId("stick");
   const stickKnob = byId("stick-knob");
+  const mmEl = byId("minimap") as unknown as SVGSVGElement;
 
   const layer = scaffold(svg);
   let s: PgState | null = null;
@@ -2577,6 +2578,55 @@ function start(): void {
     sigilEl.style.color = s.type.star;
   }
 
+  // A glanceable corner overview of the whole arena — the camera only ever shows
+  // a fraction of it, so this is how you find the last few shades and read your
+  // progress at a glance. Flat dots, no glow filters, and redrawn at a fraction
+  // of the frame rate (shades don't need 60fps on a 96px map) to stay cheap.
+  // Only meaningful in the real-time fight: the picker has no arena and the duel
+  // locks the camera on the warden, so it hides in both.
+  const MM_MAX = 96; // px — the minimap's longest edge
+  let mmTick = 0;
+  function minimap(): void {
+    if (!s || s.phase !== "fight") { mmEl.style.display = "none"; return; }
+    if (mmTick++ % 5 !== 0) return; // ~12 redraws/sec is plenty for a glance map
+    const scale = Math.min(MM_MAX / s.w, MM_MAX / s.h);
+    const mw = s.w * scale, mh = s.h * scale;
+    mmEl.style.display = "block";
+    mmEl.setAttribute("width", mw.toFixed(1));
+    mmEl.setAttribute("height", mh.toFixed(1));
+    mmEl.setAttribute("viewBox", `0 0 ${mw.toFixed(1)} ${mh.toFixed(1)}`);
+    mmEl.innerHTML = "";
+    mmEl.appendChild(el("rect", { x: 0, y: 0, width: mw, height: mh, fill: "#070912", opacity: 0.5 }));
+    // Reclaimed dwellings — your progress across the dark city (awakened brighter).
+    for (const n of s.scenery) {
+      if (n.kind !== "dwelling" || !n.lit) continue;
+      mmEl.appendChild(el("circle", {
+        cx: n.x * scale, cy: n.y * scale, r: n.awoke ? 1.7 : 1.1,
+        fill: n.awoke ? "#fff3d2" : "#ffd87a", opacity: 0.9,
+      }));
+    }
+    // The host that remains — the map's whole point (shielded champions stand out).
+    for (const e of s.shades) {
+      if (e.dead) continue;
+      mmEl.appendChild(el("circle", {
+        cx: e.x * scale, cy: e.y * scale, r: e.elite ? 1.9 : 1.3,
+        fill: e.shielded ? "#b46cff" : "#ff5a3c", opacity: 0.95,
+      }));
+    }
+    // The camera's window onto the arena, so the dots place against what you see.
+    const vw = svg.clientWidth, vh = svg.clientHeight;
+    mmEl.appendChild(el("rect", {
+      x: (-cam.x / cam.k) * scale, y: (-cam.y / cam.k) * scale,
+      width: (vw / cam.k) * scale, height: (vh / cam.k) * scale,
+      fill: "none", stroke: "#ffe9b0", "stroke-width": 0.6, opacity: 0.5,
+    }));
+    // The hero, last so it sits on top.
+    mmEl.appendChild(el("circle", {
+      cx: s.hero.x * scale, cy: s.hero.y * scale, r: 2.3,
+      fill: "#fff6d8", stroke: "#ff6a3c", "stroke-width": 0.8,
+    }));
+  }
+
   // ----- Overlays -----
   function showOverlay(
     title: string, body: string,
@@ -2636,6 +2686,7 @@ function start(): void {
 
     render(s, layer);
     hud();
+    minimap();
 
     if (s.phase === "won") { running = false; onWin(); return; }
     if (s.phase === "lost") { running = false; onLost(); return; }
@@ -2744,6 +2795,7 @@ function start(): void {
 
   function showPicker(selId?: string): void {
     s = null; running = false;
+    mmEl.style.display = "none"; // no arena to overview at the city select
     const l = loadPgLegacy();
     // The selected city — defaults to the first, and supplies the establishing
     // art shown at the top of the card (mirrors the parent's Lamplighter intro).
