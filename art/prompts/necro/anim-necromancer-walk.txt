@@ -1,0 +1,51 @@
+ASSET: necromancer walk frames — two stride extremes for the necromancer's walk cycle
+OUTPUT: art/necromancer-stepA.png  and  art/necromancer-stepB.png
+FORMAT: 1024×1024 each, square, single centered subject, no text, no watermark, no border.
+
+--- WHAT THIS IS ---
+The necromancer is the player avatar. Today it draws as ONE static sprite
+(art/necromancer.png) and slides across the ground when moving. These two frames
+are the stride extremes of a 3-frame walk cycle: the game plays
+  stepA  →  necromancer.png (neutral)  →  stepB  →  necromancer.png  →  …
+while the necromancer is moving, and the neutral base sprite alone when standing
+still. So you are NOT inventing a new character — you are nudging the EXISTING
+sprite into two mid-stride poses.
+
+--- GENERATION RULES (read once) ---
+- Use Gemini's IMAGE-EDIT mode on art/necromancer.png for BOTH frames. Do NOT
+  generate from scratch — continuity beats per-frame beauty.
+- Keep EVERYTHING fixed except the gait: same hood, same robes, same staff and
+  soul-lantern, same colours, same lighting, same SIZE/SCALE, and the same
+  CENTER point (the body's mass stays centered in the 1024 square). Only the
+  legs/robe-hem and a small body bob change. Misregistered frames will jitter
+  when the game swaps them.
+- No transparency. Flat solid #060B08 (graveyard green-black) background, exactly
+  like the base sprite. Never white — the green glow would halo.
+- Face SCREEN-RIGHT (or stay front-facing 3/4 as the base does). The game mirrors
+  the sprite horizontally to face left, so do not bake in a left-facing pose.
+- Three-quarter top-down (~60°), the same camera as the base sprite.
+- Readable at small sizes: the stride must read as a SILHOUETTE change (robe-hem
+  swing, lean, staff bob), not fine detail.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+deep charcoal robes; fierce NECROTIC green (#3CFF8A) and cold violet (#7A3CFF) for
+the staff's light. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- FRAME A: art/necromancer-stepA.png (IMAGE-EDIT of necromancer.png) ---
+Edit this image: the SAME hooded necromancer, now caught MID-STRIDE with the
+LEFT leg forward — the front edge of the tattered robe lifted and swung forward,
+the trailing hem dragging behind, the torso leaning very slightly forward into the
+step, the staff planted a touch ahead like a walking-stave with its green
+soul-lantern bobbing. Keep the exact same hood, robe, staff, palette, lighting,
+scale and center as the original. Flat solid #060B08 background, no text, 1024×1024.
+
+--- FRAME B: art/necromancer-stepB.png (IMAGE-EDIT of necromancer.png) ---
+Edit this image: the SAME hooded necromancer, the OPPOSITE stride — the RIGHT leg
+forward, the robe-hem swung the other way, weight shifted to the other side, the
+staff trailing slightly back as the body glides forward, the soul-lantern dipped a
+little lower in its bob. A clean mirror-in-spirit of frame A so the two alternate
+into a believable walk. Keep the exact same hood, robe, staff, palette, lighting,
+scale and center as the original. Flat solid #060B08 background, no text, 1024×1024.

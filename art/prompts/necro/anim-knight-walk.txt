@@ -1,0 +1,67 @@
+ASSET: knight walk frames — stride extremes for both knight states (patrol + charge)
+OUTPUT: art/knight-guard-stepA.png, art/knight-guard-stepB.png,
+        art/knight-engage-stepA.png, art/knight-engage-stepB.png
+FORMAT: 1024×1024 each, square, single centered subject, no text, no watermark, no border.
+
+--- WHAT THIS IS ---
+The knights are the village watch — the foes. They have two states, each its own
+sprite today: knight-guard.png (lurking watch) and knight-engage.png (charging,
+spear levelled). Both slide when they move. These four frames are the stride
+extremes of a 3-frame walk cycle PER STATE the game plays while a knight moves:
+  stepA  →  base state sprite  →  stepB  →  base  →  …
+and the base state sprite alone when standing. Guard = a slow wary PATROL step;
+engage = a fast RUNNING charge stride. The captain and priest reuse these frames
+via the game's fallback.
+
+--- GENERATION RULES (read once) ---
+- Use Gemini's IMAGE-EDIT mode on the matching base sprite — the two guard frames
+  from art/knight-guard.png, the two engage frames from art/knight-engage.png. Do
+  NOT generate from scratch — continuity beats per-frame beauty, and a knight must
+  stay recognisably the SAME knight across all four frames.
+- Keep EVERYTHING fixed except the gait: same armour, same tabard, same shield and
+  spear, same colours, same lighting, same SIZE/SCALE, same CENTER. Only legs,
+  body lean, and the weapon's counter-swing change. Misregistered frames jitter on
+  swap.
+- No transparency. Flat solid #060B08 (graveyard green-black) background, exactly
+  like the base sprites. Never white.
+- Face SCREEN-RIGHT (or keep the base sprite's facing). The game mirrors the
+  sprite to face left; do not bake in a left-facing pose.
+- Three-quarter top-down (~60°), the same camera as the base sprites.
+- Readable small: the stride is a SILHOUETTE change (leg spread, body lean, weapon
+  swing), not fine armour detail.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; warm steel and lantern-amber on the knight. Soft
+painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- FRAME 1: art/knight-guard-stepA.png (IMAGE-EDIT of knight-guard.png) ---
+Edit this image: the SAME wary village knight on PATROL, mid-step with the LEFT
+leg forward — a slow, heavy, watchful stride, shield held close, spear carried
+upright, body upright and scanning. Cautious, not charging. Keep the exact same
+armour, tabard, shield, spear, palette, lighting, scale and center as the
+original. Flat solid #060B08 background, no text, 1024×1024.
+
+--- FRAME 2: art/knight-guard-stepB.png (IMAGE-EDIT of knight-guard.png) ---
+Edit this image: the SAME patrolling knight, the OPPOSITE step — RIGHT leg
+forward, weight shifted across, shield and spear carried the same wary way, a
+small body bob at the step's crest. A clean alternation with frame 1 for a slow
+patrol walk. Keep the exact same armour, tabard, shield, spear, palette, lighting,
+scale and center as the original. Flat solid #060B08 background, no text, 1024×1024.
+
+--- FRAME 3: art/knight-engage-stepA.png (IMAGE-EDIT of knight-engage.png) ---
+Edit this image: the SAME charging knight, mid-RUN with the LEFT leg driving
+forward and the right thrust back in a long running stride — torso pitched
+aggressively forward, shield punched ahead, spear levelled, tabard streaming. Full
+sprint, urgent. Keep the exact same armour, tabard, shield, spear, palette,
+lighting, scale and center as the original. Flat solid #060B08 background, no text,
+1024×1024.
+
+--- FRAME 4: art/knight-engage-stepB.png (IMAGE-EDIT of knight-engage.png) ---
+Edit this image: the SAME charging knight, the OPPOSITE running stride — RIGHT leg
+driving forward, left thrust back, body lunged a touch lower, spear still levelled,
+tabard streaming the other way. A clean alternation with frame 3 for a fast charge
+run. Keep the exact same armour, tabard, shield, spear, palette, lighting, scale
+and center as the original. Flat solid #060B08 background, no text, 1024×1024.
