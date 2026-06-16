@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v78";
+const CACHE = "lightbringer-v79";
 
 const ASSETS = [
   "./",
@@ -37,6 +37,11 @@ const ASSETS = [
   "./art/knight-guard.png",
   "./art/knight-engage.png",
   "./art/skeleton.png",
+  // Per-rite skeleton kinds — each raising-rite calls up its own (brute/wight/
+  // revenant); render falls back to the base skeleton when absent.
+  "./art/skeleton-brute.png",
+  "./art/skeleton-wight.png",
+  "./art/skeleton-revenant.png",
   // Necro village establishing cards (shown on the picker; silent-fail).
   "./art/village-hollowmere.jpg",
   "./art/village-barrows.jpg",
