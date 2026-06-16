@@ -96,20 +96,15 @@ const charged = s4.penta.charge;
 run(s4, K.PENTA_CHARGE_MS, { x: 1, y: 0 }); // walk
 ok(s4.penta.charge < charged, `moving lets the sigil fade (${charged.toFixed(2)} -> ${s4.penta.charge.toFixed(2)})`);
 
-// 6. Clearing every shade raises the warden; tracing it down wins the descent.
+// 6. Clearing every shade wins the descent outright (the Veilwarden duel is
+//    disabled for now — see the boss-in-isolation coverage in tests 21-25).
 const s5 = pg.buildArena(pg.levelById("old-city"));
 for (const e of s5.shades) { e.x = s5.hero.x; e.y = s5.hero.y; wake(e); e.hp = K.SHADE_HP; }
 run(s5, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 12, still);
 ok(s5.shades.every((e) => e.dead), "all shades fall when stacked on the sigil");
-ok(s5.phase === "boss" && s5.boss && s5.boss.hp > 0, "clearing the host raises the Veilwarden");
 ok(pg.clearedPct(s5) === 1, "cleared percentage reaches 100%");
-// Bind every strand of the warden's seal cleanly until it breaks.
-bindSeal(s5);
-ok(s5.phase === "won", "binding the whole seal wins the descent");
-// Once won, the duel is inert.
-const hpAfter = s5.boss.hp;
-pg.stepBoss(s5, 100); pg.submitTrace(s5, strandStroke(s5.boss.seal, s5.boss.seal.edges[0]));
-ok(s5.boss.hp === hpAfter, "a won duel does not keep simulating");
+ok(s5.phase === "won", "clearing the host wins the descent");
+ok(!s5.boss, "no warden rises — the duel stays disabled");
 
 // 7. Contact damage + i-frames; enough touches bring the hero down (lost).
 const s6 = pg.buildArena(pg.levelById("old-city"));

@@ -1345,7 +1345,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
 
   if (h.hp <= 0) { h.hp = 0; s.phase = "lost"; }
-  else if (s.shades.every((e) => e.dead)) { startBoss(s); } // the host falls — the warden rises
+  else if (s.shades.every((e) => e.dead)) { s.phase = "won"; } // the host falls — the descent is won
+  // NOTE: the Veilwarden duel is disabled for now — clearing the host wins outright.
+  // startBoss/stepBoss and the seal-tracing duel remain intact (and tested in
+  // isolation) so the boss can be re-enabled by restoring the startBoss(s) call above.
 }
 
 // ---------- The Veilwarden duel (turn-based, finger-traced) ----------
