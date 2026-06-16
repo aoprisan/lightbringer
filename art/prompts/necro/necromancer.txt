@@ -1,0 +1,22 @@
+ASSET: necromancer.png — the hooded commander with a green soul-staff (inverts player-lantern)
+OUTPUT: art/necromancer.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- This is the PLAYER avatar/cursor: keep the silhouette readable at small sizes and
+  instantly distinct from the bone-white skeletons (darker, robed, taller).
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+deep charcoal robes; fierce NECROTIC green (#3CFF8A) and cold violet (#7A3CFF) for
+the staff's light. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- PROMPT ---
+The necromancer: a tall hooded figure in tattered charcoal robes, face lost in
+shadow, raising a black staff topped with a soul-lantern of swirling necrotic-green
+fire, a few green wisps drifting up from the ground around the feet. Commanding,
+sinister, distinct from the bone skeletons. The player's avatar — readable at small
+sizes; the inversion of the Light-Bringer's tender candle-lantern.

@@ -1,0 +1,20 @@
+ASSET: ground.png — the village/graveyard ground tile (seamless)
+OUTPUT: art/ground.png
+FORMAT: 1024×1024, square, SEAMLESS TILING texture, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. A seamless tiling texture (edges wrap on all four sides).
+- This tiles the whole battlefield, so keep it dim and low-contrast; the sprites
+  and necrotic light must read on top of it.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black
+(#060B08), cold slate and grave-stone grey, bone white (#E8EFD8); faint necrotic
+green for any unnatural light — never warm candle-gold. Soft painterly edges,
+subtle grain, no outlines, no photorealism. Flat top-down, even cold moonlight.
+
+--- PROMPT ---
+Trodden graveyard earth between cottages: cold packed mud and dead grass, a few
+flat sunken grave-slabs and scattered bone-grey pebbles, faint patches of corpse-
+pale moss. Dim, damp, low-contrast. A seamless tiling ground texture.

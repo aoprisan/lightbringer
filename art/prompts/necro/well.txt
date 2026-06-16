@@ -1,0 +1,19 @@
+ASSET: well.png — a stone well, a solid obstacle
+OUTPUT: art/well.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: it must read as a SOLID, impassable structure (round footprint).
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; cold moonlight only. Soft painterly edges, subtle
+grain, no outlines, no photorealism. Three-quarter top-down (about 60°), isolated
+on a flat solid #060B08 background.
+
+--- PROMPT ---
+An old round stone village well with a mossy timber roof and a hanging bucket,
+its water black and still. Squat and solid, an obstacle bodies must weave around.
+Cold and dead, no unnatural light.

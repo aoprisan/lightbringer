@@ -1,0 +1,21 @@
+ASSET: house-reconsecrated.png — a re-blessed house, holy ward (inverts dwelling-snuffed/scar)
+OUTPUT: art/house-reconsecrated.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: keep the silhouette readable at small sizes; it must read
+  as warded/protected — the watch has clawed it back from the horde.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; a clean, cold HOLY light (pale silver-white, faintly
+blue) — opposed to the necrotic green. Soft painterly edges, subtle grain, no
+outlines, no photorealism. Three-quarter top-down (about 60°), isolated on flat #060B08.
+
+--- PROMPT ---
+The cottage re-blessed and warded by the knights: rebuilt and standing again, a
+painted holy sigil over the door, a faint clean silver-white ward-light haloing it
+that repels the green rot. Consecrated ground the horde cannot touch — the inversion
+of a snuffed, scarred dwelling.

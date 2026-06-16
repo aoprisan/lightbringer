@@ -1,0 +1,18 @@
+ASSET: causeway.png — a tiled road segment (inverts pathway)
+OUTPUT: art/causeway.png
+FORMAT: 1024×1024, square, SEAMLESS TILE, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. A road texture tiled along a lane; it must wrap seamlessly so a
+  long causeway reads as one continuous road. Dim and low-contrast (sprites draw on top).
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+worn grave-stone grey, pale bone dust; cold moonlight only. Soft painterly edges,
+subtle grain, no outlines, no photorealism. Flat top-down, even cold light.
+
+--- PROMPT ---
+A worn stone causeway: pale flagstones and packed road-dust laid straight through
+the dark village, smoother and lighter than the surrounding mud — a swift lane the
+necromancer runs along. A seamless tiling road texture, dim and low-contrast.

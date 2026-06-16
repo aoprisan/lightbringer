@@ -15,6 +15,6 @@
     "removeComments": false,
     "skipLibCheck": true
   },
-  "include": ["app.ts", "pentagram.ts"],
+  "include": ["app.ts", "pentagram.ts", "necro.ts"],
   "exclude": ["node_modules", "lightbringer.ts"]
 }
