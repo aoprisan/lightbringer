@@ -1,0 +1,27 @@
+ASSET: village-fen.jpg — establishing card for Gallows Fen
+OUTPUT: art/village-fen.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- The hook is a remote, lawless MARSH with a GIBBET — few houses, but the dead lie
+  thick and willing. Bleak and isolated, far from any lord's help.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript meets minimal poster art. Palette:
+graveyard green-black (#060B08), cold slate and grave-stone grey, bone white
+(#E8EFD8); fierce NECROTIC green (#3CFF8A) and cold violet (#7A3CFF) for the rising
+dead — the few defenders carry warm steel and lantern-amber. High contrast, deep
+negative darkness, soft volumetric glow, subtle grain. No outlines, no photorealism.
+Wide 16:9, low horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Gallows Fen, a bleak marsh-village seen from a high
+three-quarter angle: a black reed fen under low fog, a tall weathered gibbet standing
+stark against the sky with a hanging cage, a few sunken hovels on stilts and old field-
+graves between the pools. Sickly necrotic-green corpse-light wells thickly out of the
+sodden ground — the dead lie close and willing here. Only a couple of lonely amber
+lanterns flicker far off; no lord's help is near. Desolate, lawless, drowned. Wide
+16:9 cinematic composition, deep negative darkness around a low horizon.
