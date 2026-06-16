@@ -3140,12 +3140,12 @@ function start(): void {
         `<div><dt>Dwellings awakened</dt><dd>${l.dwellingsAwakened}</dd></div></dl></div>`;
     }
 
-    // The reliquary — the frescoes uncovered across every descent. Tap an
-    // uncovered one to read it again; complete a city's set for an ember bounty.
-    html += frescoGalleryHtml(l.frescoesFound);
-
-    showOverlay("The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel));
-    ovBtn2.style.display = "none";
+    // The reliquary opens as its own view (the secondary button), not buried in
+    // this card — the gallery is a lot to scroll past on the way to a descent.
+    showOverlay(
+      "The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel),
+      `The reliquary · ${l.frescoesFound.length}/${FRESCOES.length}`, () => showReliquary(sel.id),
+    );
     // The establishing image fails silently when its art isn't shipped offline.
     const img = ovBody.querySelector<HTMLImageElement>(".city-art");
     if (img) img.onerror = () => { img.style.display = "none"; };
@@ -3166,8 +3166,24 @@ function start(): void {
         showPicker(); // re-render so the new ownership/equip state shows
       };
     });
-    // Tapping an uncovered fresco re-shows its painted card (the same in-descent
-    // reveal). The img already shipped/cached; onerror hides a missing tile.
+  }
+
+  // The reliquary — its own view, reached from the picker's secondary button.
+  // The whole collection grouped by city; tapping an uncovered fresco re-shows
+  // its painted card (the same in-descent reveal). `backTo` keeps the city the
+  // carrier had selected so the picker returns where they left it.
+  function showReliquary(backTo?: string): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const l = loadPgLegacy();
+    const body =
+      `<p class="lede">The painted fragments the watch whitewashed over, uncovered ` +
+      `as you walk the cities in the flesh. Each city hides its own set — collect ` +
+      `one entire and it banks an ember bounty. Tap any you've found to read it again.</p>` +
+      frescoGalleryHtml(l.frescoesFound);
+    showOverlay("The Reliquary", body, "Back to the cities", () => showPicker(backTo));
+    ovBtn2.style.display = "none";
+    // The img already shipped/cached; onerror hides a missing tile (no broken image).
     overlay.querySelectorAll<HTMLButtonElement>(".frx[data-frx]").forEach((b) => {
       const i = Number(b.dataset.frx);
       b.onclick = () => { if (i >= 0 && i < FRESCOES.length) revealFresco(FRESCOES[i]); };
