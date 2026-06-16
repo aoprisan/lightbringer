@@ -1,7 +1,7 @@
 {
   "name": "lightbringer",
   "version": "1.0.0",
-  "description": "The Light-Bringer — a contemplative inversion game shipped as an offline-capable PWA.",
+  "description": "The Light-Bringer — an action game (The Burning Vigil) shipped as an installable PWA; the original contemplative inversion game ships alongside it.",
   "private": true,
   "license": "UNLICENSED",
   "author": "Andrei Oprisan <aoprisan@gmail.com>",

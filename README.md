@@ -1,17 +1,23 @@
 # The Light-Bringer
 
-A contemplative inversion game — an installable browser **PWA**, playable offline.
+An action game set in a world taught that light burns — an installable browser
+**PWA**. The primary game is **The Burning Vigil**, a real-time action descent.
+The original *contemplative* inversion game ships alongside it as a code-frozen
+companion.
 
-### ▶ [**Play it now → aoprisan.github.io/lightbringer**](https://aoprisan.github.io/lightbringer/)
+### ▶ [**Play it now → The Burning Vigil**](https://aoprisan.github.io/lightbringer/pentagram.html)
 
-No install required — it runs in the browser. On mobile, use *Add to Home Screen*
-to install it as an offline app.
+The primary game: an Archero-style action descent. Stand still to inscribe a
+burning pentagram that scorches the shades around you, move to dodge — clear
+every shade to cleanse the city. ([more below](#the-burning-vigil--the-primary-game))
+No install required — it runs in the browser; on mobile, use *Add to Home
+Screen* to install it as an offline app.
 
-### ✦ [**Play the spinoff → Pentagram**](https://aoprisan.github.io/lightbringer/pentagram.html)
+### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
 
-A real-time action descent in the same world: stand still to inscribe a burning
-pentagram that scorches the shades around you, move to dodge — clear every shade
-to cleanse the city. ([more below](#pentagram--an-action-spinoff))
+The original game in the same world, now kept around: a slower, turn-based
+contemplative inversion where you tend a stolen flame across a city. ([more
+below](#the-original-light-bringer))
 
 > The world has been taught that the light burns. An order of Keepers maintains
 > the Veil: a sanctioned dimness in which people live safe, obedient,
@@ -19,9 +25,10 @@ to cleanse the city. ([more below](#pentagram--an-action-spinoff))
 > figure of the setting is you, as described by your enemies. The actual
 > experience of playing is illumination.
 
-## Play
+## The original Light-Bringer
 
-Tap to **kindle** light at a point — a dwelling, a printing press, a shrine.
+The original, code-frozen game — a contemplative, turn-based inversion. Tap to
+**kindle** light at a point — a dwelling, a printing press, a shrine.
 Each kindling reveals geometry that was always there but unrendered: hidden
 streets, suppressed frescoes, the cold faces of the Keepers. Light spreads on
 its own along anything that can carry it (oil, paper, rumor).
@@ -67,12 +74,12 @@ Across runs the game keeps a quiet **legacy** — the furthest night you reached
 the brightest morning you held, the most hearths you settled — shown on the
 title and the end screen so each new flame has something to outdo.
 
-## Pentagram — an action spinoff
+## The Burning Vigil — the primary game
 
-[**Pentagram**](https://aoprisan.github.io/lightbringer/pentagram.html) is a
-sibling game shipped alongside the Light-Bringer (and linked from its title
-screen): an Archero-style action descent set in the *same* world, reusing the
-same five cities and the same art. Instead of tending light, you walk a
+[**The Burning Vigil**](https://aoprisan.github.io/lightbringer/pentagram.html)
+is the primary game, shipped alongside the original Light-Bringer (and linked
+from its title screen): an Archero-style action descent set in the *same* world,
+reusing the same five cities and the same art. Instead of tending light, you walk a
 flame-hero through a city and **stand still to inscribe a pentagram** on the
 ground — a burning sigil that pulses damage to every *shade* (the city's watch,
 risen against you) in its ring. Move and the sigil fades and you dodge; stand and
@@ -91,15 +98,15 @@ a bounded "while you were away" catch-up.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | App shell, styling, PWA tags |
-| `app.ts` | Game logic + rendering (the whole game) — compiles to `app.js` |
-| `pentagram.ts` | Pentagram spinoff — combat sim + rendering — compiles to `pentagram.js` |
-| `pentagram.html` | Spinoff page shell |
+| `pentagram.ts` | **The Burning Vigil** (primary game) — combat sim + rendering — compiles to `pentagram.js` |
+| `pentagram.html` | The Burning Vigil page shell |
+| `app.ts` | The original Light-Bringer — game logic + rendering — compiles to `app.js` |
+| `index.html` | Original Light-Bringer shell, styling, PWA tags |
 | `sw.js` | Service worker — offline app-shell cache (both games) |
-| `manifest.webmanifest`, `pentagram.webmanifest` | Install metadata (main game / spinoff) |
+| `pentagram.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / the original) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
-| `tools/smoke-test.mjs` | Headless simulation test (`npm test`) |
-| `tools/pentagram-test.mjs` | Headless combat test for the spinoff (`npm test`) |
+| `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
+| `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
 ### Local run
