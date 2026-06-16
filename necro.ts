@@ -2165,7 +2165,7 @@ function start(): void {
     s = null; running = false;
     mmEl.style.display = "none";
     const body =
-      `<img class="start-logo" src="./icons/icon-512.png" alt="The Necromancer's March">` +
+      `<img class="start-logo" src="./art/necro-logo.png" alt="The Necromancer's March">` +
       `<p class="frx-quote">“They named the dimming 'mercy.' We named it a beginning.”</p>` +
       `<div class="start-share">` +
       `<button class="start-act" data-act="link">Share game link</button></div>`;

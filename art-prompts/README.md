@@ -45,6 +45,10 @@ pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
 | `11-sprites-vigil-states.txt` | Burning Vigil scenery states — charged conduit, spent press, consecrated shrine (`art/*.png`) |
 | `12a-walkway.txt` | Burning Vigil walkway / speed-lane tile — tiled down each pathway (`art/pathway.png`) |
 | `12b-fence.txt` | Burning Vigil obstacle / fence-barricade tile — tiled down each fence (`art/fence.png`) |
+| `13-necro-app-icon.txt` | Necromancer's March app icon — skull crowned with green flame (512 + 192) |
+| `13b-necro-app-icon-maskable.txt` | Necro maskable icon variant (safe-zone padding) |
+| `13c-necro-favicon-apple-touch.txt` | Necro favicon / apple-touch (180) |
+| `13d-necro-logo-emblem.txt` | Necro title logo / emblem — skull in a green raising-pentagram (transparent, `art/necro-logo.png`) |
 
 Aspect ratios and transparent-background notes are already written into each
 prompt where they apply.

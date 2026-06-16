@@ -1,0 +1,7 @@
+=== 13d. Necro title logo / emblem (-> art/necro-logo.png, transparent) ===
+A standalone emblem for the title screen of The Necromancer's March — larger and more detailed than the app
+icon, the raising-pentagram identity. Export 1024x1024 on a TRANSPARENT background. Copy and paste the whole block below.
+
+Sepulchral, funereal, illuminated-manuscript meets minimal poster art — the grave-light inversion of a reverent night. Necrotic green light #3cff8a and #7affb0 with a pale corpse-green hot core #d8ffe6, cold violet accents #b48cff, glowing against transparency. High contrast, soft volumetric grave-glow, subtle film grain on the glow only. No text, no watermark. Painterly but restrained — eerie, hushed, a little mournful.
+
+Title emblem: a pale skull centered inside a thin glowing necrotic-green raising-pentagram (an upright five-pointed star inscribed in a faint circle, drawn as fine luminous green strands like inscribed light). One teardrop flame of green light rises from the skull's crown to the topmost point of the star; faint green light pools in the eye sockets. Symmetrical, iconic, centered. Transparent background so it can sit over the dark title screen. No text. The pentagram strands and the flame glow; everything else stays restrained.

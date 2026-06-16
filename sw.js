@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v80";
+const CACHE = "lightbringer-v81";
 
 const ASSETS = [
   "./",
@@ -49,6 +49,13 @@ const ASSETS = [
   "./art/village-barrows.jpg",
   "./art/village-aubers.jpg",
   "./art/village-fen.jpg",
+  // Necro branding — PWA icons (skull crowned with green flame), maskable, and
+  // the title-screen logo emblem (skull in a green raising-pentagram).
+  "./icons/necro-icon-192.png",
+  "./icons/necro-icon-512.png",
+  "./icons/necro-icon-180.png",
+  "./icons/necro-maskable-512.png",
+  "./art/necro-logo.png",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

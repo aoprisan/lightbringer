@@ -1,0 +1,6 @@
+=== 13c. Necro favicon / apple-touch (-> icons/necro-icon-180.png, 180x180) ===
+Copy and paste the whole block below.
+
+Sepulchral, funereal, illuminated-manuscript meets minimal poster art — the grave-light inversion of a reverent night. Deep grave-night #070c0a and #0e1a14, necrotic green light #3cff8a and #7affb0 with a pale corpse-green hot core #d8ffe6, cold violet accents #b48cff. High contrast, lots of negative darkness, soft volumetric grave-glow, subtle film grain. No text, no watermark, no logos. Painterly but restrained — eerie, hushed, a little mournful.
+
+Same pale skull crowned with a green necrotic flame as the necro app icon but simplified for a tiny size: bolder skull, brighter flame core, thicker glow, minimal fine detail so it reads at 32px. Centered, square 1:1, deep grave-night background.
