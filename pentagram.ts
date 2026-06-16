@@ -1168,6 +1168,7 @@ function stepPentagram(s: PgState, dt: number): void {
 // the first time. Pure sim, mirroring app.ts's maybeFresco: it only queues the
 // text on s.pendingFresco — the shell pauses the descent and shows the card.
 const FRESCO_REACH = 52; // hero centre within this of an unseen place uncovers it
+const FRESCO_PER_DESCENT = 1; // how many frescoes may surface in a single descent
 
 const FRESCOES: string[] = [
   "Beneath the whitewash: a sun, and under it, our faces.",
@@ -1252,8 +1253,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
 
   // First-footing: the hero's body reaching an un-walked place may uncover a
   // fresco beneath the whitewash. Queued on the state; the shell pauses to show
-  // it. One at a time — the guard stops scanning once a fresco is pending.
-  if (!s.pendingFresco && s.shownFrescoes.length < FRESCOES.length) {
+  // it. One at a time — the guard stops scanning once a fresco is pending — and
+  // only FRESCO_PER_DESCENT may surface across a whole descent, so the reliquary
+  // fills a city at a time across runs rather than all at once.
+  if (!s.pendingFresco && s.shownFrescoes.length < Math.min(FRESCO_PER_DESCENT, FRESCOES.length)) {
     const reach2 = FRESCO_REACH ** 2;
     for (const n of s.scenery) {
       if (n.seen || n.kind === "keeper") continue;
