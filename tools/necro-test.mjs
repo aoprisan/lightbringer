@@ -212,6 +212,46 @@ biter.x = s5.hero.x; biter.y = s5.hero.y; biter.attackCd = 0;
 necro.stepKnights(s5, 16);
 ok(s5.hero.hp === hp1, "i-frames spare the necromancer an immediate second blow");
 
+// 5b. Priests — a chantry caster that channels mana then unmakes a skeleton
+//     instantly, and never harms the necromancer's own life.
+const sP = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sP.knights.some((e) => e.priest), "the chantry-town musters priests");
+stowAll(sP);
+sP.scenery = []; sP.solids = []; sP.barricades = []; sP.causeways = [];
+const priest = sP.knights.find((e) => e.priest) ?? sP.knights[0];
+priest.priest = true; wake(priest); priest.x = 800; priest.y = 800; priest.mana = 0;
+sP.hero.x = 50; sP.hero.y = 50; // necromancer far off, out of the way
+const prey = { x: 800 + K.PRIEST_SMITE_RANGE - 20, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+sP.minions = [prey];
+necro.stepKnights(sP, 16); // not yet charged
+ok(!prey.dead && (priest.mana ?? 0) > 0, "an uncharged priest only channels — the skeleton lives");
+priest.mana = 1; // fully charged
+necro.stepKnights(sP, 16);
+ok(prey.dead, "a charged priest unmakes a skeleton in range instantly");
+ok((priest.mana ?? 0) === 0, "a smite spends the priest's mana (recharges from empty)");
+ok(sP.smites.length >= 1, "a smite leaves a holy-flash FX");
+// A skeleton out of smite range survives a charged priest.
+const sP3 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sP3);
+const pr3 = sP3.knights.find((e) => e.priest) ?? sP3.knights[0];
+pr3.priest = true; wake(pr3); pr3.x = 800; pr3.y = 800; pr3.mana = 1;
+sP3.hero.x = 50; sP3.hero.y = 50;
+const farPrey = { x: 800 + K.PRIEST_SMITE_RANGE + 80, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+sP3.minions = [farPrey];
+necro.stepKnights(sP3, 16);
+ok(!farPrey.dead && (pr3.mana ?? 0) >= 1, "a priest holds its charge when no skeleton is in range");
+// A priest never bites the necromancer, even glued to it.
+const sP2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sP2);
+sP2.scenery = []; sP2.solids = []; sP2.barricades = []; sP2.causeways = [];
+const pr2 = sP2.knights.find((e) => e.priest) ?? sP2.knights[0];
+pr2.priest = true; wake(pr2); pr2.mana = 1;
+pr2.x = sP2.hero.x; pr2.y = sP2.hero.y; // glued to the necromancer
+sP2.minions = [];
+const hpBefore = sP2.hero.hp;
+run(sP2, 600, still);
+ok(sP2.hero.hp === hpBefore && sP2.hits === 0, "a priest never bites the necromancer (no HP loss, no hit)");
+
 // 6. Win on all-knights-dead — clearedPct 1, phase "won", no further sim.
 const s6 = necro.buildArena(necro.levelById(id));
 // Fell all but the last knight up front (counting each, so clearedPct tracks).

@@ -95,13 +95,17 @@ interface Knight {
   attackCd: number;             // ms until it can swing again
   hit: number;                  // s.elapsed time until which it flashes from a blow
   captain?: boolean;            // a stouter knight: more hp, bites harder
-  archer?: boolean;             // reserved (deferred, mirrors the spitter): unused for now
+  priest?: boolean;             // a chantry priest: doesn't melee — channels mana, then
+                                // smites one skeleton dead, and must recharge (see stepKnights)
+  mana?: number;                // 0..1 — a priest's holy charge toward its next smite
 }
 
 // FX, drawn then faded — never persisted. A Raise is the bone-burst ring on a
-// raise; a Wisp is a soul mote a slain knight drops, gathered for souls.
+// raise; a Wisp is a soul mote a slain knight drops; a Smite is the holy flash
+// where a priest's mana struck a skeleton dead.
 interface Raise { x: number; y: number; r: number; until: number }
 interface Wisp { x: number; y: number; until: number }
+interface Smite { x: number; y: number; until: number }
 
 interface NecroState {
   level: LevelDef;
@@ -119,6 +123,7 @@ interface NecroState {
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
   raises: Raise[];       // fading bone-burst rings (cosmetic)
+  smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
   elapsed: number;       // ms since the march began (clear time)
   kills: number;         // knights felled
   hits: number;          // times a knight has landed a blow on the necromancer
@@ -261,6 +266,16 @@ const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a march a
 const CAPTAIN_HP_MUL = 2.4;      // a captain's hp over a common knight
 const CAPTAIN_DMG = 17;          // damage a captain's swing deals (vs KNIGHT_DMG)
 
+// Priests — the chantry's casters. A priest never melees; once roused it channels
+// holy mana and, when full, unmakes the nearest skeleton in range outright, then
+// must recharge. It threatens the HORDE, not the necromancer's life — so the
+// counter is to mass the dead and rush it before it thins them. Killable like any
+// knight (counts toward the host), and frailer than a captain.
+const PRIEST_HP_MUL = 1.4;       // a priest's hp over a common knight (a soft backline)
+const PRIEST_CHARGE_MS = 3400;   // time to charge one smite (the telegraph window)
+const PRIEST_SMITE_RANGE = 230;  // a charged priest smites the nearest skeleton within this
+const PRIEST_SMITE_MS = 460;     // how long the holy-flash FX lingers
+
 // Obstacles — the village's solid structures (wells, altars) block bodies; the
 // hero, minions and knights weave around them. Houses and graves are passable
 // (you raze the former, raise at the latter). Radii are roughly the footprint.
@@ -340,7 +355,7 @@ interface LevelDef {
   barricadeCount: number; // walls woven between neighbouring posts (cover)
   causewayCount: number;  // open lanes the necromancer runs swift along
   captainCount?: number;  // posts whose lead knight is a stout captain (default 0)
-  archerCount?: number;   // reserved (deferred): posts with a ranged knight (default 0)
+  priestCount?: number;   // posts that muster a mana-channeling priest (default 0)
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -363,7 +378,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 66,
     houseFrac: 0.22, wellCount: 3, altarCount: 4, graveCount: 9,
     postCount: 7, postSpacing: 320,
-    barricadeCount: 6, causewayCount: 9, captainCount: 2, sizeScale: 1.0,
+    barricadeCount: 6, causewayCount: 9, captainCount: 2, priestCount: 1, sizeScale: 1.0,
   },
   {
     id: "saint-aubers",
@@ -373,7 +388,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 118, minDist: 70,
     houseFrac: 0.16, wellCount: 5, altarCount: 3, graveCount: 5,
     postCount: 9, postSpacing: 270,
-    barricadeCount: 12, causewayCount: 4, captainCount: 4, sizeScale: 1.1,
+    barricadeCount: 12, causewayCount: 4, captainCount: 4, priestCount: 3, sizeScale: 1.1,
   },
   {
     id: "gallows-fen",
@@ -383,7 +398,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 84,
     houseFrac: 0.30, wellCount: 2, altarCount: 5, graveCount: 8,
     postCount: 6, postSpacing: 400,
-    barricadeCount: 10, causewayCount: 3, captainCount: 2, sizeScale: 1.15,
+    barricadeCount: 10, causewayCount: 3, captainCount: 2, priestCount: 2, sizeScale: 1.15,
   },
 ];
 
@@ -550,10 +565,14 @@ function buildArena(level: LevelDef): NecroState {
   };
   const knights: Knight[] = [];
   const captainCount = Math.min(level.captainCount ?? 0, posts.length);
+  const priestCount = Math.min(level.priestCount ?? 0, posts.length);
   posts.forEach((post, pi) => {
     for (let j = 0; j < KNIGHT_PER_POST; j++) {
       const captain = j === 0 && pi < captainCount;
-      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL : KNIGHT_HP;
+      // The 2nd of a post's knights is a priest on the first `priestCount` posts —
+      // a backline caster standing apart from the post's lead (captain or not).
+      const priest = j === 1 && pi < priestCount;
+      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL : priest ? KNIGHT_HP * PRIEST_HP_MUL : KNIGHT_HP;
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, KNIGHT_RADIUS, w - KNIGHT_RADIUS);
@@ -565,7 +584,7 @@ function buildArena(level: LevelDef): NecroState {
         wanderTimer: Math.random() * KNIGHT_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y,
         attackCd: 0, hit: 0,
-        captain,
+        captain, priest, mana: 0,
       });
     }
   });
@@ -579,7 +598,7 @@ function buildArena(level: LevelDef): NecroState {
     barricades, causeways,
     hero, rite, souls: SOUL_START, soulRegen: 0,
     minions: [], knights,
-    wisps: [], raises: [],
+    wisps: [], raises: [], smites: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -829,39 +848,59 @@ function stepKnights(s: NecroState, dt: number): void {
       }
       dx = tx - e.x; dy = ty - e.y;
       const dist = Math.hypot(dx, dy) || 1;
-      // Swing if in reach, off cooldown.
-      if (e.attackCd <= 0) {
-        const dmg = e.captain ? CAPTAIN_DMG : KNIGHT_DMG;
-        if (targetMinion) {
-          const reach = KNIGHT_RADIUS + MINION_RADIUS + KNIGHT_ATTACK_REACH;
-          if (dist <= reach) {
-            targetMinion.hp -= dmg;
-            targetMinion.hit = s.elapsed + HIT_FLASH_MS;
-            e.attackCd = KNIGHT_ATTACK_CD;
-            if (targetMinion.hp <= 0) targetMinion.dead = true;
-          }
-        } else {
-          const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
-          if (dist <= reach && h.hurt <= 0) {
-            h.hp -= dmg;
-            s.hits++;
-            h.hurt = HERO_IFRAMES_MS;
-            e.attackCd = KNIGHT_ATTACK_CD;
-            const kx = h.x - e.x, ky = h.y - e.y, kd = Math.hypot(kx, ky) || 1;
-            const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
-            h.x = p.x; h.y = p.y;
+      if (e.priest) {
+        // A priest never melees. Roused, it channels holy mana; when full it unmakes
+        // the nearest skeleton in range outright (no damage roll — a single instant
+        // kill), then must recharge. It holds its ground, so the counter is to mass
+        // the horde and overwhelm it faster than it can thin them. The necromancer's
+        // own life is never at risk from a priest.
+        e.mana = Math.min(1, (e.mana ?? 0) + dt / PRIEST_CHARGE_MS);
+        if ((e.mana ?? 0) >= 1) {
+          const si = nearestMinion(s, e.x, e.y, PRIEST_SMITE_RANGE);
+          if (si >= 0) {
+            const victim = s.minions[si];
+            victim.dead = true;
+            e.mana = 0; // spent — recharge from empty
+            s.smites.push({ x: victim.x, y: victim.y, until: s.elapsed + PRIEST_SMITE_MS });
           }
         }
+        dx /= dist; dy /= dist;
+        speed = 0; // a channeling priest stands fast
+      } else {
+        // Swing if in reach, off cooldown.
+        if (e.attackCd <= 0) {
+          const dmg = e.captain ? CAPTAIN_DMG : KNIGHT_DMG;
+          if (targetMinion) {
+            const reach = KNIGHT_RADIUS + MINION_RADIUS + KNIGHT_ATTACK_REACH;
+            if (dist <= reach) {
+              targetMinion.hp -= dmg;
+              targetMinion.hit = s.elapsed + HIT_FLASH_MS;
+              e.attackCd = KNIGHT_ATTACK_CD;
+              if (targetMinion.hp <= 0) targetMinion.dead = true;
+            }
+          } else {
+            const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
+            if (dist <= reach && h.hurt <= 0) {
+              h.hp -= dmg;
+              s.hits++;
+              h.hurt = HERO_IFRAMES_MS;
+              e.attackCd = KNIGHT_ATTACK_CD;
+              const kx = h.x - e.x, ky = h.y - e.y, kd = Math.hypot(kx, ky) || 1;
+              const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
+              h.x = p.x; h.y = p.y;
+            }
+          }
+        }
+        dx /= dist; dy /= dist;
+        // Separation among fellow engagers so they form a line, not a stack.
+        for (const o of s.knights) {
+          if (o === e || o.dead || o.state !== "engage") continue;
+          const ox = e.x - o.x, oy = e.y - o.y, od = Math.hypot(ox, oy);
+          if (od > 0 && od < KNIGHT_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
+        }
+        const mlen = Math.hypot(dx, dy) || 1; dx /= mlen; dy /= mlen;
+        speed = KNIGHT_SPEED;
       }
-      dx /= dist; dy /= dist;
-      // Separation among fellow engagers so they form a line, not a stack.
-      for (const o of s.knights) {
-        if (o === e || o.dead || o.state !== "engage") continue;
-        const ox = e.x - o.x, oy = e.y - o.y, od = Math.hypot(ox, oy);
-        if (od > 0 && od < KNIGHT_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
-      }
-      const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
-      speed = KNIGHT_SPEED;
     } else {
       // Guard: drift along the heading, re-rolling on a timer; steer home if the
       // leash is taut so a guard never strays far from its post.
@@ -1067,6 +1106,7 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
 
   // Retire spent FX (cheap; only when any are live).
   if (s.raises.length) s.raises = s.raises.filter((r) => r.until > s.elapsed);
+  if (s.smites.length) s.smites = s.smites.filter((f) => f.until > s.elapsed);
 
   // Terminal: the necromancer falls first; else the whole watch is overrun.
   if (h.hp <= 0) { h.hp = 0; s.phase = "lost"; }
@@ -1101,6 +1141,9 @@ const SPRITE_NAMES = [
   // Per-rite skeleton kinds — each raising-rite calls up its own. They fall back to
   // the base "skeleton" when absent, so they are NOT yet in sw.js (added when shipped).
   "skeleton-brute", "skeleton-wight", "skeleton-revenant",
+  // The priest — a mana-channelling enemy caster. Falls back to the knight art when
+  // absent, so it is NOT yet in sw.js (added when the sprite ships).
+  "priest",
 ] as const;
 
 // Which sprites a village may re-skin (art/<villageId>/<name>.png) — the built
@@ -1405,23 +1448,40 @@ function render(s: NecroState, layer: SVGGElement): void {
     }));
   }
 
+  // Smite flashes — a priest's holy light unmaking a skeleton. White-gold, quick.
+  for (const f of s.smites) {
+    const life = Math.max(0, (f.until - s.elapsed) / PRIEST_SMITE_MS);
+    if (life <= 0) continue;
+    const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+    layer.appendChild(el("circle", {
+      cx: f.x, cy: f.y, r: 10 + (1 - life) * 26, fill: "none",
+      stroke: "#fff6d8", "stroke-width": 2 + 3 * life, opacity: 0.85 * life, ...fx,
+    }));
+    layer.appendChild(el("circle", {
+      cx: f.x, cy: f.y, r: 6 * (0.6 + life), fill: "#fffbe6", opacity: life, ...fx,
+    }));
+  }
+
   // Knights — the village watch. Engaging ones draw full; guards lurk faint.
   const knightKey = sprites.has("knight-engage")
     ? "knight-engage" : sprites.has("knight-guard") ? "knight-guard" : null;
   const guardKey = sprites.has("knight-guard") ? "knight-guard" : knightKey;
+  const priestKey = sprites.has("priest") ? "priest" : null;
   for (const e of s.knights) {
     if (e.dead) continue;
     const op = e.state === "engage" ? 1 : 0.6;
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = (e.captain ? 58 : 44) * (1 + flash * 0.18);
-    const useKey = e.state === "engage" ? knightKey : guardKey;
+    const sz = (e.captain ? 58 : e.priest ? 50 : 44) * (1 + flash * 0.18);
+    // A priest draws its own sprite when shipped, else falls back to the knight art.
+    const useKey = e.priest && priestKey ? priestKey : (e.state === "engage" ? knightKey : guardKey);
     if (useKey) {
       layer.appendChild(spriteImage(useKey, e.x, e.y, sz, op));
     } else {
       const q = KNIGHT_RADIUS * (e.captain ? 2 : 1.5);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
-        fill: "#2a2620", stroke: "#cfd2c0", "stroke-width": 2, opacity: op,
+        fill: e.priest ? "#201d2a" : "#2a2620",
+        stroke: e.priest ? "#ffe8a0" : "#cfd2c0", "stroke-width": 2, opacity: op,
       }));
     }
     // A captain reads at a glance: a steel-bright ring.
@@ -1430,6 +1490,25 @@ function render(s: NecroState, layer: SVGGElement): void {
         cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
         stroke: "#dfe4d0", "stroke-width": 2, opacity: 0.55 * op,
       }));
+    }
+    // A priest reads by its holy charge: an aura that fills toward a smite and
+    // flares bright gold when fully charged — the telegraph to rush it or feint.
+    if (e.priest) {
+      const mana = e.mana ?? 0;
+      const charged = mana >= 1;
+      const bloom: Record<string, string> = charged && !LOW_FX ? { filter: "url(#bloom)" } : {};
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 7, fill: "none", stroke: "#ffe8a0",
+        "stroke-width": charged ? 2.8 : 1.5, opacity: (charged ? 0.9 : 0.28 + 0.5 * mana) * op, ...bloom,
+      }));
+      if (charged) {
+        const pulse = 1 + 0.18 * Math.sin(s.elapsed / 90);
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: (KNIGHT_RADIUS + 11) * pulse, fill: "none",
+          stroke: "#fffbe6", "stroke-width": 1.6, opacity: 0.7 * op,
+          filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+      }
     }
     if (flash > 0) {
       const grow = 1 - flash;
@@ -1836,12 +1915,13 @@ function start(): void {
       if (m.dead) continue;
       mmEl.appendChild(el("circle", { cx: m.x * scale, cy: m.y * scale, r: 1.0, fill: "#e8efd8", opacity: 0.85 }));
     }
-    // The watch that remains — the map's whole point (captains stand out).
+    // The watch that remains — the map's whole point (captains stand out steel,
+    // priests gold so you can pick the casters to rush).
     for (const e of s.knights) {
       if (e.dead) continue;
       mmEl.appendChild(el("circle", {
-        cx: e.x * scale, cy: e.y * scale, r: e.captain ? 1.9 : 1.3,
-        fill: "#cfd2c0", opacity: 0.95,
+        cx: e.x * scale, cy: e.y * scale, r: e.captain ? 1.9 : e.priest ? 1.6 : 1.3,
+        fill: e.priest ? "#ffe8a0" : "#cfd2c0", opacity: 0.95,
       }));
     }
     const vw = svg.clientWidth, vh = svg.clientHeight;
@@ -2174,6 +2254,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       KNIGHT_HP, KNIGHT_SPEED, KNIGHT_RADIUS, KNIGHT_DMG, KNIGHT_ATTACK_CD,
       KNIGHT_ATTACK_REACH, KNIGHT_SEP, KNIGHT_PER_POST, AGGRO_RADIUS,
       KNIGHT_WANDER_SPEED, KNIGHT_LEASH, CLEANUP_AGGRO_FRAC, CAPTAIN_HP_MUL, CAPTAIN_DMG,
+      PRIEST_HP_MUL, PRIEST_CHARGE_MS, PRIEST_SMITE_RANGE, PRIEST_SMITE_MS,
       OBSTACLE_RADIUS, BARRICADE_HALF, CAUSEWAY_HALF, CAUSEWAY_BOOST,
       DESEC_REACH, DESEC_HEAL, HEAL_CAP, HOUSE_RISE_MS, TOTEM_RADIUS, TOTEM_DMG,
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,
