@@ -1,0 +1,19 @@
+ASSET: house-desecrated.png — a razed, cursed house, green glow (inverts dwelling-lit)
+OUTPUT: art/house-desecrated.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: keep the silhouette readable at small sizes.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; NECROTIC GREEN (#3CFF8A/#7AFFB0) glow. Soft
+painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- PROMPT ---
+The same cottage razed and desecrated: roof caved, walls broken, a sickly necrotic-
+green light welling up from inside the ruin and pooling on the ground. Cursed ground,
+unmade. The inversion of a home — desecration, not a kindled hearth.

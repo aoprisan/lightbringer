@@ -1,0 +1,19 @@
+ASSET: house-standing.png — an intact village dwelling (inverts dwelling-dark)
+OUTPUT: art/house-standing.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: keep the silhouette readable at small sizes.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black
+(#060B08), cold slate and grave-stone grey, bone white; cold moonlight only.
+Soft painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- PROMPT ---
+A modest stone-and-timber peasant cottage, intact and shuttered against the night,
+a thin curl of hearth-smoke from its chimney. Lived-in, defended, quiet. No
+unnatural light — just cold moonlight on its thatch. The home the horde will raze.

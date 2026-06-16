@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v72";
+const CACHE = "lightbringer-v73";
 
 const ASSETS = [
   "./",
@@ -12,6 +12,15 @@ const ASSETS = [
   "./pentagram.html",
   "./pentagram.js",
   "./pentagram.webmanifest",
+  // The Necromancer's March — the third sibling spinoff (its own page + module).
+  // Shell only (network-first via isShell). Its undead art PNGs are NOT listed
+  // yet: cache.addAll() rejects the whole install if any one 404s, and those
+  // files don't exist until the artist drops them — render falls back to vector
+  // primitives so the game is fully playable without them. Add the PNGs (and
+  // re-bump CACHE) as a follow-up once they ship.
+  "./necro.html",
+  "./necro.js",
+  "./necro.webmanifest",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -134,7 +143,8 @@ self.addEventListener("activate", (event) => {
 function isShell(url) {
   return url.pathname === "/" || url.pathname.endsWith("/") ||
     url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js") ||
-    url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js");
+    url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
+    url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js");
 }
 
 self.addEventListener("fetch", (event) => {

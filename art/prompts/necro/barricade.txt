@@ -1,0 +1,19 @@
+ASSET: barricade.png — a tiled palisade segment (inverts fence)
+OUTPUT: art/barricade.png
+FORMAT: 1024×1024, square, SEAMLESS HORIZONTAL TILE, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. A texture tiled HORIZONTALLY along a wall segment, so its LEFT
+  and RIGHT edges must wrap seamlessly. It reads as a stout, body-blocking wall.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+weathered timber-grey and grave-stone; cold moonlight only, no unnatural glow.
+Soft painterly edges, subtle grain, no outlines, no photorealism. Top-down
+three-quarter, lit from above.
+
+--- PROMPT ---
+A defensive village palisade: a row of sharpened timber stakes lashed together with
+a stone-and-earth base, weathered and grim. A solid blocker the villagers raised
+against the dead. A seamless horizontally-tiling wall segment.

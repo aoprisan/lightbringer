@@ -1,0 +1,21 @@
+ASSET: grave.png — an open grave/barrow, the raise site (inverts keeper-node)
+OUTPUT: art/grave.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: it must read as the raise SITE — an open, inviting grave
+  glowing with potential, the most important interactive node.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; NECROTIC green (#3CFF8A/#7AFFB0) glow rising from
+the open earth. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- PROMPT ---
+An open grave: a dug-out barrow of dark earth with a leaning headstone, the soil
+churned and a soft necrotic-green light welling up from the hole as if the dead
+within are stirring. Inviting, charged with potential — the place the necromancer
+raises an army.

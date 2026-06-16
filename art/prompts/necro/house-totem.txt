@@ -1,0 +1,21 @@
+ASSET: house-totem.png — a bone-totem ally emitter (inverts dwelling-awakened)
+OUTPUT: art/house-totem.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: keep the silhouette readable at small sizes; it must read
+  as the brightest, most active version of the house — an ally beacon.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+bone white; FIERCE necrotic green (#3CFF8A) and cold violet (#7A3CFF) glow. Soft
+painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #060B08 background.
+
+--- PROMPT ---
+The razed house has risen as a bone-totem: a heaped cairn of skulls and rib-bones
+lashed to the ruined timbers, blazing with necrotic green-violet fire that pulses
+outward in rings. An ally beacon, the brightest thing on the field — the inversion
+of an awakened, fighting dwelling.
