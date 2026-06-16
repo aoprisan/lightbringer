@@ -62,6 +62,8 @@ interface Hero {
   x: number; y: number; vx: number; vy: number;
   hp: number; maxHp: number;
   hurt: number; // remaining i-frame ms after a knight's blow (0 = vulnerable)
+  charge: number; // 0..1 — how fully the raising-pentagram is inscribed (ramps while still)
+  angle: number;  // the sigil's slow cosmetic spin, in degrees
 }
 
 // A raised skeleton minion — the horde. Follows the necromancer until a knight is
@@ -75,6 +77,7 @@ interface Minion {
   attackCd: number;  // ms until it can swing again
   hit: number;       // s.elapsed time until which it flashes from a fresh blow
   bornAt: number;    // s.elapsed it was raised (for the spawn flourish)
+  variant: string;   // the raising-rite that called it up — its skeleton kind (RaiseType id)
 }
 
 // A village knight — the watch, inverted. Guards its post (wandering on a leash)
@@ -92,13 +95,17 @@ interface Knight {
   attackCd: number;             // ms until it can swing again
   hit: number;                  // s.elapsed time until which it flashes from a blow
   captain?: boolean;            // a stouter knight: more hp, bites harder
-  archer?: boolean;             // reserved (deferred, mirrors the spitter): unused for now
+  priest?: boolean;             // a chantry priest: doesn't melee — channels mana, then
+                                // smites one skeleton dead, and must recharge (see stepKnights)
+  mana?: number;                // 0..1 — a priest's holy charge toward its next smite
 }
 
 // FX, drawn then faded — never persisted. A Raise is the bone-burst ring on a
-// raise; a Wisp is a soul mote a slain knight drops, gathered for souls.
+// raise; a Wisp is a soul mote a slain knight drops; a Smite is the holy flash
+// where a priest's mana struck a skeleton dead.
 interface Raise { x: number; y: number; r: number; until: number }
 interface Wisp { x: number; y: number; until: number }
+interface Smite { x: number; y: number; until: number }
 
 interface NecroState {
   level: LevelDef;
@@ -109,11 +116,14 @@ interface NecroState {
   barricades: Segment[]; // walls the bodies must weave around
   causeways: Segment[];  // open lanes the necromancer runs swift along
   hero: Hero;            // the necromancer
+  rite: RaiseType;       // the equipped raising-rite (resolved from the legacy at build)
   souls: number;         // the raise resource
+  soulRegen: number;     // ms accumulator for the patient soul-seep (transient, not saved)
   minions: Minion[];
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
   raises: Raise[];       // fading bone-burst rings (cosmetic)
+  smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
   elapsed: number;       // ms since the march began (clear time)
   kills: number;         // knights felled
   hits: number;          // times a knight has landed a blow on the necromancer
@@ -143,8 +153,10 @@ const HERO_KNOCKBACK = 60;       // units the necromancer is shoved back by a bl
 
 // Souls — the raise economy. A march begins with SOUL_START; each grave near you,
 // off cooldown, with raises left and souls to spend, raises a handful of minions.
-// Felling a knight grants souls (and may drop a gatherable soul-wisp).
-const SOUL_START = 6;
+// Souls flow from three sources so a grave rarely sits useless: felling a knight,
+// razing a house (desecration feeds the carrier), and a slow patient seep that
+// trickles a floor of souls back when you run dry (so you can always raise again).
+const SOUL_START = 9;
 const RAISE_COST = 2;            // souls per raise pulse from a grave
 const RAISE_MIN = 1;             // skeletons raised per pulse (low)
 const RAISE_MAX = 3;             // …and high (inclusive)
@@ -153,6 +165,73 @@ const GRAVE_RADIUS = 18;         // a grave's footprint (for the reach test)
 const GRAVE_RAISES = 5;          // raise pulses a grave holds before it is spent
 const GRAVE_COOLDOWN_MS = 900;   // ms between raise pulses from one grave
 const SOUL_PER_KILL = 1;         // souls a felled knight grants directly
+const SOUL_PER_RAZE = 1;         // souls a razed house feeds the carrier (the snowball)
+const SOUL_REGEN_MS = 2200;      // the patient seep: one soul per this long…
+const SOUL_REGEN_TO = 5;         // …but only while below this floor (never a fountain)
+
+// The raising-pentagram — the necromancer's sigil and the gate on every raise.
+// Standing still inscribes it (charge ramps to 1); marching lets it fade. The dead
+// rise ONLY beneath a sufficiently-inscribed sigil (stepRaise gates on PENTA_RAISE_AT),
+// so a raise is a deliberate stand over a grave — not something you do on the run.
+// Mirror of the Burning Vigil's stand-still pentagram, inverted from smiting to raising.
+const HERO_STILL_MAXSPEED = 40;  // travel slower than this (units/s) to inscribe
+const PENTA_CHARGE_MS = 420;     // time stationary to fully inscribe (and to fade)
+const PENTA_RAISE_AT = 0.6;      // the sigil raises the dead once at least this inscribed
+const PENTA_RADIUS = 64;         // the sigil's drawn reach around the necromancer
+const PENTA_SPIN = 0.05;         // degrees of sigil rotation per ms (cosmetic)
+
+// ---------- Raising-rites (unlockable pentagrams) ----------
+// Each rite is a different pentagram that calls up a different skeleton kind: a
+// stat lean over the base MINION_* / raise tuning, plus its own sigil and bone
+// hues so it reads at a glance. Mirror of the Burning Vigil's unlockable sigils,
+// inverted — there the sigil shaped the smite, here it shapes the dead it raises.
+// "The Common Grave" is the steady starter (cost 0, always owned); the rest cost
+// relics, banked from marches. This roster is the design surface for progression.
+interface RaiseType {
+  id: string; name: string; desc: string; cost: number;
+  hpMul: number;     // raised skeleton's hp     × MINION_HP
+  speedMul: number;  // …its travel speed        × MINION_SPEED
+  dmgMul: number;    // …its swing damage         × MINION_DMG
+  countBonus: number; // extra skeletons per raise pulse (added to RAISE_MIN..MAX)
+  soulMul: number;   // souls per raise pulse     × RAISE_COST (rounded, ≥1)
+  chargeMul: number; // inscribe time             × PENTA_CHARGE_MS (a slower sigil)
+  size: number;      // the skeleton's draw size (px)
+  ring: string;      // the pentagram's signature glow/ring hue
+  star: string;      // the pentagram's star-stroke hue
+  bone: string;      // the skeleton's bone tint (procedural fallback)
+  sprite: string;    // the skeleton's art (art/<sprite>.png); falls back to "skeleton"
+}
+
+const RAISE_TYPES: RaiseType[] = [
+  {
+    id: "grave", name: "The Common Grave", cost: 0,
+    desc: "The plain rite you began with — footsoldiers of the dead. Even bone, even bite.",
+    hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1,
+    size: 30, ring: "#7affb0", star: "#d8ffe6", bone: "#e8efd8", sprite: "skeleton",
+  },
+  {
+    id: "barrow", name: "The Barrow-Wall", cost: 120,
+    desc: "Raises bone-brutes — slow, heavy, hard-hitting, and dear in souls. A wall of the dead that does not break.",
+    hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18,
+    size: 40, ring: "#ffd36a", star: "#fff0b0", bone: "#ded2a0", sprite: "skeleton-brute",
+  },
+  {
+    id: "cairn", name: "The Quick Cairn", cost: 160,
+    desc: "Raises wights — frail and fleeting, but they swarm: a fast sigil that calls up more for less.",
+    hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72,
+    size: 24, ring: "#8affd8", star: "#d8fff0", bone: "#dffff0", sprite: "skeleton-wight",
+  },
+  {
+    id: "gallows", name: "The Gallows Rite", cost: 240,
+    desc: "Raises revenants — swift, tough, and cruel, but a slow sigil and dear in souls. The capstone of the craft.",
+    hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12,
+    size: 34, ring: "#c08aff", star: "#f0d8ff", bone: "#cdb8ff", sprite: "skeleton-revenant",
+  },
+];
+
+function raiseTypeById(id: string): RaiseType {
+  return RAISE_TYPES.find((t) => t.id === id) || RAISE_TYPES[0];
+}
 const WISP_DROP_CHANCE = 0.5;    // fraction of kills that leave a gatherable wisp
 const WISP_SOULS = 1;            // souls a gathered wisp grants
 const WISP_TTL_MS = 7000;        // how long a wisp waits to be gathered
@@ -186,6 +265,16 @@ const KNIGHT_LEASH = 250;        // a guard steers home if it drifts past this
 const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a march always ends
 const CAPTAIN_HP_MUL = 2.4;      // a captain's hp over a common knight
 const CAPTAIN_DMG = 17;          // damage a captain's swing deals (vs KNIGHT_DMG)
+
+// Priests — the chantry's casters. A priest never melees; once roused it channels
+// holy mana and, when full, unmakes the nearest skeleton in range outright, then
+// must recharge. It threatens the HORDE, not the necromancer's life — so the
+// counter is to mass the dead and rush it before it thins them. Killable like any
+// knight (counts toward the host), and frailer than a captain.
+const PRIEST_HP_MUL = 1.4;       // a priest's hp over a common knight (a soft backline)
+const PRIEST_CHARGE_MS = 3400;   // time to charge one smite (the telegraph window)
+const PRIEST_SMITE_RANGE = 230;  // a charged priest smites the nearest skeleton within this
+const PRIEST_SMITE_MS = 460;     // how long the holy-flash FX lingers
 
 // Obstacles — the village's solid structures (wells, altars) block bodies; the
 // hero, minions and knights weave around them. Houses and graves are passable
@@ -235,6 +324,14 @@ const SCORE_SURVIVAL_MAX = 200;      // full points for full HP at the overrun
 const SCORE_UNTOUCHED = 250;         // flawless bonus (no blow landed all march)
 
 const HIT_FLASH_MS = 150;        // how long a body flashes from a fresh blow
+
+// Relics — the cross-march unlock currency (the inversion of the Vigil's embers).
+// An overrun banks a share of its score; even a broken march leaves the relics of
+// the knights you felled, so progress never fully stalls. Spent in the picker to
+// learn new raising-rites.
+const RELIC_SCORE_DIV = 12;      // relics from an overrun = score ÷ this (min 1)
+const RELIC_PER_KILL = 1;        // relics a fall still leaves, per knight felled
+
 const NECRO_LEGACY_KEY = "necromancer.legacy.v1";
 
 // ---------- Villages (levels) ----------
@@ -258,7 +355,7 @@ interface LevelDef {
   barricadeCount: number; // walls woven between neighbouring posts (cover)
   causewayCount: number;  // open lanes the necromancer runs swift along
   captainCount?: number;  // posts whose lead knight is a stout captain (default 0)
-  archerCount?: number;   // reserved (deferred): posts with a ranged knight (default 0)
+  priestCount?: number;   // posts that muster a mana-channeling priest (default 0)
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -281,7 +378,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 66,
     houseFrac: 0.22, wellCount: 3, altarCount: 4, graveCount: 9,
     postCount: 7, postSpacing: 320,
-    barricadeCount: 6, causewayCount: 9, captainCount: 2, sizeScale: 1.0,
+    barricadeCount: 6, causewayCount: 9, captainCount: 2, priestCount: 1, sizeScale: 1.0,
   },
   {
     id: "saint-aubers",
@@ -291,7 +388,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 118, minDist: 70,
     houseFrac: 0.16, wellCount: 5, altarCount: 3, graveCount: 5,
     postCount: 9, postSpacing: 270,
-    barricadeCount: 12, causewayCount: 4, captainCount: 4, sizeScale: 1.1,
+    barricadeCount: 12, causewayCount: 4, captainCount: 4, priestCount: 3, sizeScale: 1.1,
   },
   {
     id: "gallows-fen",
@@ -301,7 +398,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 84,
     houseFrac: 0.30, wellCount: 2, altarCount: 5, graveCount: 8,
     postCount: 6, postSpacing: 400,
-    barricadeCount: 10, causewayCount: 3, captainCount: 2, sizeScale: 1.15,
+    barricadeCount: 10, causewayCount: 3, captainCount: 2, priestCount: 2, sizeScale: 1.15,
   },
 ];
 
@@ -464,13 +561,18 @@ function buildArena(level: LevelDef): NecroState {
   const causeways = weaveSegments(scenery, level.causewayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
+    charge: 0, angle: 0,
   };
   const knights: Knight[] = [];
   const captainCount = Math.min(level.captainCount ?? 0, posts.length);
+  const priestCount = Math.min(level.priestCount ?? 0, posts.length);
   posts.forEach((post, pi) => {
     for (let j = 0; j < KNIGHT_PER_POST; j++) {
       const captain = j === 0 && pi < captainCount;
-      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL : KNIGHT_HP;
+      // The 2nd of a post's knights is a priest on the first `priestCount` posts —
+      // a backline caster standing apart from the post's lead (captain or not).
+      const priest = j === 1 && pi < priestCount;
+      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL : priest ? KNIGHT_HP * PRIEST_HP_MUL : KNIGHT_HP;
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, KNIGHT_RADIUS, w - KNIGHT_RADIUS);
@@ -482,18 +584,21 @@ function buildArena(level: LevelDef): NecroState {
         wanderTimer: Math.random() * KNIGHT_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y,
         attackCd: 0, hit: 0,
-        captain,
+        captain, priest, mana: 0,
       });
     }
   });
+  // The equipped raising-rite is re-derived from the legacy on every build (the
+  // picker has the only chooser; a march is rite-locked once it begins).
+  const rite = raiseTypeById(loadNecroLegacy().equipped);
   return {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     graves: scenery.filter((n) => n.kind === "grave"),
     barricades, causeways,
-    hero, souls: SOUL_START,
+    hero, rite, souls: SOUL_START, soulRegen: 0,
     minions: [], knights,
-    wisps: [], raises: [],
+    wisps: [], raises: [], smites: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -573,13 +678,16 @@ function killKnight(s: NecroState, e: Knight): void {
   }
 }
 
-// Raise the dead: for each grave the necromancer stands beside, off cooldown, with
-// raises left and souls to spend and room in the horde, deduct souls, decrement
+// Raise the dead: only while the raising-pentagram is inscribed (charge ≥ PENTA_RAISE_AT,
+// i.e. the necromancer has held still — see stepMarch). Then for each grave he stands
+// beside, off cooldown, with raises left and souls to spend and room in the horde,
+// deduct souls, decrement
 // the grave's raises (→ graveSpent), spawn RAISE_MIN..MAX minions in a burst, and
 // push a bone-burst FX. The single raise path. A grave's cooldown rides on its own
 // `desecAt`-style field — we reuse `desecAt` as the grave's last-raise time.
 function stepRaise(s: NecroState): void {
   const h = s.hero;
+  if (h.charge < PENTA_RAISE_AT) return; // the dead rise only beneath an inscribed sigil
   for (const g of s.graves) {
     if (g.graveSpent || !g.raisesLeft || g.raisesLeft <= 0) continue;
     const rr = (GRAVE_REACH + GRAVE_RADIUS) ** 2;
@@ -588,13 +696,18 @@ function stepRaise(s: NecroState): void {
     // desecrate, so the field is free to reuse — keeps the node shape compact).
     const last = g.desecAt ?? -Infinity;
     if (s.elapsed - last < GRAVE_COOLDOWN_MS) continue;
-    if (s.souls < RAISE_COST) continue;
+    // The equipped rite shapes the raise: its skeleton kind costs more or fewer
+    // souls, comes up in larger or smaller numbers, and stands with leaned hp.
+    const rite = s.rite;
+    const cost = Math.max(1, Math.round(RAISE_COST * rite.soulMul));
+    if (s.souls < cost) continue;
     if (aliveMinions(s) >= MINION_CAP) continue;
-    s.souls -= RAISE_COST;
+    s.souls -= cost;
     g.raisesLeft -= 1;
     g.desecAt = s.elapsed;
     if (g.raisesLeft <= 0) g.graveSpent = true;
-    const n = RAISE_MIN + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
+    const hp = Math.round(MINION_HP * rite.hpMul);
+    const n = RAISE_MIN + rite.countBonus + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
     for (let i = 0; i < n; i++) {
       if (aliveMinions(s) >= MINION_CAP) break;
       const a = Math.random() * Math.PI * 2;
@@ -603,8 +716,9 @@ function stepRaise(s: NecroState): void {
       const my = clamp(g.y + Math.sin(a) * r, MINION_RADIUS, s.h - MINION_RADIUS);
       s.minions.push({
         x: mx, y: my, vx: 0, vy: 0,
-        hp: MINION_HP, maxHp: MINION_HP, dead: false,
+        hp, maxHp: hp, dead: false,
         state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: s.elapsed,
+        variant: rite.id,
       });
       s.raisedTotal++;
     }
@@ -636,6 +750,9 @@ function stepMinions(s: NecroState, dt: number): void {
   for (const m of s.minions) {
     if (m.dead) continue;
     m.attackCd = Math.max(0, m.attackCd - dt);
+    // The skeleton's kind (its raising-rite) leans its pace and bite.
+    const def = raiseTypeById(m.variant);
+    const moveSpeed = MINION_SPEED * def.speedMul;
 
     // Pick a quarry: the nearest knight in aggro range (global during cleanup).
     const ti = nearestKnight(s, m.x, m.y, cleanup ? Infinity : MINION_AGGRO);
@@ -650,7 +767,7 @@ function stepMinions(s: NecroState, dt: number): void {
       // Swing if in reach, off cooldown.
       const reach = MINION_RADIUS + KNIGHT_RADIUS + MINION_ATTACK_REACH;
       if (dist <= reach && m.attackCd <= 0) {
-        target.hp -= MINION_DMG;
+        target.hp -= MINION_DMG * def.dmgMul;
         target.hit = s.elapsed + HIT_FLASH_MS;
         m.attackCd = MINION_ATTACK_CD;
         if (target.hp <= 0) killKnight(s, target);
@@ -663,7 +780,7 @@ function stepMinions(s: NecroState, dt: number): void {
         if (od > 0 && od < MINION_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
       }
       const mm = Math.hypot(dx, dy) || 1; dx /= mm; dy /= mm;
-      speed = MINION_SPEED;
+      speed = moveSpeed;
     } else {
       m.state = "follow";
       dx = h.x - m.x; dy = h.y - m.y;
@@ -676,7 +793,7 @@ function stepMinions(s: NecroState, dt: number): void {
       }
       const mm = Math.hypot(dx, dy) || 1;
       dx /= mm; dy /= mm;
-      speed = dist > MINION_FOLLOW_DIST ? MINION_SPEED : 0; // hold at the heel
+      speed = dist > MINION_FOLLOW_DIST ? moveSpeed : 0; // hold at the heel
     }
     m.vx = dx * speed; m.vy = dy * speed;
     const p = pushOut(s, m.x + (m.vx * dt) / 1000, m.y + (m.vy * dt) / 1000, MINION_RADIUS);
@@ -731,39 +848,59 @@ function stepKnights(s: NecroState, dt: number): void {
       }
       dx = tx - e.x; dy = ty - e.y;
       const dist = Math.hypot(dx, dy) || 1;
-      // Swing if in reach, off cooldown.
-      if (e.attackCd <= 0) {
-        const dmg = e.captain ? CAPTAIN_DMG : KNIGHT_DMG;
-        if (targetMinion) {
-          const reach = KNIGHT_RADIUS + MINION_RADIUS + KNIGHT_ATTACK_REACH;
-          if (dist <= reach) {
-            targetMinion.hp -= dmg;
-            targetMinion.hit = s.elapsed + HIT_FLASH_MS;
-            e.attackCd = KNIGHT_ATTACK_CD;
-            if (targetMinion.hp <= 0) targetMinion.dead = true;
-          }
-        } else {
-          const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
-          if (dist <= reach && h.hurt <= 0) {
-            h.hp -= dmg;
-            s.hits++;
-            h.hurt = HERO_IFRAMES_MS;
-            e.attackCd = KNIGHT_ATTACK_CD;
-            const kx = h.x - e.x, ky = h.y - e.y, kd = Math.hypot(kx, ky) || 1;
-            const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
-            h.x = p.x; h.y = p.y;
+      if (e.priest) {
+        // A priest never melees. Roused, it channels holy mana; when full it unmakes
+        // the nearest skeleton in range outright (no damage roll — a single instant
+        // kill), then must recharge. It holds its ground, so the counter is to mass
+        // the horde and overwhelm it faster than it can thin them. The necromancer's
+        // own life is never at risk from a priest.
+        e.mana = Math.min(1, (e.mana ?? 0) + dt / PRIEST_CHARGE_MS);
+        if ((e.mana ?? 0) >= 1) {
+          const si = nearestMinion(s, e.x, e.y, PRIEST_SMITE_RANGE);
+          if (si >= 0) {
+            const victim = s.minions[si];
+            victim.dead = true;
+            e.mana = 0; // spent — recharge from empty
+            s.smites.push({ x: victim.x, y: victim.y, until: s.elapsed + PRIEST_SMITE_MS });
           }
         }
+        dx /= dist; dy /= dist;
+        speed = 0; // a channeling priest stands fast
+      } else {
+        // Swing if in reach, off cooldown.
+        if (e.attackCd <= 0) {
+          const dmg = e.captain ? CAPTAIN_DMG : KNIGHT_DMG;
+          if (targetMinion) {
+            const reach = KNIGHT_RADIUS + MINION_RADIUS + KNIGHT_ATTACK_REACH;
+            if (dist <= reach) {
+              targetMinion.hp -= dmg;
+              targetMinion.hit = s.elapsed + HIT_FLASH_MS;
+              e.attackCd = KNIGHT_ATTACK_CD;
+              if (targetMinion.hp <= 0) targetMinion.dead = true;
+            }
+          } else {
+            const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
+            if (dist <= reach && h.hurt <= 0) {
+              h.hp -= dmg;
+              s.hits++;
+              h.hurt = HERO_IFRAMES_MS;
+              e.attackCd = KNIGHT_ATTACK_CD;
+              const kx = h.x - e.x, ky = h.y - e.y, kd = Math.hypot(kx, ky) || 1;
+              const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
+              h.x = p.x; h.y = p.y;
+            }
+          }
+        }
+        dx /= dist; dy /= dist;
+        // Separation among fellow engagers so they form a line, not a stack.
+        for (const o of s.knights) {
+          if (o === e || o.dead || o.state !== "engage") continue;
+          const ox = e.x - o.x, oy = e.y - o.y, od = Math.hypot(ox, oy);
+          if (od > 0 && od < KNIGHT_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
+        }
+        const mlen = Math.hypot(dx, dy) || 1; dx /= mlen; dy /= mlen;
+        speed = KNIGHT_SPEED;
       }
-      dx /= dist; dy /= dist;
-      // Separation among fellow engagers so they form a line, not a stack.
-      for (const o of s.knights) {
-        if (o === e || o.dead || o.state !== "engage") continue;
-        const ox = e.x - o.x, oy = e.y - o.y, od = Math.hypot(ox, oy);
-        if (od > 0 && od < KNIGHT_SEP) { dx += (ox / od) * 0.7; dy += (oy / od) * 0.7; }
-      }
-      const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
-      speed = KNIGHT_SPEED;
     } else {
       // Guard: drift along the heading, re-rolling on a timer; steer home if the
       // leash is taut so a guard never strays far from its post.
@@ -802,6 +939,7 @@ function desecrateHouse(s: NecroState, n: ArenaNode, heal: number): void {
   if (n.reconsecrated && n.reconsecrated > s.elapsed) return; // the scar still bars re-razing
   n.desecrated = true; n.desecAt = s.elapsed; n.risen = false; n.reconsecrated = 0;
   s.desecCount++;
+  s.souls += SOUL_PER_RAZE; // a razed house feeds the carrier — souls to raise more
   if (heal) {
     // The village rallies the horde only up to HEAL_CAP·maxHp; distribute the
     // mend across living minions so razing keeps a swarm on its feet.
@@ -938,7 +1076,27 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
-  stepRaise(s);        // graves underfoot raise skeletons (costs souls)
+  // The raising-pentagram inscribes while the necromancer holds still and bleeds
+  // away as he marches; only an inscribed sigil raises the dead (see stepRaise).
+  const chargeMs = PENTA_CHARGE_MS * s.rite.chargeMul; // a heavier rite inscribes slower
+  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
+    h.charge = Math.min(1, h.charge + dt / chargeMs);
+  } else {
+    h.charge = Math.max(0, h.charge - dt / chargeMs);
+  }
+  h.angle = (h.angle + dt * PENTA_SPIN) % 360;
+
+  // The patient soul-seep: when the carrier has run low, the dead trickle a few
+  // souls back so a grave is never permanently useless — but only up to a floor,
+  // never enough to replace felling knights and razing houses.
+  if (s.souls < SOUL_REGEN_TO) {
+    s.soulRegen += dt;
+    if (s.soulRegen >= SOUL_REGEN_MS) { s.souls += 1; s.soulRegen = 0; }
+  } else {
+    s.soulRegen = 0;
+  }
+
+  stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
   stepKnights(s, dt);  // the watch guards / engages the horde and the necromancer
@@ -948,6 +1106,7 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
 
   // Retire spent FX (cheap; only when any are live).
   if (s.raises.length) s.raises = s.raises.filter((r) => r.until > s.elapsed);
+  if (s.smites.length) s.smites = s.smites.filter((f) => f.until > s.elapsed);
 
   // Terminal: the necromancer falls first; else the whole watch is overrun.
   if (h.hp <= 0) { h.hp = 0; s.phase = "lost"; }
@@ -979,6 +1138,12 @@ const SPRITE_NAMES = [
   // procedural lines when the PNG is absent.
   "barricade", "causeway",
   "knight-guard", "knight-engage", "skeleton", "necromancer",
+  // Per-rite skeleton kinds — each raising-rite calls up its own. They fall back to
+  // the base "skeleton" when absent, so they are NOT yet in sw.js (added when shipped).
+  "skeleton-brute", "skeleton-wight", "skeleton-revenant",
+  // The priest — a mana-channelling enemy caster. Falls back to the knight art when
+  // absent, so it is NOT yet in sw.js (added when the sprite ships).
+  "priest",
 ] as const;
 
 // Which sprites a village may re-skin (art/<villageId>/<name>.png) — the built
@@ -1039,6 +1204,21 @@ function tiledSegment(patId: string, seg: Segment, thick: number, opacity: numbe
     x: 0, y: 0, width: len, height: thick, fill: `url(#${patId})`, opacity,
     transform: `translate(${seg.x1.toFixed(1)} ${seg.y1.toFixed(1)}) rotate(${ang.toFixed(2)}) translate(0 ${(-thick / 2).toFixed(1)})`,
   });
+}
+
+// The raising-pentagram's five-pointed star, as an SVG path centred on (cx,cy).
+// Pure geometry (mirrors pentagram.ts's, but this module shares nothing with it):
+// five rim points stepped by 72°, joined in the 0-2-4-1-3 star order and closed.
+function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): string {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < 5; i++) {
+    const a = ((-90 + rotDeg + i * 72) * Math.PI) / 180;
+    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  const order = [0, 2, 4, 1, 3];
+  let d = `M${pts[order[0]][0].toFixed(1)} ${pts[order[0]][1].toFixed(1)} `;
+  for (let i = 1; i < 5; i++) d += `L${pts[order[i]][0].toFixed(1)} ${pts[order[i]][1].toFixed(1)} `;
+  return d + "Z";
 }
 
 // ---------- Render (reads NecroState; wholesale rebuild each frame) ----------
@@ -1167,6 +1347,12 @@ function render(s: NecroState, layer: SVGGElement): void {
     }));
   }
 
+  // Can the necromancer raise at all right now? Souls in hand for at least one
+  // pulse of the equipped rite, and the horde under its cap. When he can't, every
+  // open grave dims — so a grave that won't answer reads as "no souls", not broken.
+  const raiseCost = Math.max(1, Math.round(RAISE_COST * s.rite.soulMul));
+  const canRaiseNow = s.souls >= raiseCost && aliveMinions(s) < MINION_CAP;
+
   // Scenery — the built world. A desecrated house glows necrotic green; a risen
   // totem shows its emitter reach; a re-blessed house's scar marks the ground.
   for (const n of s.scenery) {
@@ -1190,9 +1376,23 @@ function render(s: NecroState, layer: SVGGElement): void {
         }));
       }
     }
-    // A grave glows faintly while it still holds dead to raise.
+    // An open grave glows while it still holds dead to raise. A grave you can
+    // raise from *right now* (souls in hand, horde not capped, off its brief
+    // cooldown) pulses a bright ring in the equipped rite's hue; one you can't
+    // sits dim — so empty souls read as "wait", not as a dead grave.
     if (n.kind === "grave" && !n.graveSpent) {
-      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 26, fill: "url(#necro)", opacity: 0.5 }));
+      const offCooldown = s.elapsed - (n.desecAt ?? -Infinity) >= GRAVE_COOLDOWN_MS;
+      const ready = canRaiseNow && offCooldown;
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: 26, fill: "url(#necro)", opacity: ready ? 0.5 : 0.16,
+      }));
+      if (ready) {
+        const pulse = 1 + 0.12 * Math.sin(s.elapsed / 180);
+        layer.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 23 * pulse, fill: "none", stroke: s.rite.ring,
+          "stroke-width": 1.6, opacity: 0.55, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+      }
     }
     const spriteName = scenerySprite(s, n);
     const key = spriteFor(s.level, spriteName);
@@ -1248,23 +1448,40 @@ function render(s: NecroState, layer: SVGGElement): void {
     }));
   }
 
+  // Smite flashes — a priest's holy light unmaking a skeleton. White-gold, quick.
+  for (const f of s.smites) {
+    const life = Math.max(0, (f.until - s.elapsed) / PRIEST_SMITE_MS);
+    if (life <= 0) continue;
+    const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+    layer.appendChild(el("circle", {
+      cx: f.x, cy: f.y, r: 10 + (1 - life) * 26, fill: "none",
+      stroke: "#fff6d8", "stroke-width": 2 + 3 * life, opacity: 0.85 * life, ...fx,
+    }));
+    layer.appendChild(el("circle", {
+      cx: f.x, cy: f.y, r: 6 * (0.6 + life), fill: "#fffbe6", opacity: life, ...fx,
+    }));
+  }
+
   // Knights — the village watch. Engaging ones draw full; guards lurk faint.
   const knightKey = sprites.has("knight-engage")
     ? "knight-engage" : sprites.has("knight-guard") ? "knight-guard" : null;
   const guardKey = sprites.has("knight-guard") ? "knight-guard" : knightKey;
+  const priestKey = sprites.has("priest") ? "priest" : null;
   for (const e of s.knights) {
     if (e.dead) continue;
     const op = e.state === "engage" ? 1 : 0.6;
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = (e.captain ? 58 : 44) * (1 + flash * 0.18);
-    const useKey = e.state === "engage" ? knightKey : guardKey;
+    const sz = (e.captain ? 58 : e.priest ? 50 : 44) * (1 + flash * 0.18);
+    // A priest draws its own sprite when shipped, else falls back to the knight art.
+    const useKey = e.priest && priestKey ? priestKey : (e.state === "engage" ? knightKey : guardKey);
     if (useKey) {
       layer.appendChild(spriteImage(useKey, e.x, e.y, sz, op));
     } else {
       const q = KNIGHT_RADIUS * (e.captain ? 2 : 1.5);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
-        fill: "#2a2620", stroke: "#cfd2c0", "stroke-width": 2, opacity: op,
+        fill: e.priest ? "#201d2a" : "#2a2620",
+        stroke: e.priest ? "#ffe8a0" : "#cfd2c0", "stroke-width": 2, opacity: op,
       }));
     }
     // A captain reads at a glance: a steel-bright ring.
@@ -1273,6 +1490,25 @@ function render(s: NecroState, layer: SVGGElement): void {
         cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
         stroke: "#dfe4d0", "stroke-width": 2, opacity: 0.55 * op,
       }));
+    }
+    // A priest reads by its holy charge: an aura that fills toward a smite and
+    // flares bright gold when fully charged — the telegraph to rush it or feint.
+    if (e.priest) {
+      const mana = e.mana ?? 0;
+      const charged = mana >= 1;
+      const bloom: Record<string, string> = charged && !LOW_FX ? { filter: "url(#bloom)" } : {};
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 7, fill: "none", stroke: "#ffe8a0",
+        "stroke-width": charged ? 2.8 : 1.5, opacity: (charged ? 0.9 : 0.28 + 0.5 * mana) * op, ...bloom,
+      }));
+      if (charged) {
+        const pulse = 1 + 0.18 * Math.sin(s.elapsed / 90);
+        layer.appendChild(el("circle", {
+          cx: e.x, cy: e.y, r: (KNIGHT_RADIUS + 11) * pulse, fill: "none",
+          stroke: "#fffbe6", "stroke-width": 1.6, opacity: 0.7 * op,
+          filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+      }
     }
     if (flash > 0) {
       const grow = 1 - flash;
@@ -1291,19 +1527,31 @@ function render(s: NecroState, layer: SVGGElement): void {
   }
 
   // Minions — the horde. Small bone figures, drawn over the watch they swarm.
-  const minionKey = sprites.has("skeleton") ? "skeleton" : null;
+  const baseSkeleton = sprites.has("skeleton") ? "skeleton" : null;
   for (const m of s.minions) {
     if (m.dead) continue;
+    // The skeleton's raising-rite sets its art, size and bone/aura hue, so the four
+    // kinds — footsoldier, brute, wight, revenant — read apart at a glance. Its own
+    // sprite is used when shipped; otherwise it falls back to the base skeleton.
+    const def = raiseTypeById(m.variant);
+    const skKey = sprites.has(def.sprite) ? def.sprite : baseSkeleton;
     const flash = m.hit > s.elapsed ? Math.max(0, (m.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = 30 * (1 + flash * 0.18);
-    if (minionKey) {
-      layer.appendChild(spriteImage(minionKey, m.x, m.y, sz, 1));
+    const sz = def.size * (1 + flash * 0.18);
+    // A signature aura in the rite's hue rings every skeleton it raised.
+    if (def.id !== "grave") {
+      layer.appendChild(el("circle", {
+        cx: m.x, cy: m.y, r: sz * 0.42, fill: "none", stroke: def.ring,
+        "stroke-width": 1.4, opacity: 0.5, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
+    if (skKey) {
+      layer.appendChild(spriteImage(skKey, m.x, m.y, sz, 1));
     } else {
-      // Procedural skeleton: a small pale lozenge with a faint green glow.
+      // Procedural skeleton: a small pale lozenge tinted to its bone hue.
       layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: MINION_RADIUS + 3, fill: "url(#haloRise)", opacity: 0.4 }));
       layer.appendChild(el("circle", {
-        cx: m.x, cy: m.y, r: MINION_RADIUS, fill: "#e8efd8",
-        stroke: "#7affb0", "stroke-width": 1.5, opacity: 0.95,
+        cx: m.x, cy: m.y, r: MINION_RADIUS, fill: def.bone,
+        stroke: def.ring, "stroke-width": 1.5, opacity: 0.95,
       }));
     }
     if (flash > 0) {
@@ -1320,8 +1568,34 @@ function render(s: NecroState, layer: SVGGElement): void {
     }
   }
 
-  // The necromancer, drawn last over everything with a necrotic aura.
+  // The raising-pentagram — the only procedural sigil. It scales and brightens as
+  // it inscribes (charge), turns slowly, and flares brighter once it is armed to
+  // raise (charge ≥ PENTA_RAISE_AT). It wears the equipped rite's hues, so the
+  // sigil and the dead it calls up read as one craft. Drawn under the necromancer.
   const h = s.hero;
+  if (h.charge > 0.02) {
+    const r = PENTA_RADIUS * (0.72 + 0.28 * h.charge);
+    const op = 0.2 + 0.6 * h.charge;
+    const armed = h.charge >= PENTA_RAISE_AT;
+    const ring = s.rite.ring, star = s.rite.star;
+    layer.appendChild(el("circle", { cx: h.x, cy: h.y, r, fill: "url(#necro)", opacity: op * 0.6 }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r, fill: "none", stroke: ring, "stroke-width": 1.6,
+      opacity: op, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("path", {
+      d: pentagramPath(h.x, h.y, r * 0.92, h.angle),
+      fill: "none", stroke: armed ? star : ring,
+      "stroke-width": 2.4, "stroke-linejoin": "round",
+      opacity: op, filter: "url(#glow)",
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: ring,
+      "stroke-width": 1, opacity: op * 0.6,
+    }));
+  }
+
+  // The necromancer, drawn last over everything with a necrotic aura.
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 30, fill: "url(#haloRise)", opacity: 0.85 }));
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 22, fill: "url(#necro)", opacity: 0.5 }));
   if (sprites.has("necromancer")) {
@@ -1351,10 +1625,16 @@ interface NecroLegacy {
   best: Record<string, number>; // fastest overrun per village id, ms
   housesRazed: number;   // lifetime houses razed across all marches
   totemsRaised: number;  // lifetime houses that rose into bone-totems
+  relics: number;        // the unlock currency, banked from marches
+  unlocked: string[];    // raising-rite ids the carrier owns (always includes "grave")
+  equipped: string;      // the rite id currently equipped
 }
 
 function emptyNecroLegacy(): NecroLegacy {
-  return { runs: 0, overruns: 0, best: {}, housesRazed: 0, totemsRaised: 0 };
+  return {
+    runs: 0, overruns: 0, best: {}, housesRazed: 0, totemsRaised: 0,
+    relics: 0, unlocked: ["grave"], equipped: "grave",
+  };
 }
 
 function loadNecroLegacy(): NecroLegacy {
@@ -1362,12 +1642,20 @@ function loadNecroLegacy(): NecroLegacy {
     const raw = localStorage.getItem(NECRO_LEGACY_KEY);
     if (!raw) return emptyNecroLegacy();
     const l = JSON.parse(raw) as Partial<NecroLegacy>;
+    // The rite fields default in for saves from before they existed (no key bump):
+    // "grave" is always owned, and an unknown/unowned equip falls back to it.
+    const owned = new Set(l.unlocked && l.unlocked.length ? l.unlocked : ["grave"]);
+    owned.add("grave");
+    const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "grave";
     return {
       runs: l.runs || 0,
       overruns: l.overruns || 0,
       best: l.best || {},
       housesRazed: l.housesRazed || 0,
       totemsRaised: l.totemsRaised || 0,
+      relics: l.relics || 0,
+      unlocked: [...owned],
+      equipped,
     };
   } catch { return emptyNecroLegacy(); }
 }
@@ -1377,23 +1665,47 @@ function saveNecroLegacy(l: NecroLegacy): void {
 }
 
 // Fold an overrun into the legacy — write-once at the win transition. Best time
-// never worsens.
-function recordOverrun(level: LevelDef, ms: number, razed = 0, totems = 0): NecroLegacy {
+// never worsens; relics (the unlock currency) bank here.
+function recordOverrun(level: LevelDef, ms: number, razed = 0, totems = 0, relics = 0): NecroLegacy {
   const l = loadNecroLegacy();
   l.runs++; l.overruns++;
   l.housesRazed += razed;
   l.totemsRaised += totems;
+  l.relics += Math.max(0, relics);
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
   saveNecroLegacy(l);
   return l;
 }
 
-// Fold a fall into the legacy — write-once at the lose transition.
-function recordFall(razed = 0, totems = 0): NecroLegacy {
+// Fold a fall into the legacy — write-once at the lose transition. A broken march
+// still banks the relics of the knights it felled, so progress never fully stalls.
+function recordFall(razed = 0, totems = 0, relics = 0): NecroLegacy {
   const l = loadNecroLegacy();
   l.runs++;
   l.housesRazed += razed;
   l.totemsRaised += totems;
+  l.relics += Math.max(0, relics);
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Buy a raising-rite if it is unowned and affordable: deduct its relics and add it
+// to the carrier's roster. A no-op (legacy unchanged) otherwise.
+function unlockRite(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  const t = raiseTypeById(id);
+  if (t.id !== id || l.unlocked.includes(id) || l.relics < t.cost) return l;
+  l.relics -= t.cost;
+  l.unlocked.push(id);
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Equip a raising-rite the carrier owns. A no-op for an unowned id.
+function equipRite(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  if (!l.unlocked.includes(id)) return l;
+  l.equipped = id;
   saveNecroLegacy(l);
   return l;
 }
@@ -1603,12 +1915,13 @@ function start(): void {
       if (m.dead) continue;
       mmEl.appendChild(el("circle", { cx: m.x * scale, cy: m.y * scale, r: 1.0, fill: "#e8efd8", opacity: 0.85 }));
     }
-    // The watch that remains — the map's whole point (captains stand out).
+    // The watch that remains — the map's whole point (captains stand out steel,
+    // priests gold so you can pick the casters to rush).
     for (const e of s.knights) {
       if (e.dead) continue;
       mmEl.appendChild(el("circle", {
-        cx: e.x * scale, cy: e.y * scale, r: e.captain ? 1.9 : 1.3,
-        fill: "#cfd2c0", opacity: 0.95,
+        cx: e.x * scale, cy: e.y * scale, r: e.captain ? 1.9 : e.priest ? 1.6 : 1.3,
+        fill: e.priest ? "#ffe8a0" : "#cfd2c0", opacity: 0.95,
       }));
     }
     const vw = svg.clientWidth, vh = svg.clientHeight;
@@ -1715,7 +2028,8 @@ function start(): void {
     const razed = s.desecCount, total = s.housesTotal;
     const totems = s.scenery.filter((n) => n.risen).length;
     const sc = scoreRun(s);
-    const l = recordOverrun(s.level, ms, razed, totems);
+    const relics = Math.max(1, Math.round(sc.total / RELIC_SCORE_DIV));
+    const l = recordOverrun(s.level, ms, razed, totems, relics);
     const best = l.best[s.level.id];
     const razedLine = (razed >= total && total > 0
       ? `You razed every house — <em>${total}</em>. Nothing of the village stands.`
@@ -1740,6 +2054,7 @@ function start(): void {
       `in <em>${fmtTime(ms)}</em>.<br><br>` +
       `${razedLine}<br><br>` +
       (best === ms ? `<em>A new best for this village.</em>` : `Best here: ${fmtTime(best)}.`) +
+      ` <em>+${relics}</em> relics gathered.` +
       breakdown,
       "March again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -1748,13 +2063,15 @@ function start(): void {
 
   function onLost(): void {
     if (!s) return;
-    recordFall(s.desecCount, s.scenery.filter((n) => n.risen).length);
+    const relics = s.kills * RELIC_PER_KILL; // the felled still leave their relics
+    recordFall(s.desecCount, s.scenery.filter((n) => n.risen).length, relics);
     showOverlay(
       "Your march is broken",
       `The watch of <em>${s.level.name}</em> cut you down with ` +
       `<em>${aliveKnights(s)}</em> knights still standing.<br><br>` +
       `You had razed <em>${s.desecCount}</em> of ${s.housesTotal} houses ` +
       `and raised <em>${s.raisedTotal}</em> of the dead.<br><br>` +
+      (relics > 0 ? `The fallen leave <em>+${relics}</em> relics behind. ` : ``) +
       `<em>The grave is patient. March again.</em>`,
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -1785,6 +2102,30 @@ function start(): void {
     }
     html += `</div>`;
 
+    // Raising-rites — the unlockable pentagrams, each calling up its own skeleton
+    // kind. Marches bank relics; spend them here to learn a rite, then equip it.
+    html +=
+      `<div class="legacy"><div class="legacy-head">` +
+      `Raising-rites <span class="legacy-new">${l.relics} relics</span></div></div>` +
+      `<div class="ptypes">`;
+    for (const t of RAISE_TYPES) {
+      const owned = l.unlocked.includes(t.id);
+      const equipped = l.equipped === t.id;
+      const afford = l.relics >= t.cost;
+      let badge: string, act: string, disabled = false;
+      if (equipped) { badge = ` <span class="legacy-new">equipped</span>`; act = ""; disabled = true; }
+      else if (owned) { badge = ""; act = "equip"; }
+      else if (afford) { badge = ` <span class="legacy-new">${t.cost} relics</span>`; act = "unlock"; }
+      else { badge = ` <span class="ptype-cost">${t.cost} relics</span>`; act = ""; disabled = true; }
+      const verb = act === "equip" ? "Equip" : act === "unlock" ? "Learn" : equipped ? "Equipped" : "Locked";
+      html +=
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<span class="city-name"><span class="ptype-swatch" style="background:${t.star};box-shadow:0 0 6px ${t.ring}"></span>${t.name}${badge}</span>` +
+        `<span class="city-line">${t.desc}</span>` +
+        `<span class="ptype-verb">${verb}</span></button>`;
+    }
+    html += `</div>`;
+
     if (l.runs > 0) {
       html +=
         `<div class="legacy"><div class="legacy-head">Your marches</div><dl>` +
@@ -1803,6 +2144,16 @@ function start(): void {
       b.onclick = () => {
         const lv = levelById(b.dataset.id || "");
         if (lv) showPicker(lv.id);
+      };
+    });
+    // Learn / equip a rite, then re-render so the new ownership and equip show.
+    overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
+      const id = b.dataset.id || "", act = b.dataset.act || "";
+      if (!act) return;
+      b.onclick = () => {
+        if (act === "unlock") { unlockRite(id); equipRite(id); }
+        else if (act === "equip") equipRite(id);
+        showPicker(sel.id);
       };
     });
   }
@@ -1887,19 +2238,23 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
-    weaveSegments, closestOnSegment, pushOut,
+    weaveSegments, closestOnSegment, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,
+    RAISE_TYPES, raiseTypeById, unlockRite, equipRite,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       SOUL_START, RAISE_COST, RAISE_MIN, RAISE_MAX, GRAVE_REACH, GRAVE_RADIUS,
       GRAVE_RAISES, GRAVE_COOLDOWN_MS, SOUL_PER_KILL,
+      HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
+      RELIC_SCORE_DIV, RELIC_PER_KILL,
       WISP_DROP_CHANCE, WISP_SOULS, WISP_TTL_MS, WISP_RADIUS,
       MINION_HP, MINION_SPEED, MINION_RADIUS, MINION_DMG, MINION_ATTACK_CD,
       MINION_ATTACK_REACH, MINION_SEP, MINION_FOLLOW_DIST, MINION_AGGRO, MINION_CAP,
       KNIGHT_HP, KNIGHT_SPEED, KNIGHT_RADIUS, KNIGHT_DMG, KNIGHT_ATTACK_CD,
       KNIGHT_ATTACK_REACH, KNIGHT_SEP, KNIGHT_PER_POST, AGGRO_RADIUS,
       KNIGHT_WANDER_SPEED, KNIGHT_LEASH, CLEANUP_AGGRO_FRAC, CAPTAIN_HP_MUL, CAPTAIN_DMG,
+      PRIEST_HP_MUL, PRIEST_CHARGE_MS, PRIEST_SMITE_RANGE, PRIEST_SMITE_MS,
       OBSTACLE_RADIUS, BARRICADE_HALF, CAUSEWAY_HALF, CAUSEWAY_BOOST,
       DESEC_REACH, DESEC_HEAL, HEAL_CAP, HOUSE_RISE_MS, TOTEM_RADIUS, TOTEM_DMG,
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,

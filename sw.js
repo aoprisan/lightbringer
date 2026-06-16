@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v74";
+const CACHE = "lightbringer-v81";
 
 const ASSETS = [
   "./",
@@ -13,14 +13,42 @@ const ASSETS = [
   "./pentagram.js",
   "./pentagram.webmanifest",
   // The Necromancer's March — the third sibling spinoff (its own page + module).
-  // Shell only (network-first via isShell). Its undead art PNGs are NOT listed
-  // yet: cache.addAll() rejects the whole install if any one 404s, and those
-  // files don't exist until the artist drops them — render falls back to vector
-  // primitives so the game is fully playable without them. Add the PNGs (and
-  // re-bump CACHE) as a follow-up once they ship.
+  // Shell (network-first via isShell) plus its undead art, which has now shipped.
+  // Every file listed must exist in art/ (addAll() rejects the whole install on a
+  // single 404) — render still falls back to vector primitives when absent.
   "./necro.html",
   "./necro.js",
   "./necro.webmanifest",
+  // Necro sprites (art/prompts/necro/*). Universal village fabric: four house
+  // states, well, altar, grave + spent, the necromancer, both knight faces, the
+  // skeleton minion, and the tiled barricade/causeway terrain. ground.png is
+  // shared with the parent and already listed below.
+  "./art/house-standing.png",
+  "./art/house-desecrated.png",
+  "./art/house-totem.png",
+  "./art/house-reconsecrated.png",
+  "./art/well.png",
+  "./art/altar.png",
+  "./art/grave.png",
+  "./art/grave-spent.png",
+  "./art/barricade.png",
+  "./art/causeway.png",
+  "./art/necromancer.png",
+  "./art/knight-guard.png",
+  "./art/knight-engage.png",
+  "./art/skeleton.png",
+  // Per-rite skeleton kinds — each raising-rite calls up its own (brute/wight/
+  // revenant); render falls back to the base skeleton when absent.
+  "./art/skeleton-brute.png",
+  "./art/skeleton-wight.png",
+  "./art/skeleton-revenant.png",
+  // The priest — the chantry's mana-channelling caster (an enemy of the watch).
+  "./art/priest.png",
+  // Necro village establishing cards (shown on the picker; silent-fail).
+  "./art/village-hollowmere.jpg",
+  "./art/village-barrows.jpg",
+  "./art/village-aubers.jpg",
+  "./art/village-fen.jpg",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

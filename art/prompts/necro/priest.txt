@@ -1,0 +1,28 @@
+ASSET: priest.png — a chantry priest, an enemy caster of the village watch (NEW)
+OUTPUT: art/priest.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: keep the silhouette readable at small sizes; it must read as
+  a HUMAN HOLY MAN — a robed priest channelling light, sympathetic and devout, not a
+  monster (the player is the villain who raises the dead against him).
+- Clearly a CASTER, not a soldier: no armour, no sword — robes, a raised hand/relic,
+  and holy radiance gathering. He must read apart from the chainmail knights.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+grave-stone grey, bone white; warm HOLY GOLD and candle-amber (#FFE8A0) light on the
+priest — a sacred warmth set against the horde's green rot (the same human-warmth
+register as the knights, but radiant rather than steel). Soft painterly edges, subtle
+grain, no outlines, no photorealism. Three-quarter top-down (about 60°), isolated on
+a flat solid #060B08.
+
+--- PROMPT ---
+A chantry priest channelling holy power: a robed, hooded cleric in pale vestments
+with a stole, one hand raised holding a glowing reliquary or censer, golden light
+gathering at his palm and haloing his head as he calls down a smite. Devout, frail,
+unarmoured — a man of faith making his stand against the risen dead. The gold radiance
+is his telegraph; he must read at a glance as the caster to rush, distinct from the
+steel-and-spear knights.

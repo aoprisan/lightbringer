@@ -82,12 +82,18 @@ ok(s.souls === K.SOUL_START && s.minions.length === 0, "the march begins with th
 ok(necro.aliveKnights(s) === s.total && necro.clearedPct(s) === 0, "all knights alive, nothing overrun yet");
 ok(s.knights.every((e) => e.state === "guard"), "the watch begins guarding, not rushing");
 
-// 3. Raising from graves — souls drop by RAISE_COST, 1–3 minions, raisesLeft--; a
-//    spent grave / no souls / a full horde no-op.
+// 3. Raising from graves — only beneath an inscribed pentagram (stand still). Souls
+//    drop by RAISE_COST, 1–3 minions, raisesLeft--; a not-yet-inscribed sigil / spent
+//    grave / no souls / a full horde no-op.
 const s2 = necro.buildArena(necro.levelById(id));
 stowAll(s2);
 const grave = s2.graves[0];
 s2.hero.x = grave.x; s2.hero.y = grave.y; // stand on the grave
+// A grave underfoot but a fading sigil (charge below the raise threshold) raises nothing.
+s2.hero.charge = K.PENTA_RAISE_AT - 0.01;
+necro.stepRaise(s2);
+ok(s2.minions.length === 0, "a faint (uninscribed) sigil raises nothing, even on a grave");
+s2.hero.charge = 1; // sigil fully inscribed (the necromancer held still)
 const soulsBefore = s2.souls, raisesBefore = grave.raisesLeft;
 necro.stepRaise(s2);
 ok(s2.souls === soulsBefore - K.RAISE_COST, `raising deducts RAISE_COST souls (${soulsBefore} -> ${s2.souls})`);
@@ -113,9 +119,33 @@ stowAll(s2b);
 s2b.souls = 999;
 for (let i = 0; i < K.MINION_CAP; i++) s2b.minions.push({ x: 10, y: 10, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 });
 const g2b = s2b.graves[0]; s2b.hero.x = g2b.x; s2b.hero.y = g2b.y;
+s2b.hero.charge = 1; // sigil inscribed — so the cap, not the sigil, is what holds it back
 const capCount = s2b.minions.length;
 necro.stepRaise(s2b);
 ok(s2b.minions.length === capCount, "a full horde raises nothing (MINION_CAP)");
+
+// 3b. The stand-still gate end-to-end through stepMarch: marching past a grave with
+//     a steady input never inscribes the sigil (charge stays low), so the dead don't
+//     rise; halting over a grave inscribes it and then raises.
+const sMarch = necro.buildArena(necro.levelById(id));
+stowAll(sMarch);
+const gMarch = sMarch.graves[0];
+sMarch.hero.x = gMarch.x; sMarch.hero.y = gMarch.y; sMarch.souls = 99;
+const marching = { x: 1, y: 0 }; // a full-tilt march
+run(sMarch, 600, marching);      // sweeps off the grave, sigil never inscribes
+ok(sMarch.hero.charge < K.PENTA_RAISE_AT, `a marching necromancer's sigil stays faint (${sMarch.hero.charge.toFixed(2)})`);
+const sHold = necro.buildArena(necro.levelById(id));
+stowAll(sHold);
+const gHold = sHold.graves[0];
+sHold.hero.x = gHold.x; sHold.hero.y = gHold.y; sHold.souls = 99;
+run(sHold, 1200, still);         // hold still over the grave
+ok(sHold.hero.charge >= K.PENTA_RAISE_AT, `holding still inscribes the sigil (${sHold.hero.charge.toFixed(2)})`);
+ok(sHold.minions.length >= K.RAISE_MIN, `an inscribed sigil over a grave raises the dead (${sHold.minions.length})`);
+
+// 3c. The pentagram geometry: five points, closed path, distinct vertices.
+const pp = necro.pentagramPath(100, 100, 50, 0);
+ok(pp.startsWith("M") && pp.trimEnd().endsWith("Z"), "pentagramPath is a closed path");
+ok((pp.match(/L/g) || []).length === 4, "pentagramPath strings the five star points");
 
 // 4. Minion auto-target — a minion flips to attack a knight in aggro and closes the
 //    distance; with none in range it follows within FOLLOW_DIST.
@@ -181,6 +211,46 @@ ok(s5.hits === 1, "a landed blow is counted (for the flawless bonus)");
 biter.x = s5.hero.x; biter.y = s5.hero.y; biter.attackCd = 0;
 necro.stepKnights(s5, 16);
 ok(s5.hero.hp === hp1, "i-frames spare the necromancer an immediate second blow");
+
+// 5b. Priests — a chantry caster that channels mana then unmakes a skeleton
+//     instantly, and never harms the necromancer's own life.
+const sP = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sP.knights.some((e) => e.priest), "the chantry-town musters priests");
+stowAll(sP);
+sP.scenery = []; sP.solids = []; sP.barricades = []; sP.causeways = [];
+const priest = sP.knights.find((e) => e.priest) ?? sP.knights[0];
+priest.priest = true; wake(priest); priest.x = 800; priest.y = 800; priest.mana = 0;
+sP.hero.x = 50; sP.hero.y = 50; // necromancer far off, out of the way
+const prey = { x: 800 + K.PRIEST_SMITE_RANGE - 20, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+sP.minions = [prey];
+necro.stepKnights(sP, 16); // not yet charged
+ok(!prey.dead && (priest.mana ?? 0) > 0, "an uncharged priest only channels — the skeleton lives");
+priest.mana = 1; // fully charged
+necro.stepKnights(sP, 16);
+ok(prey.dead, "a charged priest unmakes a skeleton in range instantly");
+ok((priest.mana ?? 0) === 0, "a smite spends the priest's mana (recharges from empty)");
+ok(sP.smites.length >= 1, "a smite leaves a holy-flash FX");
+// A skeleton out of smite range survives a charged priest.
+const sP3 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sP3);
+const pr3 = sP3.knights.find((e) => e.priest) ?? sP3.knights[0];
+pr3.priest = true; wake(pr3); pr3.x = 800; pr3.y = 800; pr3.mana = 1;
+sP3.hero.x = 50; sP3.hero.y = 50;
+const farPrey = { x: 800 + K.PRIEST_SMITE_RANGE + 80, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+sP3.minions = [farPrey];
+necro.stepKnights(sP3, 16);
+ok(!farPrey.dead && (pr3.mana ?? 0) >= 1, "a priest holds its charge when no skeleton is in range");
+// A priest never bites the necromancer, even glued to it.
+const sP2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sP2);
+sP2.scenery = []; sP2.solids = []; sP2.barricades = []; sP2.causeways = [];
+const pr2 = sP2.knights.find((e) => e.priest) ?? sP2.knights[0];
+pr2.priest = true; wake(pr2); pr2.mana = 1;
+pr2.x = sP2.hero.x; pr2.y = sP2.hero.y; // glued to the necromancer
+sP2.minions = [];
+const hpBefore = sP2.hero.hp;
+run(sP2, 600, still);
+ok(sP2.hero.hp === hpBefore && sP2.hits === 0, "a priest never bites the necromancer (no HP loss, no hit)");
 
 // 6. Win on all-knights-dead — clearedPct 1, phase "won", no further sim.
 const s6 = necro.buildArena(necro.levelById(id));
@@ -359,6 +429,62 @@ ssc.hits = 2;
 ok(necro.scoreRun(ssc).untouched === 0, "a blow forfeits the untouched bonus");
 ok(necro.difficultyMult(necro.levelById("saint-aubers")) > necro.difficultyMult(necro.levelById("hollowmere")),
   "a harder village multiplies an overrun's score more");
+
+// 12b. Raising-rites — the unlockable pentagrams, each calling up its own skeleton.
+ok(Array.isArray(necro.RAISE_TYPES) && necro.RAISE_TYPES.length >= 3, `rites are defined (${necro.RAISE_TYPES.length})`);
+ok(new Set(necro.RAISE_TYPES.map((t) => t.id)).size === necro.RAISE_TYPES.length, "rite ids are unique");
+const starter = necro.RAISE_TYPES[0];
+ok(starter.cost === 0, "the starter rite costs nothing (always owned)");
+ok(necro.raiseTypeById("grave").id === "grave" && necro.raiseTypeById("nope").id === starter.id,
+  "raiseTypeById resolves known ids, falls back to the starter");
+
+// A fresh build equips the starter by default; the raised skeleton carries its variant.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+const sg = necro.buildArena(necro.levelById(id));
+ok(sg.rite.id === "grave", "a fresh march equips the starter rite by default");
+stowAll(sg);
+const gg = sg.graves[0]; sg.hero.x = gg.x; sg.hero.y = gg.y; sg.souls = 99; sg.hero.charge = 1;
+necro.stepRaise(sg);
+ok(sg.minions.length > 0 && sg.minions.every((m) => m.variant === "grave"), "the starter raises footsoldiers (variant grave)");
+
+// Equipping a heavier rite changes the raise: tougher skeletons, dearer in souls.
+const barrow = necro.RAISE_TYPES.find((t) => t.id === "barrow");
+const l0 = necro.loadNecroLegacy();
+l0.unlocked = ["grave", "barrow"]; l0.equipped = "barrow"; necro.saveNecroLegacy(l0);
+const sb = necro.buildArena(necro.levelById(id));
+ok(sb.rite.id === "barrow", "the equipped rite resolves onto the march");
+stowAll(sb);
+const gb = sb.graves[0]; sb.hero.x = gb.x; sb.hero.y = gb.y; sb.souls = 99; sb.hero.charge = 1;
+const soulsB = sb.souls;
+necro.stepRaise(sb);
+const expectHp = Math.round(K.MINION_HP * barrow.hpMul);
+ok(sb.minions.length > 0 && sb.minions.every((m) => m.variant === "barrow" && m.maxHp === expectHp),
+  `the barrow rite raises tougher bone (hp ${expectHp} vs ${K.MINION_HP})`);
+ok(soulsB - sb.souls === Math.max(1, Math.round(K.RAISE_COST * barrow.soulMul)),
+  "a dearer rite spends more souls per raise pulse");
+
+// Economy: learn a rite only when owned-less and affordable; equip only what's owned.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+let le = necro.unlockRite("barrow");
+ok(!le.unlocked.includes("barrow"), "a rite can't be learned with no relics");
+le = necro.loadNecroLegacy(); le.relics = 1000; necro.saveNecroLegacy(le);
+le = necro.unlockRite("barrow");
+ok(le.unlocked.includes("barrow") && le.relics === 1000 - barrow.cost, "learning a rite deducts its relics");
+le = necro.equipRite("cairn");
+ok(le.equipped !== "cairn", "an unowned rite can't be equipped");
+le = necro.equipRite("barrow");
+ok(le.equipped === "barrow", "an owned rite equips");
+
+// Relics bank from marches: an overrun banks score/RELIC_SCORE_DIV, a fall banks
+// per knight felled.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+const ow = necro.recordOverrun(necro.levelById(id), 1000, 0, 0, 17);
+ok(ow.relics === 17, "an overrun banks its relics");
+const fl = necro.recordFall(0, 0, 4);
+ok(fl.relics === 21, "a fall banks the relics of the fallen on top");
+
+// Restore a clean legacy so the render smoke-test below starts from the starter.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
 
 // 13. Render smoke — render/scaffold don't throw with zero sprites, at the start
 //     and after state changes.
