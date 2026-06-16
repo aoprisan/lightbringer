@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v79";
+const CACHE = "lightbringer-v80";
 
 const ASSETS = [
   "./",
@@ -42,6 +42,8 @@ const ASSETS = [
   "./art/skeleton-brute.png",
   "./art/skeleton-wight.png",
   "./art/skeleton-revenant.png",
+  // The priest — the chantry's mana-channelling caster (an enemy of the watch).
+  "./art/priest.png",
   // Necro village establishing cards (shown on the picker; silent-fail).
   "./art/village-hollowmere.jpg",
   "./art/village-barrows.jpg",
