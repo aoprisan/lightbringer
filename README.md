@@ -13,7 +13,11 @@ every shade to cleanse the city. ([more below](#the-burning-vigil--the-primary-g
 No install required — it runs in the browser; on mobile, use *Add to Home
 Screen* to install it as an offline app.
 
+### ✦ [**Play necro → Necro**](https://aoprisan.github.io/lightbringer/necro.html)
+
+
 ### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
+
 
 The original game in the same world, now kept around: a slower, turn-based
 contemplative inversion where you tend a stolen flame across a city. ([more
