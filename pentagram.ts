@@ -21,7 +21,7 @@
 
 // ---------- Types ----------
 
-type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper";
+type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper" | "font" | "obelisk";
 // "boss" is the turn-based finger-traced duel that follows clearing the host.
 type Phase = "fight" | "boss" | "won" | "lost";
 
@@ -104,7 +104,8 @@ interface Shade {
   shielded?: boolean;  // while true it takes no damage — only a FULL-charge pulse breaks it
   spitter?: boolean;   // a ranged shade: holds its distance and lobs bolts (punishes standing still)
   darter?: boolean;    // a quick, frail shade: closes the gap fast before the sigil ramps
-  cooldown?: number;   // ms until a spitter can lob its next bolt
+  healer?: boolean;    // a warden-acolyte: holds back and mends nearby wounded shades (never spawns any)
+  cooldown?: number;   // ms until a spitter lobs its next bolt / a healer pulses its next mend
 }
 
 // A spitter's bolt — the watch's only ranged attack, the module's one projectile.
@@ -258,8 +259,8 @@ const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a clear a
 // Obstacles — the city's built structures stand solid; the hero and shades must
 // weave around them. Only presses and shrines block; dwellings/conduits are
 // passable (you light the former). Radii are roughly the sprite's footprint.
-const OBSTACLE_KINDS = new Set<NodeKind>(["press", "shrine"]);
-const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 20 };
+const OBSTACLE_KINDS = new Set<NodeKind>(["press", "shrine", "obelisk"]);
+const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 20, obelisk: 22 };
 
 // Fences — low walls strung between neighbouring posts. They block movement (a
 // capsule: the segment plus this half-thickness) for both the hero and the
@@ -302,6 +303,19 @@ const BOLT_LIFETIME_MS = 2600;   // a bolt fades if it reaches nothing
 // Common contact damage; just faster and softer. No projectile — pure chaser.
 const DARTER_HP = 26;            // very frail
 const DARTER_SPEED_MUL = 1.7;    // far quicker than a common chaser (SHADE_SPEED)
+
+// Healer shades — the warden's acolytes. A healer never closes and never spawns
+// anything (the host stays finite — "clear every shade" still terminates); it holds
+// a standoff like a spitter and, on a cadence, MENDS every wounded shade near it
+// back toward full (itself excluded). Frail, so reaching and killing it is the
+// answer — a quarter's watch melts once its acolyte falls. Draws a mending arc to
+// each shade it heals, so the player can read who to kill first. Pure sim FX.
+const HEALER_HP = 30;            // frail — it is a mender, not a brawler
+const HEALER_STANDOFF = 230;     // the range it tries to hold from the hero
+const HEALER_SPEED_MUL = 0.7;    // repositions slowly, like a spitter
+const HEALER_RANGE = 170;        // mends wounded shades within this of it
+const HEALER_HEAL = 14;          // hp restored per wounded shade, per pulse (clamped to maxHp)
+const HEALER_COOLDOWN_MS = 1500; // between mending pulses
 
 // Veil pools — drifting patches of the old dark. A still hero standing in one
 // doesn't inscribe; the sigil UNRAVELS, charge bleeding away this much faster
@@ -354,6 +368,20 @@ const PRESS_BURST_DMG = 60;      // damage dealt to every shade caught
 // (a safe quarter to relight), and a hero standing in the aura inscribes even on
 // veiled/scarred ground (a place to make a stand).
 const SHRINE_AURA = 150;         // radius of a shrine's consecrated ground
+
+// Lightwells (fonts) — a wellspring of standing flame. Passable (you stand in it).
+// Within a font's aura the sigil inscribes EVEN WHILE MOVING (the well feeds it),
+// inverting the stand-still rule: a burn-on-the-run zone the host wants to deny
+// you. Pure geometry off the font nodes; live-play, never persisted.
+const FONT_AURA = 130;           // radius within which the hero inscribes while moving
+
+// Ward-obelisks — a standing ward-stone, body-blocking (a solid). While it stands,
+// every shade within its aura is kept SHIELDED (like an elite: a partial pulse does
+// nothing, contact still bites). Crack it like a press — stand within reach at a
+// FULL inscription — and it is spent: the ward drops and that quarter's watch is
+// mortal again (the next full pulse can shatter the lingering shields).
+const OBELISK_AURA = 165;        // shades within this of a STANDING obelisk are warded
+const OBELISK_REACH = 50;        // hero centre within this (+the obelisk radius) cracks it
 
 // Scoring — a clear banks a score (and embers, the unlock currency). Tuned for
 // relationships, not magnitudes: faster pays, a relit/unscathed city pays, and a
@@ -469,6 +497,8 @@ interface LevelDef {
   conduitFrac: number;
   pressCount: number;
   shrineCount: number;
+  fontCount?: number;    // lightwells — passable wellsprings; inscribe while moving in their aura (default 0)
+  obeliskCount?: number; // ward-obelisks — solid; ward nearby shades until cracked (default 0)
   keeperCount: number; // keeper-posts — each raises SHADE_PER_KEEPER shades
   keeperSpacing: number;
   fenceCount: number;  // low walls woven between neighbouring posts (cover)
@@ -477,6 +507,7 @@ interface LevelDef {
   eliteCount?: number; // keeper-posts whose champion rises veil-shielded (default 0)
   spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
   darterCount?: number;  // keeper-posts whose wave includes a quick darter (default 0)
+  healerCount?: number;  // keeper-posts whose wave includes a warden-acolyte mender (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
   frescoes?: number[]; // FRESCO indices this city can surface — its signature
                        // subset. The union across LEVELS must cover every index
@@ -540,6 +571,30 @@ const LEVELS: LevelDef[] = [
     fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
     frescoes: [2, 5, 12, 16], // the faithful's quarter
   },
+  {
+    id: "foundry",
+    name: "The Ember Foundry",
+    epigraph: "Molten light wells up from the deep moulds. Burn on the run — and don't stand to be mended.",
+    art: "art/city-foundry.jpg",
+    nodeCount: 128, minDist: 66,
+    conduitFrac: 0.20, pressCount: 5, shrineCount: 3,
+    fontCount: 7, // its signature: lightwells you inscribe beside while moving
+    keeperCount: 8, keeperSpacing: 300,
+    fenceCount: 7, pathwayCount: 10, veilCount: 2, darterCount: 4, healerCount: 3, sizeScale: 1.0,
+    frescoes: [17, 18, 19], // the wells, the wellspring, the mould
+  },
+  {
+    id: "bastion",
+    name: "The Pale Bastion",
+    epigraph: "Ward-stones keep the watch immortal and acolytes keep it whole. Crack the stone, kill the kindness.",
+    art: "art/city-bastion.jpg",
+    nodeCount: 132, minDist: 70,
+    conduitFrac: 0.10, pressCount: 3, shrineCount: 5,
+    obeliskCount: 5, // its signature: ward-obelisks that shield the watch until cracked
+    keeperCount: 11, keeperSpacing: 255,
+    fenceCount: 12, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 2, healerCount: 4, sizeScale: 1.15,
+    frescoes: [20, 21, 22], // the ward, the acolyte, the cracking
+  },
 ];
 
 function levelById(id: string): LevelDef | undefined {
@@ -569,8 +624,17 @@ function generateCity(
 
   const shuffled = [...nodes].sort(() => Math.random() - 0.5);
   const nConduit = Math.floor(nodes.length * level.conduitFrac);
+  let cut = 0;
   shuffled.slice(0, nConduit).forEach((n) => (n.kind = "conduit"));
-  shuffled.slice(nConduit, nConduit + level.pressCount).forEach((n) => (n.kind = "press"));
+  cut = nConduit;
+  shuffled.slice(cut, cut + level.pressCount).forEach((n) => (n.kind = "press"));
+  cut += level.pressCount;
+  // Lightwells and ward-obelisks — the new cities' signature structures. Carved
+  // from the same shuffled pool as presses (same ethos), defaulting to none so the
+  // five original cities are untouched.
+  shuffled.slice(cut, cut + (level.fontCount ?? 0)).forEach((n) => (n.kind = "font"));
+  cut += level.fontCount ?? 0;
+  shuffled.slice(cut, cut + (level.obeliskCount ?? 0)).forEach((n) => (n.kind = "obelisk"));
   shuffled.slice(-level.shrineCount).forEach((n) => (n.kind = "shrine"));
 
   const keepers: ArenaNode[] = [];
@@ -687,18 +751,25 @@ function buildArena(level: LevelDef): PgState {
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
   // Each post raises SHADE_PER_KEEPER shades in distinct slots so the roles never
-  // collide: slot 0 may be an elite champion, slot 1 a ranged spitter, slot 2 a
-  // quick darter — each gated by the city's per-role count. The rest are common.
+  // collide: slot 0 may be an elite champion, slot 1 a ranged spitter OR a
+  // warden-acolyte healer (on disjoint post bands, so they never share a slot),
+  // slot 2 a quick darter — each gated by the city's per-role count. The rest are
+  // common. Slotting healers beside spitters keeps SHADE_PER_KEEPER at 3, so no
+  // existing city's host size shifts.
   const eliteCount = Math.min(level.eliteCount ?? 0, posts.length);
   const spitterCount = Math.min(level.spitterCount ?? 0, posts.length);
   const darterCount = Math.min(level.darterCount ?? 0, posts.length);
+  const healerCount = Math.min(level.healerCount ?? 0, posts.length);
   posts.forEach((post, pi) => {
     for (let j = 0; j < SHADE_PER_KEEPER; j++) {
       const elite = j === 0 && pi < eliteCount;
       const spitter = !elite && j === 1 && pi < spitterCount;
-      const darter = !elite && !spitter && j === 2 && pi < darterCount;
+      // healers take slot 1 on the post band just past the spitters' (disjoint).
+      const healer = !elite && !spitter && j === 1
+        && pi >= spitterCount && pi < spitterCount + healerCount;
+      const darter = !elite && !spitter && !healer && j === 2 && pi < darterCount;
       const hp = elite ? SHADE_HP * ELITE_HP_MUL
-        : spitter ? SPITTER_HP : darter ? DARTER_HP : SHADE_HP;
+        : spitter ? SPITTER_HP : healer ? HEALER_HP : darter ? DARTER_HP : SHADE_HP;
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
@@ -710,7 +781,7 @@ function buildArena(level: LevelDef): PgState {
         wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
         hit: 0,
-        elite, shielded: elite, spitter, darter, cooldown: 0,
+        elite, shielded: elite, spitter, darter, healer, cooldown: 0,
       });
     }
   });
@@ -856,6 +927,17 @@ function inShrineAura(s: PgState, x: number, y: number): boolean {
   return false;
 }
 
+// Is the point within a lightwell's aura? Standing here the hero inscribes the
+// sigil EVEN WHILE MOVING (the well feeds the flame), inverting the stand-still
+// rule — a burn-on-the-run zone. Pure geometry off the font nodes.
+function inFontAura(s: PgState, x: number, y: number): boolean {
+  for (const n of s.scenery) {
+    if (n.kind !== "font") continue;
+    if ((x - n.x) ** 2 + (y - n.y) ** 2 <= FONT_AURA ** 2) return true;
+  }
+  return false;
+}
+
 // Kindle a dark dwelling alight: count it, mend the hero, and send its flame down
 // any conduit it touches to the next dark dwelling (a delayed relay). The single
 // kindle path, so the ring, the conduit relay, and the press cascade all light a
@@ -944,6 +1026,32 @@ function stepPress(s: PgState): void {
   }
 }
 
+// Ward-obelisks — while one stands it keeps every shade in its aura SHIELDED, so a
+// partial pulse does nothing and that quarter's watch rides out the sigil. Stand
+// beside it (within reach) at a FULL inscription and it cracks (spent): the ward
+// lifts, and the next full pulse can shatter the lingering shields. The single
+// obelisk path — run before the pulse so the ward is current when damage resolves.
+function stepObelisks(s: PgState): void {
+  const h = s.hero;
+  for (const n of s.scenery) {
+    if (n.kind !== "obelisk" || n.spent) continue;
+    // Crack it if the hero stands within reach at a full inscription.
+    const rr = (OBELISK_REACH + (OBSTACLE_RADIUS.obelisk || 0)) ** 2;
+    if (s.penta.charge >= 1 && (n.x - h.x) ** 2 + (n.y - h.y) ** 2 <= rr) {
+      n.spent = true;
+      s.novas.push({ x: n.x, y: n.y, r: OBELISK_AURA, until: s.elapsed + NOVA_FX_MS });
+      continue;
+    }
+    // Still standing: ward every shade in its aura (re-granted each frame, so a
+    // full pulse can't break a warded shade until the obelisk itself is cracked).
+    const ar2 = OBELISK_AURA ** 2;
+    for (const e of s.shades) {
+      if (e.dead) continue;
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= ar2) e.shielded = true;
+    }
+  }
+}
+
 // Gather any ember mote the hero has walked onto: snap the sigil to full and open
 // a damage-surge window. Then retire faded (or gathered) motes.
 function stepMotes(s: PgState): void {
@@ -1003,6 +1111,28 @@ function stepShades(s: PgState, dt: number): void {
           const ax = h.x - e.x, ay = h.y - e.y, ad = Math.hypot(ax, ay) || 1;
           s.bolts.push({ x: e.x, y: e.y, vx: (ax / ad) * BOLT_SPEED, vy: (ay / ad) * BOLT_SPEED, born: s.elapsed });
           e.cooldown = SPITTER_COOLDOWN_MS;
+        }
+      } else if (e.healer) {
+        // A warden-acolyte holds a standoff like a spitter, but mends its fellows
+        // instead of lobbing: on cooldown it restores HEALER_HEAL to every wounded
+        // living shade within HEALER_RANGE (itself excluded — it never self-heals)
+        // and draws a mending arc to each, so the player can read who to kill first.
+        // It never spawns anything, so the host stays finite.
+        speed = SHADE_SPEED * HEALER_SPEED_MUL;
+        if (dist < HEALER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
+        else if (dist <= HEALER_STANDOFF * 1.15) { speed = 0; }
+        if ((e.cooldown ?? 0) > 0) e.cooldown = (e.cooldown ?? 0) - dt;
+        if ((e.cooldown ?? 0) <= 0) {
+          let mended = false;
+          const hr2 = HEALER_RANGE ** 2;
+          for (const o of s.shades) {
+            if (o === e || o.dead || o.hp >= o.maxHp) continue;
+            if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 > hr2) continue;
+            o.hp = Math.min(o.maxHp, o.hp + HEALER_HEAL);
+            s.arcs.push({ x1: e.x, y1: e.y, x2: o.x, y2: o.y, until: s.elapsed + ARC_MS });
+            mended = true;
+          }
+          if (mended) e.cooldown = HEALER_COOLDOWN_MS;
         }
       }
     } else {
@@ -1188,6 +1318,12 @@ const FRESCOES: string[] = [
   "Count the windows that answered yours: that is the city waking.",
   "The dark was never the enemy — only the forgetting that there was light.",
   "Two flames see farther than one, and fear each other less.",
+  "They sank the foundry's wells so deep the fire forgot the sky. It did not forget us.",
+  "Stand in the wellspring and you need not stand still: the flame runs with you.",
+  "What we forged here was never chains. Read the moulds and see.",
+  "They raised stones to ward the watch and called them faith. A ward is only a wall that prays.",
+  "The acolyte mends the Keeper so the Keeper need never heal — kill the kindness first.",
+  "Crack the obelisk and the warded go mortal: even stone tires of holding back the morning.",
 ];
 
 // A few frescoes have painted art (the rest reveal as text alone), reusing the
@@ -1211,6 +1347,12 @@ const FRESCO_ART: Record<number, string> = {
   14: "art/fresco-answer.jpg",
   15: "art/fresco-ember.jpg",
   16: "art/fresco-twoflames.jpg",
+  17: "art/fresco-wells.jpg",
+  18: "art/fresco-wellspring.jpg",
+  19: "art/fresco-mould.jpg",
+  20: "art/fresco-ward.jpg",
+  21: "art/fresco-acolyte.jpg",
+  22: "art/fresco-crack.jpg",
 };
 
 function maybeFresco(s: PgState, n: ArenaNode): void {
@@ -1279,7 +1421,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // Stand still on clean ground and the sigil inscribes itself; move and it fades.
   // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
   // still hero must pick clear ground. The type's charge lean is baked into fxCharge.
-  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED && !veiled) {
+  // A lightwell (font) feeds the flame even while moving: in its aura the hero
+  // inscribes regardless of speed (still barred by a veil pool, as anywhere else).
+  const onFont = inFontAura(s, h.x, h.y);
+  if ((Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED || onFont) && !veiled) {
     s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
   } else if (veiled) {
     s.penta.charge = Math.max(0, s.penta.charge - (VEIL_DRAIN_MUL * dt) / s.fxCharge);
@@ -1294,6 +1439,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
 
   stepShades(s, dt);
   stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
+  stepObelisks(s);   // ward shades near standing obelisks (and crack one underfoot)
   stepPentagram(s, dt);
   stepSpread(s);     // advance any conduit relays whose travel time has elapsed
   stepDwellings(s);  // mature lit dwellings into awakened ally emitters
@@ -1715,6 +1861,10 @@ const SPRITE_NAMES = [
   // Swap onto the same node as their base; the loader falls back to the base if
   // a state PNG is absent. Not in CITY_SPRITES — universal, not yet re-skinned.
   "conduit-charged", "press-spent", "shrine-consecrated",
+  // The new cities' signature structures: a lightwell (font) and a ward-obelisk
+  // (with its cracked face). Re-skinnable per city (in CITY_SPRITES); the spent
+  // face is universal. All fall back to the procedural rect when a PNG is absent.
+  "font", "obelisk", "obelisk-spent",
   // Terrain laid along a segment, tiled by a pattern (walkway = pathway lane,
   // fence = the linear blocker). Universal forces like the Keepers — never a
   // city re-skin, so not in CITY_SPRITES. Optional: render falls back to the
@@ -1727,7 +1877,7 @@ const SPRITE_NAMES = [
 // The four dwelling states match the parent's re-skinnable set.
 const CITY_SPRITES = new Set<string>([
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
-  "conduit", "press", "shrine",
+  "conduit", "press", "shrine", "font", "obelisk",
 ]);
 
 const sprites = new Set<string>();
@@ -1854,10 +2004,10 @@ function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): strin
 
 const SCENERY_SPRITE: Record<NodeKind, string> = {
   dwelling: "dwelling-dark", conduit: "conduit", press: "press",
-  shrine: "shrine", keeper: "keeper-node",
+  shrine: "shrine", keeper: "keeper-node", font: "font", obelisk: "obelisk",
 };
 const SCENERY_SIZE: Record<NodeKind, number> = {
-  dwelling: 46, conduit: 40, press: 56, shrine: 50, keeper: 0,
+  dwelling: 46, conduit: 40, press: 56, shrine: 50, keeper: 0, font: 48, obelisk: 54,
 };
 
 // Resolve a node's sprite name from its live state: a dwelling shows its dark/
@@ -1879,6 +2029,9 @@ function scenerySprite(s: PgState, n: ArenaNode): string {
       return n.spent && sprites.has("press-spent") ? "press-spent" : "press";
     case "shrine":
       return sprites.has("shrine-consecrated") ? "shrine-consecrated" : "shrine";
+    case "obelisk":
+      // A cracked ward-stone shows its spent face; while standing it shows full.
+      return n.spent && sprites.has("obelisk-spent") ? "obelisk-spent" : "obelisk";
     default:
       return SCENERY_SPRITE[n.kind];
   }
@@ -2214,6 +2367,25 @@ function render(s: PgState, layer: SVGGElement): void {
         stroke: "#9fe8c4", "stroke-width": 1.2, "stroke-dasharray": "4 10", opacity: 0.16,
       }));
     }
+    // A lightwell — a soft, warm wellspring glow marking the burn-on-the-run aura.
+    if (n.kind === "font") {
+      const pulse = 1 + 0.05 * Math.sin(s.elapsed / 260);
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: FONT_AURA * pulse, fill: "url(#haloAwake)", opacity: 0.12,
+      }));
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: FONT_AURA, fill: "none",
+        stroke: "#ffce7a", "stroke-width": 1.2, "stroke-dasharray": "2 8", opacity: 0.28,
+      }));
+    }
+    // A ward-obelisk — a cold ward ring while it stands; it fades once cracked.
+    if (n.kind === "obelisk") {
+      const live = n.spent ? 0.08 : 0.3;
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: OBELISK_AURA, fill: "none",
+        stroke: "#8fc0ff", "stroke-width": 1.6, "stroke-dasharray": "5 7", opacity: live,
+      }));
+    }
     // A snuffed dwelling's lingering scar — a small pool of clawed-back dark.
     if (n.kind === "dwelling" && n.veil && n.veil > s.elapsed) {
       const life = (n.veil - s.elapsed) / SNUFF_VEIL_MS;
@@ -2337,6 +2509,15 @@ function render(s: PgState, layer: SVGGElement): void {
         cx: e.x, cy: e.y, r: SHADE_RADIUS + 7, fill: "none",
         stroke: "#e8a24a", "stroke-width": 1.5, opacity: 0.55 * op,
         "stroke-dasharray": "3 5",
+      }));
+    }
+    // A warden-acolyte wears a soft pale-green halo — the mender to kill first.
+    if (e.healer) {
+      const sp = 1 + 0.08 * Math.sin(s.elapsed / 200);
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: (SHADE_RADIUS + 8) * sp, fill: "none",
+        stroke: "#9fe8c4", "stroke-width": 2, opacity: 0.6 * op,
+        filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
       }));
     }
     if (flash > 0) {
@@ -3644,8 +3825,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
-    kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress,
-    nearScar, inShrineAura, litReadout,
+    kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
+    nearScar, inShrineAura, inFontAura, litReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
@@ -3666,11 +3847,13 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
+      FONT_AURA, OBELISK_AURA, OBELISK_REACH,
       SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
       BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,
       DARTER_HP, DARTER_SPEED_MUL,
+      HEALER_HP, HEALER_STANDOFF, HEALER_SPEED_MUL, HEALER_RANGE, HEALER_HEAL, HEALER_COOLDOWN_MS,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
       BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG, BOSS_BITE_RAMP, BOSS_KEY_COST,

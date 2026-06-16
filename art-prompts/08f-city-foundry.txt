@@ -1,0 +1,11 @@
+=== 8f. City card — The Ember Foundry ===
+Establishing card shown when the carrier chooses to descend into THE EMBER
+FOUNDRY: a deep industrial quarter of light-wells and casting-moulds where molten
+flame is drawn up from the earth. Its signature is the LIGHTWELL — stand in one
+and the sigil burns even on the run. Quick, hot, and dangerous to loiter in.
+Output: art/city-foundry.jpg
+Wide 16:9. Copy and paste the whole block below.
+
+Contemplative, reverent, illuminated-manuscript meets minimal poster art. Deep indigo night #080a14, warm gold light #e8b34b and #ffd87a with a near-white hot core #fff2cf, cold steel-blue accents #9fc4e8. High contrast, lots of negative darkness, soft volumetric glow, subtle film grain. No text, no watermark, no logos, no people's faces. Painterly but restrained — sacred, quiet, a little melancholy, but here with an industrial heat.
+
+An establishing night view of a deep foundry-quarter seen from a high three-quarter angle: terraced casting-yards and brick kiln-houses stepping down into the earth, great stone well-mouths sunk into the floor that brim with molten gold light welling up from below, runnels of glowing metal threading between the buildings, tall chimney-stacks and silent treadle-presses. The wells throw warm pools of gold across the cobbles — the brightest, freest light in the game, light that runs in channels rather than staying still. Cold steel-blue robed Keeper figures patrol the cooler upper terraces, each trailing a faint void-darkness, ranged at the rim of the warm light but not yet in it. The mood is hot, working, alive — gold rising from the dark earth against the cold watch above. Wide 16:9 cinematic composition.

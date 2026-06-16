@@ -1,0 +1,59 @@
+=== 9e. Per-city sprite set — THE EMBER FOUNDRY (industrial, molten) ===
+
+Re-skins the city's BUILT WORLD so The Ember Foundry reads as a deep industrial
+casting-quarter: brick kiln-houses, iron and firebrick, runnels of molten light.
+Same silhouettes as the base sprites — only the material changes — so each still
+reads as its kind. This city's SIGNATURE structure is the lightwell (font), so its
+re-skin is included here; it does not use ward-obelisks.
+
+OUTPUT FOLDER: art/foundry/    (the loader tries this city folder, then falls back
+to the base art/<name>.png). Files to produce, same names as the base set:
+  ground.png  dwelling-dark.png  dwelling-lit.png  dwelling-awakened.png
+  dwelling-snuffed.png  conduit.png  press.png  shrine.png  font.png
+
+SHARED, DO NOT re-skin (universal forces): keeper-node, keeper-patrol,
+player-lantern, veil-scar, flame-spark, obelisk(-spent). The Foundry reuses the
+base ones.
+
+RULES (read once):
+- No transparency. Generate every sprite isolated on a flat solid #0B0E1A.
+  Never a white background — flame glow would halo.
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- DWELLING CONTINUITY: generate dwelling-dark FIRST, then use image-edit mode on
+  that image for lit / awakened / snuffed, so all four share one silhouette.
+- ground.png must tile SEAMLESSLY, edge to edge, no focal point.
+
+Each block below is self-contained — copy any one whole.
+
+--- foundry/ground.png ---
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, soot-charcoal, firebrick red-brown; warm ember-gold #F5C66B for any light. Soft painterly edges, no outlines. View: top-down. Single subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+Seamless tileable texture of a foundry casting-floor seen from straight above at night: scorched firebrick and iron grating laid in a grid, fine drifts of grey ash, a few cooled runnel-channels cut in the surface catching the faintest ember glow. Low contrast, industrial, swept and worked, no focal point, edges must tile seamlessly. 1024×1024.
+
+--- foundry/dwelling-dark.png (GENERATE THIS FIRST) ---
+Style: hand-painted dark-fantasy game asset, night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, soot-charcoal, firebrick; ember-gold #F5C66B for any light. Soft edges, no outlines. View: three-quarter top-down ~60°, light from its own flame only. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A small brick kiln-house, squat with a heavy firebrick chimney and a banded-iron door, a cold dead forge-mouth and an empty iron lamp-bracket. Completely unlit and cold. Soot-dark, almost a silhouette, a thin line of moonlight on the brick.
+
+--- foundry/dwelling-lit.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same kiln-house, now lit from within. Warm ember-gold glowing through the forge-mouth and door-cracks, a faint warm pool on the brick floor — the forge rekindled. The brick stays dark; only the fire is warm. Keep the exact same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- foundry/dwelling-awakened.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same kiln-house roused. The forge-mouth blazing steady gold, a clear small flame at the chimney-top like a beacon, thin gold cracks of heat tracing the brickwork, a radiant halo on the floor. Working, alive and defiant — a forge awake. Same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- foundry/dwelling-snuffed.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same kiln-house smothered. The forge-mouth bricked over and the door barred with black iron, a black-violet veil of cold smoke over it, the forge gone cold and dead. No warm colour anywhere — quenched, sealed. Same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- foundry/conduit.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A casting-runnel channel seen from above: an iron-lined trough cut between brick kerbs, meant to carry molten light from one place to the next, the faintest ember reflection along its bed hinting fire could run down it. Dark, industrial, expectant.
+
+--- foundry/press.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A heavy iron stamping-press in a brick shed, slightly larger than a kiln-house: a great screw-and-lever mechanism over a casting-bed strewn with type-moulds and cooled ingots, ember-gold and iron. Unlit, powerful, expectant — a one-shot hammer waiting to fall.
+
+--- foundry/shrine.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A founder's shrine: a small iron brazier-altar set in a niche of firebrick, a worn cast-bronze figure, a few votive ingots and a steady pilot-flame. Cold metal catching a faint warm gleam — the official, banked kind of fire. Intimate, industrial.
+
+--- foundry/font.png (the city's signature lightwell) ---
+Style as above, but the brightest warm subject in the set. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A foundry lightwell: a broad iron-rimmed stone well-mouth sunk in the casting-floor, brimming with molten luminous gold flame welling up from deep in the earth, spilling a wide warm glow and faint runnels of light across the firebrick. Low and inviting to stand in, a wellspring of standing fire — the freest light in the quarter. 1024×1024.
