@@ -1,0 +1,25 @@
+ASSET: skeleton-wight.png — a wight minion of the Quick Cairn rite (NEW)
+OUTPUT: art/skeleton-wight.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: it must read CLEARLY at very small sizes as a SLIGHT, FAST
+  skeleton — thinner and smaller than the common footsoldier (skeleton.png), lunging,
+  the unmistakable silhouette of a frail darting swarm-creature.
+- The same creature family as skeleton.png, but lithe and fleet, not sturdy.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+pale frost-bone (#DFFFF0) skeleton wrapped in a few rags of grave-shroud; cold
+spectral CYAN (#8AFFD8) witch-fire in the sockets and trailing off the bones (this
+rite burns cyan, not green). Soft painterly edges, subtle grain, no outlines, no
+photorealism. Three-quarter top-down (about 60°), isolated on a flat solid #060B08.
+
+--- PROMPT ---
+A swift wight: a small, thin, lightly-built skeleton of pale frost-bone, a few tatters
+of grave-shroud streaming behind it, lunging low and fast with a slender rusted dagger
+or raking bone-claws. Quick, frail, fleeting — one of a swarm. Cold cyan witch-fire
+streaks from its sockets. Smaller and faster-looking than a common skeleton — readable
+at a glance even when tiny.

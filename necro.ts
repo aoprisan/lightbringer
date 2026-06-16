@@ -114,6 +114,7 @@ interface NecroState {
   hero: Hero;            // the necromancer
   rite: RaiseType;       // the equipped raising-rite (resolved from the legacy at build)
   souls: number;         // the raise resource
+  soulRegen: number;     // ms accumulator for the patient soul-seep (transient, not saved)
   minions: Minion[];
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
@@ -147,8 +148,10 @@ const HERO_KNOCKBACK = 60;       // units the necromancer is shoved back by a bl
 
 // Souls — the raise economy. A march begins with SOUL_START; each grave near you,
 // off cooldown, with raises left and souls to spend, raises a handful of minions.
-// Felling a knight grants souls (and may drop a gatherable soul-wisp).
-const SOUL_START = 6;
+// Souls flow from three sources so a grave rarely sits useless: felling a knight,
+// razing a house (desecration feeds the carrier), and a slow patient seep that
+// trickles a floor of souls back when you run dry (so you can always raise again).
+const SOUL_START = 9;
 const RAISE_COST = 2;            // souls per raise pulse from a grave
 const RAISE_MIN = 1;             // skeletons raised per pulse (low)
 const RAISE_MAX = 3;             // …and high (inclusive)
@@ -157,6 +160,9 @@ const GRAVE_RADIUS = 18;         // a grave's footprint (for the reach test)
 const GRAVE_RAISES = 5;          // raise pulses a grave holds before it is spent
 const GRAVE_COOLDOWN_MS = 900;   // ms between raise pulses from one grave
 const SOUL_PER_KILL = 1;         // souls a felled knight grants directly
+const SOUL_PER_RAZE = 1;         // souls a razed house feeds the carrier (the snowball)
+const SOUL_REGEN_MS = 2200;      // the patient seep: one soul per this long…
+const SOUL_REGEN_TO = 5;         // …but only while below this floor (never a fountain)
 
 // The raising-pentagram — the necromancer's sigil and the gate on every raise.
 // Standing still inscribes it (charge ramps to 1); marching lets it fade. The dead
@@ -187,7 +193,8 @@ interface RaiseType {
   size: number;      // the skeleton's draw size (px)
   ring: string;      // the pentagram's signature glow/ring hue
   star: string;      // the pentagram's star-stroke hue
-  bone: string;      // the skeleton's bone tint
+  bone: string;      // the skeleton's bone tint (procedural fallback)
+  sprite: string;    // the skeleton's art (art/<sprite>.png); falls back to "skeleton"
 }
 
 const RAISE_TYPES: RaiseType[] = [
@@ -195,25 +202,25 @@ const RAISE_TYPES: RaiseType[] = [
     id: "grave", name: "The Common Grave", cost: 0,
     desc: "The plain rite you began with — footsoldiers of the dead. Even bone, even bite.",
     hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1,
-    size: 30, ring: "#7affb0", star: "#d8ffe6", bone: "#e8efd8",
+    size: 30, ring: "#7affb0", star: "#d8ffe6", bone: "#e8efd8", sprite: "skeleton",
   },
   {
     id: "barrow", name: "The Barrow-Wall", cost: 120,
     desc: "Raises bone-brutes — slow, heavy, hard-hitting, and dear in souls. A wall of the dead that does not break.",
     hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18,
-    size: 40, ring: "#ffd36a", star: "#fff0b0", bone: "#ded2a0",
+    size: 40, ring: "#ffd36a", star: "#fff0b0", bone: "#ded2a0", sprite: "skeleton-brute",
   },
   {
     id: "cairn", name: "The Quick Cairn", cost: 160,
     desc: "Raises wights — frail and fleeting, but they swarm: a fast sigil that calls up more for less.",
     hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72,
-    size: 24, ring: "#8affd8", star: "#d8fff0", bone: "#dffff0",
+    size: 24, ring: "#8affd8", star: "#d8fff0", bone: "#dffff0", sprite: "skeleton-wight",
   },
   {
     id: "gallows", name: "The Gallows Rite", cost: 240,
     desc: "Raises revenants — swift, tough, and cruel, but a slow sigil and dear in souls. The capstone of the craft.",
     hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12,
-    size: 34, ring: "#c08aff", star: "#f0d8ff", bone: "#cdb8ff",
+    size: 34, ring: "#c08aff", star: "#f0d8ff", bone: "#cdb8ff", sprite: "skeleton-revenant",
   },
 ];
 
@@ -570,7 +577,7 @@ function buildArena(level: LevelDef): NecroState {
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     graves: scenery.filter((n) => n.kind === "grave"),
     barricades, causeways,
-    hero, rite, souls: SOUL_START,
+    hero, rite, souls: SOUL_START, soulRegen: 0,
     minions: [], knights,
     wisps: [], raises: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
@@ -893,6 +900,7 @@ function desecrateHouse(s: NecroState, n: ArenaNode, heal: number): void {
   if (n.reconsecrated && n.reconsecrated > s.elapsed) return; // the scar still bars re-razing
   n.desecrated = true; n.desecAt = s.elapsed; n.risen = false; n.reconsecrated = 0;
   s.desecCount++;
+  s.souls += SOUL_PER_RAZE; // a razed house feeds the carrier — souls to raise more
   if (heal) {
     // The village rallies the horde only up to HEAL_CAP·maxHp; distribute the
     // mend across living minions so razing keeps a swarm on its feet.
@@ -1039,6 +1047,16 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   }
   h.angle = (h.angle + dt * PENTA_SPIN) % 360;
 
+  // The patient soul-seep: when the carrier has run low, the dead trickle a few
+  // souls back so a grave is never permanently useless — but only up to a floor,
+  // never enough to replace felling knights and razing houses.
+  if (s.souls < SOUL_REGEN_TO) {
+    s.soulRegen += dt;
+    if (s.soulRegen >= SOUL_REGEN_MS) { s.souls += 1; s.soulRegen = 0; }
+  } else {
+    s.soulRegen = 0;
+  }
+
   stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
@@ -1080,6 +1098,9 @@ const SPRITE_NAMES = [
   // procedural lines when the PNG is absent.
   "barricade", "causeway",
   "knight-guard", "knight-engage", "skeleton", "necromancer",
+  // Per-rite skeleton kinds — each raising-rite calls up its own. They fall back to
+  // the base "skeleton" when absent, so they are NOT yet in sw.js (added when shipped).
+  "skeleton-brute", "skeleton-wight", "skeleton-revenant",
 ] as const;
 
 // Which sprites a village may re-skin (art/<villageId>/<name>.png) — the built
@@ -1427,12 +1448,14 @@ function render(s: NecroState, layer: SVGGElement): void {
   }
 
   // Minions — the horde. Small bone figures, drawn over the watch they swarm.
-  const minionKey = sprites.has("skeleton") ? "skeleton" : null;
+  const baseSkeleton = sprites.has("skeleton") ? "skeleton" : null;
   for (const m of s.minions) {
     if (m.dead) continue;
-    // The skeleton's raising-rite sets its size and bone/aura hue, so the four
-    // kinds — footsoldier, brute, wight, revenant — read apart at a glance.
+    // The skeleton's raising-rite sets its art, size and bone/aura hue, so the four
+    // kinds — footsoldier, brute, wight, revenant — read apart at a glance. Its own
+    // sprite is used when shipped; otherwise it falls back to the base skeleton.
     const def = raiseTypeById(m.variant);
+    const skKey = sprites.has(def.sprite) ? def.sprite : baseSkeleton;
     const flash = m.hit > s.elapsed ? Math.max(0, (m.hit - s.elapsed) / HIT_FLASH_MS) : 0;
     const sz = def.size * (1 + flash * 0.18);
     // A signature aura in the rite's hue rings every skeleton it raised.
@@ -1442,8 +1465,8 @@ function render(s: NecroState, layer: SVGGElement): void {
         "stroke-width": 1.4, opacity: 0.5, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
       }));
     }
-    if (minionKey) {
-      layer.appendChild(spriteImage(minionKey, m.x, m.y, sz, 1));
+    if (skKey) {
+      layer.appendChild(spriteImage(skKey, m.x, m.y, sz, 1));
     } else {
       // Procedural skeleton: a small pale lozenge tinted to its bone hue.
       layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: MINION_RADIUS + 3, fill: "url(#haloRise)", opacity: 0.4 }));

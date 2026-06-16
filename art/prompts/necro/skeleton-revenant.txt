@@ -1,0 +1,25 @@
+ASSET: skeleton-revenant.png — a revenant minion of the Gallows Rite (NEW)
+OUTPUT: art/skeleton-revenant.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #060B08 (graveyard green-black).
+- A small game sprite: it must read CLEARLY at small sizes as an ELITE undead —
+  taller, crueller and more regal than the common footsoldier (skeleton.png), the
+  unmistakable silhouette of a risen lord, the capstone of the necromancer's craft.
+- The same creature family as skeleton.png, but noble, armed and dangerous.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+pale violet-tinged bone (#CDB8FF) skeleton in tattered dark finery; searing VIOLET
+(#C08AFF) witch-fire in the sockets and along the blade and bones (this rite burns
+violet, not green). Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #060B08.
+
+--- PROMPT ---
+A risen revenant: a tall, gaunt skeletal lord in tattered noble finery over violet-pale
+bone, a frayed hangman's noose still knotted at its neck-vertebrae, a thin crown or
+circlet on the skull, raising a cruel slender longsword wreathed in violet witch-fire.
+Swift, proud, merciless — the hanged dead come back to rule. Clearly grander and
+deadlier than a common skeleton — readable at a glance even when small.
