@@ -212,8 +212,11 @@ biter.x = s5.hero.x; biter.y = s5.hero.y; biter.attackCd = 0;
 necro.stepKnights(s5, 16);
 ok(s5.hero.hp === hp1, "i-frames spare the necromancer an immediate second blow");
 
-// 5b. Priests — a chantry caster that channels mana then unmakes a skeleton
-//     instantly, and never harms the necromancer's own life.
+// 5b. Priests — a chantry caster that channels mana, then LOCKS a skeleton and a
+//     beam builds (the windup telegraph) before the kill. Two counters break the
+//     rite — crowding (slows the channel) and a body-block — and it never harms the
+//     necromancer's own life.
+const mkMinion = (x, y) => ({ x, y, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" });
 const sP = necro.buildArena(necro.levelById("saint-aubers"));
 ok(sP.knights.some((e) => e.priest), "the chantry-town musters priests");
 stowAll(sP);
@@ -221,25 +224,67 @@ sP.scenery = []; sP.solids = []; sP.barricades = []; sP.causeways = [];
 const priest = sP.knights.find((e) => e.priest) ?? sP.knights[0];
 priest.priest = true; wake(priest); priest.x = 800; priest.y = 800; priest.mana = 0;
 sP.hero.x = 50; sP.hero.y = 50; // necromancer far off, out of the way
-const prey = { x: 800 + K.PRIEST_SMITE_RANGE - 20, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
-sP.minions = [prey];
+const prey = mkMinion(800 + K.PRIEST_SMITE_RANGE - 20, 800);
+sP.minions = [prey]; sP.elapsed = 0;
 necro.stepKnights(sP, 16); // not yet charged
 ok(!prey.dead && (priest.mana ?? 0) > 0, "an uncharged priest only channels — the skeleton lives");
 priest.mana = 1; // fully charged
+necro.stepKnights(sP, 16); // locks a target, the beam begins to build
+ok(!prey.dead && priest.smiteUntil != null && priest.smiteTarget === prey,
+  "a charged priest LOCKS the nearest skeleton — the smite doesn't land instantly");
+necro.stepKnights(sP, 16); // still mid-windup (s.elapsed hasn't reached the deadline)
+ok(!prey.dead, "the locked smite holds through its window — a reaction window to read");
+sP.elapsed = priest.smiteUntil + 1; // the windup elapses
 necro.stepKnights(sP, 16);
-ok(prey.dead, "a charged priest unmakes a skeleton in range instantly");
-ok((priest.mana ?? 0) === 0, "a smite spends the priest's mana (recharges from empty)");
+ok(prey.dead, "after the windup the priest unmakes the locked skeleton");
+ok((priest.mana ?? 0) === 0 && priest.smiteUntil == null, "a landed smite spends the priest's mana (recharges from empty)");
 ok(sP.smites.length >= 1, "a smite leaves a holy-flash FX");
+
+// Body-block — the necromancer on the building beam foils the smite, sparing the
+// skeleton at no cost to its own life.
+const sPb = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sPb); sPb.scenery = []; sPb.solids = []; sPb.barricades = []; sPb.causeways = [];
+const prB = sPb.knights.find((e) => e.priest) ?? sPb.knights[0];
+prB.priest = true; wake(prB); prB.x = 800; prB.y = 800; prB.mana = 1;
+const preyB = mkMinion(800 + K.PRIEST_SMITE_RANGE - 20, 800);
+sPb.minions = [preyB]; sPb.elapsed = 0;
+sPb.hero.x = 5000; sPb.hero.y = 5000; // off the beam while it locks
+necro.stepKnights(sPb, 16); // locks
+sPb.hero.x = 900; sPb.hero.y = 800; // step onto the beam (the priest→skeleton line)
+sPb.elapsed = prB.smiteUntil + 1; // even past the deadline, a blocked beam fails
+necro.stepKnights(sPb, 16);
+ok(!preyB.dead && prB.smiteUntil == null && (prB.mana ?? 0) === 0,
+  "the necromancer body-blocking the beam foils the smite (skeleton spared, rite spent)");
+ok(sPb.hero.hp === K.HERO_HP, "body-blocking a smite costs the necromancer no life");
+
+// A crowded priest channels slower than a lone one (its concentration breaks).
+const mkPriestState = () => {
+  const ss = necro.buildArena(necro.levelById("saint-aubers"));
+  stowAll(ss); ss.scenery = []; ss.solids = []; ss.barricades = []; ss.causeways = [];
+  const pr = ss.knights.find((e) => e.priest) ?? ss.knights[0];
+  pr.priest = true; wake(pr); pr.x = 800; pr.y = 800; pr.mana = 0;
+  ss.hero.x = 50; ss.hero.y = 50; ss.elapsed = 0;
+  return { ss, pr };
+};
+const lone = mkPriestState(); lone.ss.minions = [];
+const crowd = mkPriestState();
+crowd.ss.minions = [mkMinion(800, 800), mkMinion(810, 805), mkMinion(795, 808), mkMinion(805, 795)];
+necro.stepKnights(lone.ss, 16);
+necro.stepKnights(crowd.ss, 16);
+ok((crowd.pr.mana ?? 0) < (lone.pr.mana ?? 0) && (crowd.pr.mana ?? 0) > 0,
+  "skeletons crowding a priest slow its channel (the 'mass and rush' counter is real)");
+
 // A skeleton out of smite range survives a charged priest.
 const sP3 = necro.buildArena(necro.levelById("saint-aubers"));
 stowAll(sP3);
 const pr3 = sP3.knights.find((e) => e.priest) ?? sP3.knights[0];
 pr3.priest = true; wake(pr3); pr3.x = 800; pr3.y = 800; pr3.mana = 1;
 sP3.hero.x = 50; sP3.hero.y = 50;
-const farPrey = { x: 800 + K.PRIEST_SMITE_RANGE + 80, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+const farPrey = mkMinion(800 + K.PRIEST_SMITE_RANGE + 80, 800);
 sP3.minions = [farPrey];
 necro.stepKnights(sP3, 16);
-ok(!farPrey.dead && (pr3.mana ?? 0) >= 1, "a priest holds its charge when no skeleton is in range");
+ok(!farPrey.dead && (pr3.mana ?? 0) >= 1 && pr3.smiteUntil == null,
+  "a priest holds its charge (and locks nothing) when no skeleton is in range");
 // A priest never bites the necromancer, even glued to it.
 const sP2 = necro.buildArena(necro.levelById("saint-aubers"));
 stowAll(sP2);

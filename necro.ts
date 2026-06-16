@@ -98,6 +98,8 @@ interface Knight {
   priest?: boolean;             // a chantry priest: doesn't melee — channels mana, then
                                 // smites one skeleton dead, and must recharge (see stepKnights)
   mana?: number;                // 0..1 — a priest's holy charge toward its next smite
+  smiteUntil?: number;          // a priest mid-rite: s.elapsed deadline its locked smite lands (the windup telegraph)
+  smiteTarget?: Minion | null;  // the skeleton its building smite is aimed at (re-checked each frame)
 }
 
 // FX, drawn then faded — never persisted. A Raise is the bone-burst ring on a
@@ -267,14 +269,23 @@ const CAPTAIN_HP_MUL = 2.4;      // a captain's hp over a common knight
 const CAPTAIN_DMG = 17;          // damage a captain's swing deals (vs KNIGHT_DMG)
 
 // Priests — the chantry's casters. A priest never melees; once roused it channels
-// holy mana and, when full, unmakes the nearest skeleton in range outright, then
-// must recharge. It threatens the HORDE, not the necromancer's life — so the
-// counter is to mass the dead and rush it before it thins them. Killable like any
-// knight (counts toward the host), and frailer than a captain.
-const PRIEST_HP_MUL = 1.4;       // a priest's hp over a common knight (a soft backline)
-const PRIEST_CHARGE_MS = 3400;   // time to charge one smite (the telegraph window)
-const PRIEST_SMITE_RANGE = 230;  // a charged priest smites the nearest skeleton within this
-const PRIEST_SMITE_MS = 460;     // how long the holy-flash FX lingers
+// holy mana and, when full, LOCKS the nearest skeleton in range and a holy beam
+// builds (the windup) before the kill lands — a telegraph the player can read and
+// answer. Two counters break the rite, so the threat is interactive rather than an
+// unavoidable tax on the horde: (1) crowd the priest with skeletons and its
+// concentration falters, slowing the channel — making the old "mass the dead and
+// rush it" counter mechanically true; (2) interpose the necromancer's body on the
+// building beam and the smite fails, sparing the skeleton at no cost to your own
+// life (a priest still never bites you). Killable like any knight (counts toward
+// the host), and frailer than a captain.
+const PRIEST_HP_MUL = 1.4;          // a priest's hp over a common knight (a soft backline)
+const PRIEST_CHARGE_MS = 3400;      // time to charge one smite while unswarmed (the channel)
+const PRIEST_SMITE_RANGE = 230;     // a charged priest locks the nearest skeleton within this
+const PRIEST_SMITE_WINDUP_MS = 900; // after locking, the beam builds this long before the kill — the reaction window
+const PRIEST_SWARM_RADIUS = 92;     // skeletons crowding this close break the priest's concentration
+const PRIEST_SWARM_SLOW = 0.55;     // each crowding skeleton adds this to the charge-time multiplier (N near -> channels in CHARGE_MS*(1+N*this))
+const PRIEST_BLOCK_HALF = 16;       // the necromancer interposed within this (+radii) of the beam interrupts the rite
+const PRIEST_SMITE_MS = 460;        // how long the holy-flash FX lingers
 
 // Obstacles — the village's solid structures (wells, altars) block bodies; the
 // hero, minions and knights weave around them. Houses and graves are passable
@@ -849,19 +860,38 @@ function stepKnights(s: NecroState, dt: number): void {
       dx = tx - e.x; dy = ty - e.y;
       const dist = Math.hypot(dx, dy) || 1;
       if (e.priest) {
-        // A priest never melees. Roused, it channels holy mana; when full it unmakes
-        // the nearest skeleton in range outright (no damage roll — a single instant
-        // kill), then must recharge. It holds its ground, so the counter is to mass
-        // the horde and overwhelm it faster than it can thin them. The necromancer's
-        // own life is never at risk from a priest.
-        e.mana = Math.min(1, (e.mana ?? 0) + dt / PRIEST_CHARGE_MS);
-        if ((e.mana ?? 0) >= 1) {
-          const si = nearestMinion(s, e.x, e.y, PRIEST_SMITE_RANGE);
-          if (si >= 0) {
-            const victim = s.minions[si];
-            victim.dead = true;
-            e.mana = 0; // spent — recharge from empty
-            s.smites.push({ x: victim.x, y: victim.y, until: s.elapsed + PRIEST_SMITE_MS });
+        // A priest never melees. It channels holy mana, then locks a skeleton and a
+        // beam builds (the windup) before the kill — a telegraph the player answers.
+        // The rite breaks two ways: crowd the priest (skeletons near it slow the
+        // channel), or stand the necromancer on the locked beam (the smite fails).
+        // The necromancer's own life is never at risk — a foiled smite simply spends
+        // the priest's mana and it recharges.
+        if (e.smiteUntil != null) {
+          // Mid-rite: the beam is building toward a locked skeleton. It lands or fails.
+          const v = e.smiteTarget;
+          const lost = !v || v.dead ||
+            (v.x - e.x) ** 2 + (v.y - e.y) ** 2 > PRIEST_SMITE_RANGE ** 2;
+          const blocked = !lost &&
+            closestOnSegment(h.x, h.y, e.x, e.y, v!.x, v!.y).d <= PRIEST_BLOCK_HALF + HERO_RADIUS;
+          if (lost || blocked) {
+            e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // foiled — recharge
+          } else if (s.elapsed >= e.smiteUntil) {
+            v!.dead = true;
+            s.smites.push({ x: v!.x, y: v!.y, until: s.elapsed + PRIEST_SMITE_MS });
+            e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // spent
+          }
+        } else {
+          // Channelling. A crowded priest charges slower (its concentration breaks).
+          let crowd = 0;
+          for (const m of s.minions) {
+            if (m.dead) continue;
+            if ((m.x - e.x) ** 2 + (m.y - e.y) ** 2 <= PRIEST_SWARM_RADIUS ** 2) crowd++;
+          }
+          e.mana = Math.min(1, (e.mana ?? 0) + dt / (PRIEST_CHARGE_MS * (1 + crowd * PRIEST_SWARM_SLOW)));
+          if ((e.mana ?? 0) >= 1) {
+            const si = nearestMinion(s, e.x, e.y, PRIEST_SMITE_RANGE);
+            if (si >= 0) { e.smiteTarget = s.minions[si]; e.smiteUntil = s.elapsed + PRIEST_SMITE_WINDUP_MS; }
+            // none in range: hold the full charge until a skeleton strays near
           }
         }
         dx /= dist; dy /= dist;
@@ -1507,6 +1537,22 @@ function render(s: NecroState, layer: SVGGElement): void {
           cx: e.x, cy: e.y, r: (KNIGHT_RADIUS + 11) * pulse, fill: "none",
           stroke: "#fffbe6", "stroke-width": 1.6, opacity: 0.7 * op,
           filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+      }
+      // The smite beam — a holy line building from priest to its locked skeleton, a
+      // bead racing down it. This is the read: step onto the line to break it.
+      if (e.smiteUntil != null && e.smiteTarget && !e.smiteTarget.dead) {
+        const v = e.smiteTarget;
+        const prog = clamp(1 - (e.smiteUntil - s.elapsed) / PRIEST_SMITE_WINDUP_MS, 0, 1);
+        const beamFx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+        layer.appendChild(el("line", {
+          x1: e.x, y1: e.y, x2: v.x, y2: v.y,
+          stroke: "#fffbe6", "stroke-width": 1 + 4 * prog,
+          "stroke-linecap": "round", opacity: (0.25 + 0.6 * prog) * op, ...beamFx,
+        }));
+        layer.appendChild(el("circle", {
+          cx: e.x + (v.x - e.x) * prog, cy: e.y + (v.y - e.y) * prog,
+          r: 3 + 3 * prog, fill: "#fffbe6", opacity: 0.9 * op, ...beamFx,
         }));
       }
     }
@@ -2255,6 +2301,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       KNIGHT_ATTACK_REACH, KNIGHT_SEP, KNIGHT_PER_POST, AGGRO_RADIUS,
       KNIGHT_WANDER_SPEED, KNIGHT_LEASH, CLEANUP_AGGRO_FRAC, CAPTAIN_HP_MUL, CAPTAIN_DMG,
       PRIEST_HP_MUL, PRIEST_CHARGE_MS, PRIEST_SMITE_RANGE, PRIEST_SMITE_MS,
+      PRIEST_SMITE_WINDUP_MS, PRIEST_SWARM_RADIUS, PRIEST_SWARM_SLOW, PRIEST_BLOCK_HALF,
       OBSTACLE_RADIUS, BARRICADE_HALF, CAUSEWAY_HALF, CAUSEWAY_BOOST,
       DESEC_REACH, DESEC_HEAL, HEAL_CAP, HOUSE_RISE_MS, TOTEM_RADIUS, TOTEM_DMG,
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,
