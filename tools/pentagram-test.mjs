@@ -502,6 +502,101 @@ const anyNode = sfr2.scenery.find((n) => n.kind === "press" || n.kind === "shrin
 if (anyNode) pg.maybeFresco(sfr2, anyNode);
 ok(sfr2.pendingFresco === null, "an exhausted fresco pool uncovers nothing");
 
+// 23b. The reliquary — frescoes are collected into the lifetime profile, drawn
+//      from per-city signature subsets, with a one-time ember bounty per set.
+store.delete(LEGACY_KEY);
+ok(pg.loadPgLegacy().frescoesFound.length === 0, "a fresh reliquary is empty");
+const fr1 = pg.recordFrescoes([3, 3, 1]);
+ok(JSON.stringify(fr1.found) === "[1,3]", "recordFrescoes dedupes and sorts a descent's finds");
+const fr2 = pg.recordFrescoes([1, 7]);
+ok(JSON.stringify(fr2.found) === "[1,3,7]", "a later descent unions into the lifetime reliquary");
+const fr3 = pg.recordFrescoes([-1, 99]);
+ok(JSON.stringify(fr3.found) === "[1,3,7]", "out-of-range indices are ignored");
+
+// Every fresco belongs to some city's subset, so the collection is completable.
+const union = new Set();
+for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union.add(i);
+ok(union.size === pg.FRESCOES.length, "the per-city subsets cover every fresco (the reliquary is completable)");
+
+// Completing a city's whole subset banks the bounty — exactly once.
+store.delete(LEGACY_KEY);
+const oc = pg.levelById("old-city");
+const eBefore = pg.loadPgLegacy().embers;
+const frC = pg.recordFrescoes(oc.frescoes);
+ok(frC.bonus === K.FRESCO_SET_BONUS && frC.completed.includes(oc.name),
+  "completing a city's subset banks the reliquary bounty");
+ok(pg.loadPgLegacy().embers === eBefore + K.FRESCO_SET_BONUS, "the bounty lands in the legacy embers");
+ok(pg.recordFrescoes(oc.frescoes).bonus === 0, "an already-complete subset never re-pays");
+
+// A city draws frescoes from its own subset until that subset is spent.
+const sash = pg.buildArena(pg.levelById("ashfold"));
+const ashSub = pg.levelById("ashfold").frescoes;
+for (let i = 0; i < 50 && sash.shownFrescoes.length < ashSub.length; i++) {
+  const node = sash.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
+  sash.pendingFresco = null;
+  pg.maybeFresco(sash, node);
+}
+ok(sash.shownFrescoes.length === ashSub.length && sash.shownFrescoes.every((i) => ashSub.includes(i)),
+  "a city draws frescoes only from its own signature subset");
+// With its subset spent, it falls back to the global pool.
+sash.pendingFresco = null;
+const fbNode = sash.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
+pg.maybeFresco(sash, fbNode);
+const lastIdx = sash.shownFrescoes[sash.shownFrescoes.length - 1];
+ok(sash.pendingFresco !== null && !ashSub.includes(lastIdx),
+  "a spent subset falls back to the global fresco pool");
+
+// The gallery renders progress, tappable tiles, whitewashed gaps, and badges.
+store.delete(LEGACY_KEY);
+pg.recordFrescoes([0, 6]);
+const gal = pg.frescoGalleryHtml(pg.loadPgLegacy().frescoesFound);
+ok(gal.includes(`2/${pg.FRESCOES.length} uncovered`), "the gallery reports collection progress");
+ok(gal.includes('data-frx="0"') && gal.includes('data-frx="6"'), "uncovered frescoes render as tappable tiles");
+ok(gal.includes("Beneath the whitewash…"), "uncollected frescoes stay whitewashed");
+pg.recordFrescoes(oc.frescoes);
+ok(pg.frescoGalleryHtml(pg.loadPgLegacy().frescoesFound).includes("illuminated"),
+  "a fully-collected city shows the illuminated badge");
+
+// 23c. QR encoder — self-contained, offline byte-mode generator for sharing.
+const qrSmall = pg.qrEncode("AB");
+ok(qrSmall && qrSmall.size === 21, "a short string encodes to a version-1 (21x21) QR");
+ok(qrSmall.modules[0][0] && qrSmall.modules[0][6] && qrSmall.modules[6][0] && !qrSmall.modules[1][1],
+  "the top-left finder pattern is well-formed");
+ok(qrSmall.modules[0][20] && qrSmall.modules[20][0], "the top-right and bottom-left finders are present");
+ok(qrSmall.modules[6][8] && !qrSmall.modules[6][9], "the timing pattern alternates");
+ok(qrSmall.modules[qrSmall.size - 8][8] === true, "the fixed dark module is set");
+// Reed–Solomon: the full codeword polynomial vanishes at the generator roots.
+const qrEval = (coeffs, xExp) => {
+  let acc = 0;
+  for (const cf of coeffs) acc = pg.qrMul(acc, pg.QR_EXP[xExp % 255]) ^ cf;
+  return acc;
+};
+const qrEccB = pg.qrEcc([32, 65, 205, 69, 41, 220, 46, 128, 236], 10);
+const qrWord = [32, 65, 205, 69, 41, 220, 46, 128, 236].concat(qrEccB);
+let qrRsOk = true;
+for (let i = 0; i < 10; i++) if (qrEval(qrWord, i) !== 0) qrRsOk = false;
+ok(qrRsOk, "Reed-Solomon codewords vanish at the generator roots (valid ECC)");
+ok(pg.qrEncode("x".repeat(200)) === null, "an over-long string yields no QR (versions cap at 5)");
+// Place+mask round-trip: read the data bits back out of the finished matrix.
+const qr = pg.qrEncode("https://example.com/the-burning-vigil");
+const grid = qr.modules.map((row) => row.slice());
+for (let r = 0; r < qr.size; r++) for (let c = 0; c < qr.size; c++)
+  if (!qr.isFn[r][c] && pg.qrMaskBit(qr.mask, r, c)) grid[r][c] = !grid[r][c];
+const qrBits = [];
+for (let right = qr.size - 1; right >= 1; right -= 2) {
+  if (right === 6) right = 5;
+  for (let vert = 0; vert < qr.size; vert++) for (let j = 0; j < 2; j++) {
+    const col = right - j;
+    const upward = ((right + 1) & 2) === 0;
+    const row = upward ? qr.size - 1 - vert : vert;
+    if (!qr.isFn[row][col]) qrBits.push(grid[row][col] ? 1 : 0);
+  }
+}
+const qrCw = [];
+for (let i = 0; i + 8 <= qrBits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | qrBits[i + j]; qrCw.push(b); }
+ok(qrCw.slice(0, qr.codewords.length).every((v, i) => v === qr.codewords[i]),
+  "the QR's data round-trips back through placement and masking");
+
 // 24. Difficulty is real — a harder city raises a DENSER seal (more strands to
 //     bind), not merely a bigger health number. Same seed, two difficulties.
 const seedX = pg.hashSeed("old-city");

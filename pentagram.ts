@@ -365,6 +365,8 @@ const SCORE_DWELLINGS_MAX = 300; // full points for a fully-relit city
 const SCORE_SURVIVAL_MAX = 200;  // full points for full HP at the clear
 const SCORE_UNTOUCHED = 250;     // flawless bonus (no blow landed all descent)
 const SCORE_EMBERS_DIV = 10;     // embers earned = score / this (min 1)
+const FRESCO_SET_BONUS = 5;      // embers banked once, when a city's whole fresco
+                                 // subset is first uncovered (see the reliquary)
 
 // Pentagram-power tuning (the signature tricks; see PENTA_TYPES).
 const CHAIN_RADIUS = 70;         // Pyre: a kill arcs to other shades within this
@@ -476,6 +478,10 @@ interface LevelDef {
   spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
   darterCount?: number;  // keeper-posts whose wave includes a quick darter (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
+  frescoes?: number[]; // FRESCO indices this city can surface — its signature
+                       // subset. The union across LEVELS must cover every index
+                       // (see the reliquary), so the collection wants every city.
+                       // Undefined/exhausted falls back to the global pool.
 }
 
 const LEVELS: LevelDef[] = [
@@ -488,6 +494,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
     fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
+    frescoes: [0, 6, 8, 15], // the foundational creed
   },
   {
     id: "ashfold",
@@ -498,6 +505,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
     fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
+    frescoes: [4, 9, 11], // fire and the spoken word
   },
   {
     id: "drowned",
@@ -508,6 +516,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
     fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
+    frescoes: [1, 3, 10], // mercy, the veil, the patient morning
   },
   {
     id: "glassworks",
@@ -518,6 +527,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
     fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
+    frescoes: [7, 13, 14], // seeing clearly, scratching the whitewash
   },
   {
     id: "vesper",
@@ -528,6 +538,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
     fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
+    frescoes: [2, 5, 12, 16], // the faithful's quarter
   },
 ];
 
@@ -1207,11 +1218,16 @@ function maybeFresco(s: PgState, n: ArenaNode): void {
   // Presses and shrines always carry text; plainer ground rarely — as in app.ts.
   const chance = n.kind === "press" || n.kind === "shrine" ? 1 : 0.06;
   if (Math.random() > chance) return;
-  const remaining = FRESCOES
-    .map((_, i) => i)
-    .filter((i) => !s.shownFrescoes.includes(i));
-  if (!remaining.length) return;
-  const idx = remaining[Math.floor(Math.random() * remaining.length)];
+  // Draw from this city's signature subset (so collecting the reliquary wants
+  // every city); fall back to the global pool when the city has none or its
+  // subset is spent this descent. Which index, never whether one fires.
+  const all = FRESCOES.map((_, i) => i).filter((i) => !s.shownFrescoes.includes(i));
+  const sub = s.level.frescoes
+    ? s.level.frescoes.filter((i) => !s.shownFrescoes.includes(i))
+    : [];
+  const choices = sub.length ? sub : all;
+  if (!choices.length) return;
+  const idx = choices[Math.floor(Math.random() * choices.length)];
   s.shownFrescoes.push(idx);
   s.pendingFresco = FRESCOES[idx];
 }
@@ -2395,10 +2411,11 @@ interface PgLegacy {
   embers: number;       // unlock currency, banked from clears
   unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
   equipped: string;     // the sigil id currently equipped
+  frescoesFound: number[]; // the reliquary — FRESCO indices uncovered, ever
 }
 
 function emptyPgLegacy(): PgLegacy {
-  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil" };
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [] };
 }
 
 function loadPgLegacy(): PgLegacy {
@@ -2413,11 +2430,15 @@ function loadPgLegacy(): PgLegacy {
       for (const id of l.unlocked) if (pentaTypeById(id).id === id) owned.add(id);
     }
     const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "vigil";
+    const found = Array.isArray(l.frescoesFound)
+      ? [...new Set(l.frescoesFound.filter((i) => i >= 0 && i < FRESCOES.length))].sort((a, b) => a - b)
+      : [];
     return {
       runs: l.runs || 0, clears: l.clears || 0, best: l.best || {},
       dwellingsLit: l.dwellingsLit || 0,
       dwellingsAwakened: l.dwellingsAwakened || 0,
       embers: l.embers || 0, unlocked: [...owned], equipped,
+      frescoesFound: found,
     };
   } catch { return emptyPgLegacy(); }
 }
@@ -2465,6 +2486,252 @@ function recordDeath(lit = 0, awoke = 0): PgLegacy {
   l.dwellingsAwakened += awoke;
   savePgLegacy(l);
   return l;
+}
+
+// Fold a descent's uncovered frescoes into the lifetime reliquary. Called once
+// at each genuine run-end (win or fall), beside recordClear/recordDeath — the
+// write-once-per-end ethos. Idempotent (a set union), and a city's whole subset
+// being newly completed banks a one-time ember bounty (a once-complete subset
+// stays complete in `before` forever after, so it never re-pays). Returns the
+// fresh collection, the embers banked this fold, and the cities just completed.
+function recordFrescoes(shown: number[]): { found: number[]; bonus: number; completed: string[] } {
+  const l = loadPgLegacy();
+  const before = new Set(l.frescoesFound);
+  const after = new Set(before);
+  for (const i of shown) if (i >= 0 && i < FRESCOES.length) after.add(i);
+  let bonus = 0;
+  const completed: string[] = [];
+  for (const lv of LEVELS) {
+    const subset = lv.frescoes;
+    if (!subset || !subset.length) continue;
+    if (!subset.every((i) => before.has(i)) && subset.every((i) => after.has(i))) {
+      bonus += FRESCO_SET_BONUS;
+      completed.push(lv.name);
+    }
+  }
+  l.frescoesFound = [...after].sort((a, b) => a - b);
+  l.embers += bonus;
+  savePgLegacy(l);
+  return { found: l.frescoesFound, bonus, completed };
+}
+
+// The reliquary gallery for the picker (pure string, no DOM). Tiles grouped by
+// the city that carries each fresco; an uncovered tile shows its painted jpg
+// (reused from the parent, already cached) and its line, a hidden one a CSS
+// whitewash. A city whose whole subset is found wins an "illuminated" badge.
+function frescoGalleryHtml(found: number[]): string {
+  const got = new Set(found);
+  // Every fresco belongs to exactly one city's subset; anything unassigned
+  // (shouldn't happen — the union covers all) falls under "The streets".
+  const assigned = new Set<number>();
+  let groups = "";
+  for (const lv of LEVELS) {
+    const subset = lv.frescoes;
+    if (!subset || !subset.length) continue;
+    const complete = subset.every((i) => got.has(i));
+    const badge = complete ? ` <span class="legacy-new">illuminated</span>` : "";
+    const tiles = subset.map((i) => {
+      assigned.add(i);
+      return got.has(i)
+        ? `<button class="frx" data-frx="${i}"><img class="frx-img" src="${FRESCO_ART[i]}" alt="" loading="lazy"><span class="frx-line">${FRESCOES[i]}</span></button>`
+        : `<div class="frx frx-hidden"><span class="frx-wash">Beneath the whitewash…</span></div>`;
+    }).join("");
+    groups += `<div class="frx-city">${lv.name}${badge}</div><div class="reliquary">${tiles}</div>`;
+  }
+  const stray = FRESCOES.map((_, i) => i).filter((i) => !assigned.has(i));
+  if (stray.length) {
+    const tiles = stray.map((i) => got.has(i)
+      ? `<button class="frx" data-frx="${i}"><img class="frx-img" src="${FRESCO_ART[i]}" alt="" loading="lazy"><span class="frx-line">${FRESCOES[i]}</span></button>`
+      : `<div class="frx frx-hidden"><span class="frx-wash">Beneath the whitewash…</span></div>`).join("");
+    groups += `<div class="frx-city">The streets</div><div class="reliquary">${tiles}</div>`;
+  }
+  return `<div class="legacy"><div class="legacy-head">` +
+    `Reliquary <span class="legacy-new">${got.size}/${FRESCOES.length} uncovered</span></div></div>` +
+    groups;
+}
+
+// ---------- QR code (byte mode, ECC level L, versions 1–5) ----------
+// A tiny self-contained QR encoder so "share the game" works offline with the
+// module's zero runtime dependencies — no external QR service is ever called.
+// Scope: byte mode, error-correction level L, a single data block (versions
+// 1–5, up to ~106 bytes — ample for the game's URL). Ported from the standard
+// algorithm; validated in the harness by Reed–Solomon root checks, the finder/
+// timing geometry, and a place+mask round-trip of the data back out of the
+// matrix. Returns the module grid (true = dark) for the renderer to paint.
+interface QrResult {
+  size: number; version: number; mask: number;
+  modules: boolean[][]; isFn: boolean[][]; codewords: number[];
+}
+
+// GF(256), primitive polynomial x^8 + x^4 + x^3 + x^2 + 1 (0x11D).
+const QR_EXP = new Uint8Array(256);
+const QR_LOG = new Uint8Array(256);
+(() => {
+  let x = 1;
+  for (let i = 0; i < 255; i++) { QR_EXP[i] = x; QR_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+})();
+function qrMul(a: number, b: number): number {
+  return (a === 0 || b === 0) ? 0 : QR_EXP[(QR_LOG[a] + QR_LOG[b]) % 255];
+}
+// Reed–Solomon generator polynomial of degree `n` (coefficients, leading first).
+function qrGenPoly(n: number): number[] {
+  let g = [1];
+  for (let i = 0; i < n; i++) {
+    const ng = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= qrMul(g[j], QR_EXP[i]); }
+    g = ng;
+  }
+  return g;
+}
+// The `n` error-correction codewords for `data` (remainder of data·x^n ÷ gen).
+function qrEcc(data: number[], n: number): number[] {
+  const gen = qrGenPoly(n);
+  const res = new Array(n).fill(0);
+  for (const d of data) {
+    const factor = d ^ res[0];
+    res.shift(); res.push(0);
+    if (factor !== 0) for (let j = 0; j < n; j++) res[j] ^= qrMul(gen[j + 1], factor);
+  }
+  return res;
+}
+
+// [dataCodewords, eccCodewords] per version at level L (single block).
+const QR_CAP: ([number, number] | null)[] = [null, [19, 7], [34, 10], [55, 15], [80, 20], [108, 26]];
+const QR_ALIGN = [0, 0, 18, 22, 26, 30]; // single alignment-pattern centre per version (0 = none)
+
+function qrMaskBit(mask: number, r: number, c: number): boolean {
+  switch (mask) {
+    case 0: return (r + c) % 2 === 0;
+    case 1: return r % 2 === 0;
+    case 2: return c % 3 === 0;
+    case 3: return (r + c) % 3 === 0;
+    case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+    case 5: return ((r * c) % 2) + ((r * c) % 3) === 0;
+    case 6: return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0;
+    default: return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0;
+  }
+}
+
+// 15-bit BCH format information for level L and the given mask.
+function qrFormatBits(mask: number): number {
+  const data = (0b01 << 3) | mask; // L = 01, then 3 mask bits
+  let rem = data;
+  for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >> 9) * 0x537);
+  return (((data << 10) | rem) ^ 0x5412) & 0x7fff;
+}
+
+function qrEncode(text: string): QrResult | null {
+  // UTF-8 bytes.
+  const bytes: number[] = [];
+  const utf8 = unescape(encodeURIComponent(text));
+  for (let i = 0; i < utf8.length; i++) bytes.push(utf8.charCodeAt(i) & 0xff);
+  // Smallest version that fits (4-bit mode + 8-bit count overhead ≈ 2 bytes).
+  let version = 0;
+  for (let v = 1; v <= 5; v++) if (bytes.length <= QR_CAP[v]![0] - 2) { version = v; break; }
+  if (!version) return null;
+  const [dataLen, eccLen] = QR_CAP[version]!;
+
+  // Bit stream → data codewords.
+  const bits: number[] = [];
+  const put = (val: number, len: number) => { for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+  put(0b0100, 4); put(bytes.length, 8);
+  for (const b of bytes) put(b, 8);
+  for (let i = 0, term = Math.min(4, dataLen * 8 - bits.length); i < term; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+  const cw: number[] = [];
+  for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; cw.push(b); }
+  for (let pad = 0; cw.length < dataLen; pad++) cw.push(pad % 2 === 0 ? 0xec : 0x11);
+  const all = cw.concat(qrEcc(cw, eccLen));
+
+  // Matrix.
+  const size = 17 + 4 * version;
+  const modules: (boolean | null)[][] = Array.from({ length: size }, () => new Array(size).fill(null));
+  const isFn: boolean[][] = Array.from({ length: size }, () => new Array(size).fill(false));
+  const setFn = (r: number, c: number, dark: boolean) => {
+    if (r < 0 || c < 0 || r >= size || c >= size) return;
+    modules[r][c] = dark; isFn[r][c] = true;
+  };
+  // Finder patterns + separators.
+  const finder = (r0: number, c0: number) => {
+    for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+      const inner = r >= 0 && r <= 6 && c >= 0 && c <= 6;
+      const dark = inner && (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      setFn(r0 + r, c0 + c, dark);
+    }
+  };
+  finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+  // Timing patterns.
+  for (let i = 0; i < size; i++) {
+    if (modules[6][i] === null) setFn(6, i, i % 2 === 0);
+    if (modules[i][6] === null) setFn(i, 6, i % 2 === 0);
+  }
+  // Alignment pattern (versions 2–5: a single centre).
+  const a = QR_ALIGN[version];
+  if (a) for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++)
+    setFn(a + r, a + c, Math.max(Math.abs(r), Math.abs(c)) !== 1);
+  // Reserve the format-info modules (filled with real bits after masking).
+  const drawFormat = (value: number) => {
+    const bit = (i: number) => ((value >> i) & 1) !== 0;
+    for (let i = 0; i <= 5; i++) setFn(i, 8, bit(i));
+    setFn(7, 8, bit(6)); setFn(8, 8, bit(7)); setFn(8, 7, bit(8));
+    for (let i = 9; i < 15; i++) setFn(8, 14 - i, bit(i));
+    for (let i = 0; i < 8; i++) setFn(8, size - 1 - i, bit(i));
+    for (let i = 8; i < 15; i++) setFn(size - 15 + i, 8, bit(i));
+    setFn(size - 8, 8, true);
+  };
+  drawFormat(0);
+
+  // Lay the codeword bits in the zigzag, skipping function modules.
+  let bi = 0;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      for (let j = 0; j < 2; j++) {
+        const col = right - j;
+        const upward = ((right + 1) & 2) === 0;
+        const row = upward ? size - 1 - vert : vert;
+        if (modules[row][col] === null) {
+          let dark = false;
+          if (bi < all.length * 8) { dark = ((all[bi >> 3] >> (7 - (bi & 7))) & 1) !== 0; bi++; }
+          modules[row][col] = dark;
+        }
+      }
+    }
+  }
+
+  // Choose the mask with the lowest penalty.
+  const applyMask = (mask: number) => {
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++)
+      if (!isFn[r][c] && qrMaskBit(mask, r, c)) modules[r][c] = !modules[r][c];
+  };
+  const penalty = (): number => {
+    let p = 0;
+    for (let r = 0; r < size; r++) {
+      let runC = 1, runR = 1;
+      for (let c = 1; c < size; c++) {
+        if (modules[r][c] === modules[r][c - 1]) { if (++runC >= 5) p += runC === 5 ? 3 : 1; } else runC = 1;
+        if (modules[c][r] === modules[c - 1][r]) { if (++runR >= 5) p += runR === 5 ? 3 : 1; } else runR = 1;
+      }
+    }
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++) {
+      const v = modules[r][c];
+      if (v === modules[r][c + 1] && v === modules[r + 1][c] && v === modules[r + 1][c + 1]) p += 3;
+    }
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (modules[r][c]) dark++;
+    p += Math.floor(Math.abs((dark * 100) / (size * size) - 50) / 5) * 10;
+    return p;
+  };
+  let best = 0, bestP = Infinity;
+  for (let mask = 0; mask < 8; mask++) {
+    applyMask(mask); drawFormat(qrFormatBits(mask));
+    const pp = penalty();
+    applyMask(mask); // undo (XOR is its own inverse)
+    if (pp < bestP) { bestP = pp; best = mask; }
+  }
+  applyMask(best); drawFormat(qrFormatBits(best));
+
+  return { size, version, mask: best, modules: modules as boolean[][], isFn, codewords: all };
 }
 
 // ---------- Game shell ----------
@@ -2937,6 +3204,8 @@ function start(): void {
     const awoke = s.scenery.filter((n) => n.awoke).length;
     const sc = scoreRun(s);
     const l = recordClear(s.level, ms, lit, sc.embers, awoke);
+    const fr = recordFrescoes(s.shownFrescoes); // fold the reliquary; may bank a bonus
+    const banked = l.embers + fr.bonus;
     const best = l.best[s.level.id];
     const relit = (lit >= total && total > 0
       ? `You relit every dwelling — <em>${total}</em>. The city is whole again.`
@@ -2954,7 +3223,10 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("City difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
-      row("Embers earned", `+${sc.embers} <span class="legacy-new">${l.embers} banked</span>`) +
+      (fr.bonus
+        ? row("Reliquary", `${fr.completed.join(", ")} <em>illuminated</em> · +${fr.bonus}`)
+        : "") +
+      row("Embers earned", `+${sc.embers + fr.bonus} <span class="legacy-new">${banked} banked</span>`) +
       `</dl></div>`;
     showOverlay(
       "The city is cleansed",
@@ -2971,6 +3243,11 @@ function start(): void {
   function onLost(): void {
     if (!s) return;
     recordDeath(s.litCount, s.scenery.filter((n) => n.awoke).length);
+    const fr = recordFrescoes(s.shownFrescoes); // the reliquary keeps what you saw, even in falling
+    const reliquary = fr.bonus
+      ? `<br><br>Yet you uncovered the frescoes of <em>${fr.completed.join(", ")}</em> — ` +
+        `<em>+${fr.bonus} embers</em> for the reliquary.`
+      : "";
     const unbound = s.boss ? s.boss.seal.edges.filter((e) => !e.done).length : 0;
     const how = s.boss
       ? `The Veilwarden of <em>${s.level.name}</em> snuffed your flame with ` +
@@ -2980,7 +3257,8 @@ function start(): void {
     showOverlay(
       "You fell",
       `${how}<br><br>` +
-      `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.<br><br>` +
+      `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.` +
+      `${reliquary}<br><br>` +
       `<em>The dark is patient. Descend again.</em>`,
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -3045,8 +3323,13 @@ function start(): void {
         `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div>` +
         `<div><dt>Dwellings awakened</dt><dd>${l.dwellingsAwakened}</dd></div></dl></div>`;
     }
-    showOverlay("The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel));
-    ovBtn2.style.display = "none";
+
+    // The reliquary opens as its own view (the secondary button), not buried in
+    // this card — the gallery is a lot to scroll past on the way to a descent.
+    showOverlay(
+      "The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel),
+      `The reliquary · ${l.frescoesFound.length}/${FRESCOES.length}`, () => showReliquary(sel.id),
+    );
     // The establishing image fails silently when its art isn't shipped offline.
     const img = ovBody.querySelector<HTMLImageElement>(".city-art");
     if (img) img.onerror = () => { img.style.display = "none"; };
@@ -3067,6 +3350,242 @@ function start(): void {
         showPicker(); // re-render so the new ownership/equip state shows
       };
     });
+  }
+
+  // The reliquary — its own view, reached from the picker's secondary button.
+  // The whole collection grouped by city; tapping an uncovered fresco re-shows
+  // its painted card (the same in-descent reveal). `backTo` keeps the city the
+  // carrier had selected so the picker returns where they left it.
+  function showReliquary(backTo?: string): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const l = loadPgLegacy();
+    const body =
+      `<p class="lede">The painted fragments the watch whitewashed over, uncovered ` +
+      `as you walk the cities in the flesh. Each city hides its own set — collect ` +
+      `one entire and it banks an ember bounty. Tap any you've found to read it again.</p>` +
+      frescoGalleryHtml(l.frescoesFound);
+    showOverlay(
+      "The Reliquary", body, "Back to the cities", () => showPicker(backTo),
+      "Share as PNG", () => { void shareReliquary(l.frescoesFound); },
+    );
+    // The img already shipped/cached; onerror hides a missing tile (no broken image).
+    overlay.querySelectorAll<HTMLButtonElement>(".frx[data-frx]").forEach((b) => {
+      const i = Number(b.dataset.frx);
+      b.onclick = () => { if (i >= 0 && i < FRESCOES.length) showFresco(i, backTo); };
+      const img = b.querySelector<HTMLImageElement>(".frx-img");
+      if (img) img.onerror = () => { img.style.display = "none"; };
+    });
+  }
+
+  // A single fresco, full size — the home for its own "share as PNG". Reached by
+  // tapping a tile in the reliquary; "Back" returns there (keeping `backTo`).
+  function showFresco(i: number, backTo?: string): void {
+    s = null; running = false;
+    const art = FRESCO_ART[i];
+    const city = LEVELS.find((lv) => lv.frescoes && lv.frescoes.includes(i));
+    const where = city ? `<p class="frx-where">Uncovered in <em>${city.name}</em></p>` : "";
+    const body =
+      (art ? `<img class="frx-full" src="${art}" alt="">` : "") +
+      `<p class="frx-quote">“${FRESCOES[i]}”</p>` + where;
+    showOverlay(
+      "A fresco", body, "Back", () => showReliquary(backTo),
+      "Share as PNG", () => { void shareFresco(i); },
+    );
+    const img = ovBody.querySelector<HTMLImageElement>(".frx-full");
+    if (img) img.onerror = () => { img.style.display = "none"; };
+  }
+
+  // ---------- Share as PNG ----------
+  // Render a share card to a canvas and hand it to the native share sheet when
+  // it accepts files (mobile PWAs); otherwise fall back to a plain download.
+  function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  async function shareCanvas(canvas: HTMLCanvasElement, filename: string, title: string): Promise<void> {
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+    if (!blob) { showToast("Could not render the image."); return; }
+    const nav = navigator as Navigator & {
+      canShare?: (d: unknown) => boolean; share?: (d: unknown) => Promise<void>;
+    };
+    const file = new File([blob], filename, { type: "image/png" });
+    if (nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+      try { await nav.share({ files: [file], title }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; } // cancelled
+      // share rejected for another reason — fall through to download
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  // Wrap `text` to `maxW` px (the canvas font must already be set).
+  function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+    const lines: string[] = [];
+    let line = "";
+    for (const w of text.split(" ")) {
+      const next = line ? `${line} ${w}` : w;
+      if (line && ctx.measureText(next).width > maxW) { lines.push(line); line = w; }
+      else line = next;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  const SHARE_BG = "#0b0a10", SHARE_INK = "#f1e6cf", SHARE_DIM = "#b9a98a", SHARE_GOLD = "#e8b34b";
+
+  async function shareFresco(i: number): Promise<void> {
+    showToast("Preparing image…");
+    const cw = 1080, ch = 1350, sq = cw; // painted square on top, caption below
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = SHARE_BG; ctx.fillRect(0, 0, cw, ch);
+    try {
+      const img = await loadImage(FRESCO_ART[i]);
+      const scale = Math.max(sq / img.width, sq / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, sq, sq); ctx.clip();
+      ctx.drawImage(img, (sq - dw) / 2, (sq - dh) / 2, dw, dh);
+      ctx.restore();
+    } catch { /* no art shipped — leave the dark panel */ }
+    const grad = ctx.createLinearGradient(0, sq - 220, 0, ch);
+    grad.addColorStop(0, "rgba(11,10,16,0)"); grad.addColorStop(1, SHARE_BG);
+    ctx.fillStyle = grad; ctx.fillRect(0, sq - 220, cw, ch - (sq - 220));
+    ctx.textAlign = "center";
+    ctx.fillStyle = SHARE_INK; ctx.font = "italic 46px Georgia, serif";
+    const lines = wrapLines(ctx, `“${FRESCOES[i]}”`, cw - 160);
+    let y = sq + 70;
+    for (const ln of lines) { ctx.fillText(ln, cw / 2, y); y += 62; }
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "600 26px Georgia, serif";
+    ctx.fillText("✦  THE BURNING VIGIL · RELIQUARY", cw / 2, ch - 56);
+    await shareCanvas(c, `fresco-${i}.png`, "A fresco from The Burning Vigil");
+  }
+
+  async function shareReliquary(found: number[]): Promise<void> {
+    showToast("Preparing image…");
+    const got = new Set(found);
+    const cw = 1080, pad = 60, cols = 4, gap = 18;
+    const cell = Math.floor((cw - pad * 2 - gap * (cols - 1)) / cols);
+    const rows = Math.ceil(FRESCOES.length / cols);
+    const top = 210, bottom = 110;
+    const ch = top + rows * cell + (rows - 1) * gap + bottom;
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = SHARE_BG; ctx.fillRect(0, 0, cw, ch);
+    ctx.textAlign = "center";
+    ctx.fillStyle = SHARE_INK; ctx.font = "600 64px Georgia, serif";
+    ctx.fillText("The Reliquary", cw / 2, 96);
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "500 34px Georgia, serif";
+    ctx.fillText(`${got.size} / ${FRESCOES.length} frescoes uncovered`, cw / 2, 152);
+    const imgs = await Promise.all(FRESCOES.map((_, i) =>
+      got.has(i) ? loadImage(FRESCO_ART[i]).catch(() => null) : Promise.resolve(null)));
+    for (let i = 0; i < FRESCOES.length; i++) {
+      const x = pad + (i % cols) * (cell + gap), y = top + Math.floor(i / cols) * (cell + gap);
+      const img = imgs[i];
+      if (got.has(i) && img) {
+        const scale = Math.max(cell / img.width, cell / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        ctx.save(); ctx.beginPath(); ctx.rect(x, y, cell, cell); ctx.clip();
+        ctx.drawImage(img, x + (cell - dw) / 2, y + (cell - dh) / 2, dw, dh);
+        ctx.restore();
+        ctx.strokeStyle = "rgba(232,179,75,0.5)"; ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cell, cell);
+      } else {
+        ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fillRect(x, y, cell, cell);
+        ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]); ctx.strokeRect(x + 1, y + 1, cell - 2, cell - 2); ctx.setLineDash([]);
+        ctx.fillStyle = SHARE_DIM; ctx.font = "italic 30px Georgia, serif";
+        ctx.fillText("?", x + cell / 2, y + cell / 2 + 10);
+      }
+    }
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "600 26px Georgia, serif";
+    ctx.fillText("✦  THE BURNING VIGIL", cw / 2, ch - 50);
+    await shareCanvas(c, "reliquary.png", "My reliquary — The Burning Vigil");
+  }
+
+  // ---------- Start screen + sharing the game ----------
+  // The deployed page, sans any query/hash — what we hand out to others.
+  function gameUrl(): string { return location.origin + location.pathname; }
+
+  // The title screen: logo, a random fresco for art, and ways to share the game.
+  // "Enter the Vigil" drops into the city picker.
+  function showStart(): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const lg = loadPgLegacy();
+    // A random fresco for the title art — prefer ones the carrier has uncovered
+    // (so it teases the reliquary), else any from the pool.
+    const pool = lg.frescoesFound.length ? lg.frescoesFound : FRESCOES.map((_, i) => i);
+    const fi = pool[Math.floor(Math.random() * pool.length)];
+    const art = FRESCO_ART[fi];
+    const body =
+      `<img class="start-logo" src="./icons/icon-512.png" alt="The Burning Vigil">` +
+      (art
+        ? `<figure class="start-fresco"><img src="${art}" alt=""><figcaption>“${FRESCOES[fi]}”</figcaption></figure>`
+        : `<p class="frx-quote">“${FRESCOES[fi]}”</p>`) +
+      `<div class="start-share">` +
+      `<button class="start-act" data-act="link">Share game link</button>` +
+      `<button class="start-act" data-act="qr">Show QR code</button></div>`;
+    showOverlay("The Burning Vigil", body, "Enter the Vigil", () => showPicker());
+    ovBtn2.style.display = "none";
+    ovBody.querySelectorAll<HTMLImageElement>("img").forEach((im) => {
+      im.onerror = () => { im.style.display = "none"; }; // silent fallback, no broken image
+    });
+    ovBody.querySelectorAll<HTMLButtonElement>(".start-act").forEach((b) => {
+      b.onclick = () => { if (b.dataset.act === "link") void shareGameLink(); else showQR(); };
+    });
+  }
+
+  async function shareGameLink(): Promise<void> {
+    const url = gameUrl();
+    const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void> };
+    if (nav.share) {
+      try { await nav.share({ title: "The Burning Vigil", text: "Carry the flame through the dark city.", url }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast("Game link copied to the clipboard."); }
+    catch { showToast(url); }
+  }
+
+  // The QR view: a scannable code to the game, generated offline. "Share QR
+  // image" hands the rendered canvas to the share sheet / a download.
+  function showQR(): void {
+    const url = gameUrl();
+    const q = qrEncode(url);
+    const body =
+      `<p class="lede">Point a phone camera here to open The Burning Vigil.</p>` +
+      (q ? `<canvas id="qr-canvas" class="qr-canvas" aria-label="QR code linking to the game"></canvas>`
+         : `<p class="frx-quote">This address is too long to encode as a QR.</p>`) +
+      `<p class="qr-url">${url}</p>`;
+    if (q) {
+      showOverlay("Share the Vigil", body, "Back", () => showStart(),
+        "Share QR image", () => { void shareCanvas(byId("qr-canvas") as HTMLCanvasElement, "burning-vigil-qr.png", "The Burning Vigil"); });
+      drawQR(byId("qr-canvas") as HTMLCanvasElement, q);
+    } else {
+      showOverlay("Share the Vigil", body, "Back", () => showStart());
+    }
+  }
+
+  // Paint a QR matrix onto a canvas with a 4-module quiet zone (dark on a light
+  // parchment so a camera reads it cleanly).
+  function drawQR(canvas: HTMLCanvasElement, q: QrResult): void {
+    const quiet = 4, scale = 8, n = q.size + quiet * 2, px = n * scale;
+    canvas.width = px; canvas.height = px;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#f1e6cf"; ctx.fillRect(0, 0, px, px);
+    ctx.fillStyle = "#0b0a10";
+    for (let r = 0; r < q.size; r++) for (let c = 0; c < q.size; c++)
+      if (q.modules[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
   }
 
   byId("reset").addEventListener("click", () => showPicker());
@@ -3096,7 +3615,7 @@ function start(): void {
   setupZoom();
   clampCam();
   applyCam();
-  showPicker();
+  showStart();
 }
 
 // ---------- Service worker registration (offline play) ----------
@@ -3127,7 +3646,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
-    weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_REACH,
+    weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
+    recordFrescoes, frescoGalleryHtml, savePgLegacy,
+    qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
     K: {
@@ -3139,7 +3660,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
-      SCORCH_RADIUS, SCORCH_MAX,
+      SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
       BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,
