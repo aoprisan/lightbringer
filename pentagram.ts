@@ -272,8 +272,13 @@ const FENCE_VIS_THICK = 26;      // drawn thickness of the fence sprite (reads t
 // Pathways — open lanes the flame-hero runs swift along (the cleared streets).
 // Travelling within this half-width of a pathway grants a speed boost, rewarding
 // the streets for kiting the host. Shades ignore them — only the hero is quick.
+// A lane is also a *processional*: it channels the flame, so the hero keeps
+// inscribing while walking it (at PATHWAY_INSCRIBE_MUL of the still-rate) — a
+// third option between standing exposed and running cold, without unseating
+// "stand still on clean ground" as the fastest path to a full sigil.
 const PATHWAY_HALF = 30;         // half-width of a pathway lane
 const PATHWAY_BOOST = 1.4;       // hero speed multiplier while on a pathway
+const PATHWAY_INSCRIBE_MUL = 0.5; // fraction of the still charge-rate gained while walking a lane
 
 // Elite shades — one champion may rise at a keeper-post (per the city's
 // eliteCount). It carries far more hp, bites harder, and begins veil-SHIELDED:
@@ -523,6 +528,7 @@ const LEVELS: LevelDef[] = [
     art: "art/city-old.jpg",
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
+    fontCount: 1, // a single lightwell teaches the burn-on-the-run early — still fair
     keeperCount: 6, keeperSpacing: 360,
     fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
     frescoes: [0, 6, 8, 15], // the foundational creed
@@ -534,6 +540,7 @@ const LEVELS: LevelDef[] = [
     art: "art/city-ashfold.jpg",
     nodeCount: 130, minDist: 64,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
+    fontCount: 2, // dry-tinder city of motion — lightwells reward the constant kite
     keeperCount: 7, keeperSpacing: 320,
     fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
     frescoes: [4, 9, 11], // fire and the spoken word
@@ -545,6 +552,7 @@ const LEVELS: LevelDef[] = [
     art: "art/city-drowned.jpg",
     nodeCount: 104, minDist: 86,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
+    obeliskCount: 1, // a lone ward-stone on the sparse, patient map — a deliberate detour
     keeperCount: 4, keeperSpacing: 420,
     fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
     frescoes: [1, 3, 10], // mercy, the veil, the patient morning
@@ -556,6 +564,7 @@ const LEVELS: LevelDef[] = [
     art: "art/city-glassworks.jpg",
     nodeCount: 134, minDist: 66,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
+    fontCount: 1, obeliskCount: 2, // ward-stones harden the packed watch; one well to keep the flame moving
     keeperCount: 9, keeperSpacing: 270,
     fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
     frescoes: [7, 13, 14], // seeing clearly, scratching the whitewash
@@ -567,6 +576,7 @@ const LEVELS: LevelDef[] = [
     art: "art/city-vesper.jpg",
     nodeCount: 124, minDist: 70,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
+    fontCount: 1, obeliskCount: 2, // the faithful keep the watch warded; one well is the only mercy
     keeperCount: 11, keeperSpacing: 250,
     fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
     frescoes: [2, 5, 12, 16], // the faithful's quarter
@@ -1423,11 +1433,15 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // still hero must pick clear ground. The type's charge lean is baked into fxCharge.
   // A lightwell (font) feeds the flame even while moving: in its aura the hero
   // inscribes regardless of speed (still barred by a veil pool, as anywhere else).
+  // A pathway is a processional: walking a lane keeps inscribing, but only at
+  // PATHWAY_INSCRIBE_MUL of the still-rate, so standing clean stays the fastest fill.
   const onFont = inFontAura(s, h.x, h.y);
-  if ((Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED || onFont) && !veiled) {
-    s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
-  } else if (veiled) {
+  if (veiled) {
     s.penta.charge = Math.max(0, s.penta.charge - (VEIL_DRAIN_MUL * dt) / s.fxCharge);
+  } else if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED || onFont) {
+    s.penta.charge = Math.min(1, s.penta.charge + dt / s.fxCharge);
+  } else if (onPath) {
+    s.penta.charge = Math.min(1, s.penta.charge + (PATHWAY_INSCRIBE_MUL * dt) / s.fxCharge);
   } else {
     s.penta.charge = Math.max(0, s.penta.charge - dt / s.fxCharge);
   }
@@ -3843,7 +3857,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
-      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST, PATHWAY_INSCRIBE_MUL,
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,

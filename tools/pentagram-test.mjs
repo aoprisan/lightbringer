@@ -254,6 +254,23 @@ run(sp2, 500, { x: 1, y: 0 });
 const pathDist = sp2.hero.x - pathX;
 ok(pathDist > baseDist + 1, `the hero runs faster on a pathway (${baseDist | 0} -> ${pathDist | 0})`);
 
+// 13b. A pathway is a processional: walking a lane keeps inscribing (at a reduced
+// rate), where the same walk off any lane lets the sigil fade to nothing.
+const spw = pg.buildArena(pg.levelById("old-city"));
+for (const e of spw.shades) park(e, 5, 5);
+spw.solids = []; spw.fences = []; spw.veils = []; spw.pathways = [];
+spw.hero.x = 100; spw.hero.y = 100; spw.penta.charge = 0.5;
+run(spw, 400, { x: 1, y: 0 }); // walk off any lane
+ok(spw.penta.charge < 0.5 - 1e-3, `walking off a lane lets the sigil fade (0.50 -> ${spw.penta.charge.toFixed(2)})`);
+const spw2 = pg.buildArena(pg.levelById("old-city"));
+for (const e of spw2.shades) park(e, 5, 5);
+spw2.solids = []; spw2.fences = []; spw2.veils = [];
+spw2.pathways = [{ x1: 80, y1: 100, x2: 900, y2: 100 }];
+spw2.hero.x = 100; spw2.hero.y = 100; spw2.penta.charge = 0.5;
+run(spw2, 400, { x: 1, y: 0 }); // same walk, but on a lane
+ok(spw2.penta.charge > 0.5 + 1e-3, `walking a lane keeps inscribing (0.50 -> ${spw2.penta.charge.toFixed(2)})`);
+ok(K.PATHWAY_INSCRIBE_MUL < 1, `a lane inscribes slower than standing still (mul=${K.PATHWAY_INSCRIBE_MUL})`);
+
 // 11. Legacy: clears and deaths fold into a private key, best time never worsens.
 store.delete(LEGACY_KEY);
 ok(pg.loadPgLegacy().runs === 0, "an untouched legacy starts empty");
@@ -942,6 +959,15 @@ const union2 = new Set();
 for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union2.add(i);
 ok(union2.size === pg.FRESCOES.length,
   "with the new cities, the per-city subsets still cover every fresco");
+
+// 38b. Fonts and obelisks are no longer hidden in one city each — the core
+// cities now seed them too, so every player meets both mechanics.
+const fontCities = pg.LEVELS.filter((l) => pg.buildArena(l).scenery.some((n) => n.kind === "font"));
+const obeliskCities = pg.LEVELS.filter((l) => pg.buildArena(l).scenery.some((n) => n.kind === "obelisk"));
+ok(fontCities.length >= 3, `lightwells appear across several cities (${fontCities.length})`);
+ok(obeliskCities.length >= 3, `ward-obelisks appear across several cities (${obeliskCities.length})`);
+ok(pg.buildArena(pg.levelById("old-city")).scenery.some((n) => n.kind === "font"),
+  "the Old City now teaches the lightwell");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
