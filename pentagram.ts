@@ -2550,6 +2550,190 @@ function frescoGalleryHtml(found: number[]): string {
     groups;
 }
 
+// ---------- QR code (byte mode, ECC level L, versions 1–5) ----------
+// A tiny self-contained QR encoder so "share the game" works offline with the
+// module's zero runtime dependencies — no external QR service is ever called.
+// Scope: byte mode, error-correction level L, a single data block (versions
+// 1–5, up to ~106 bytes — ample for the game's URL). Ported from the standard
+// algorithm; validated in the harness by Reed–Solomon root checks, the finder/
+// timing geometry, and a place+mask round-trip of the data back out of the
+// matrix. Returns the module grid (true = dark) for the renderer to paint.
+interface QrResult {
+  size: number; version: number; mask: number;
+  modules: boolean[][]; isFn: boolean[][]; codewords: number[];
+}
+
+// GF(256), primitive polynomial x^8 + x^4 + x^3 + x^2 + 1 (0x11D).
+const QR_EXP = new Uint8Array(256);
+const QR_LOG = new Uint8Array(256);
+(() => {
+  let x = 1;
+  for (let i = 0; i < 255; i++) { QR_EXP[i] = x; QR_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+})();
+function qrMul(a: number, b: number): number {
+  return (a === 0 || b === 0) ? 0 : QR_EXP[(QR_LOG[a] + QR_LOG[b]) % 255];
+}
+// Reed–Solomon generator polynomial of degree `n` (coefficients, leading first).
+function qrGenPoly(n: number): number[] {
+  let g = [1];
+  for (let i = 0; i < n; i++) {
+    const ng = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= qrMul(g[j], QR_EXP[i]); }
+    g = ng;
+  }
+  return g;
+}
+// The `n` error-correction codewords for `data` (remainder of data·x^n ÷ gen).
+function qrEcc(data: number[], n: number): number[] {
+  const gen = qrGenPoly(n);
+  const res = new Array(n).fill(0);
+  for (const d of data) {
+    const factor = d ^ res[0];
+    res.shift(); res.push(0);
+    if (factor !== 0) for (let j = 0; j < n; j++) res[j] ^= qrMul(gen[j + 1], factor);
+  }
+  return res;
+}
+
+// [dataCodewords, eccCodewords] per version at level L (single block).
+const QR_CAP: ([number, number] | null)[] = [null, [19, 7], [34, 10], [55, 15], [80, 20], [108, 26]];
+const QR_ALIGN = [0, 0, 18, 22, 26, 30]; // single alignment-pattern centre per version (0 = none)
+
+function qrMaskBit(mask: number, r: number, c: number): boolean {
+  switch (mask) {
+    case 0: return (r + c) % 2 === 0;
+    case 1: return r % 2 === 0;
+    case 2: return c % 3 === 0;
+    case 3: return (r + c) % 3 === 0;
+    case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+    case 5: return ((r * c) % 2) + ((r * c) % 3) === 0;
+    case 6: return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0;
+    default: return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0;
+  }
+}
+
+// 15-bit BCH format information for level L and the given mask.
+function qrFormatBits(mask: number): number {
+  const data = (0b01 << 3) | mask; // L = 01, then 3 mask bits
+  let rem = data;
+  for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >> 9) * 0x537);
+  return (((data << 10) | rem) ^ 0x5412) & 0x7fff;
+}
+
+function qrEncode(text: string): QrResult | null {
+  // UTF-8 bytes.
+  const bytes: number[] = [];
+  const utf8 = unescape(encodeURIComponent(text));
+  for (let i = 0; i < utf8.length; i++) bytes.push(utf8.charCodeAt(i) & 0xff);
+  // Smallest version that fits (4-bit mode + 8-bit count overhead ≈ 2 bytes).
+  let version = 0;
+  for (let v = 1; v <= 5; v++) if (bytes.length <= QR_CAP[v]![0] - 2) { version = v; break; }
+  if (!version) return null;
+  const [dataLen, eccLen] = QR_CAP[version]!;
+
+  // Bit stream → data codewords.
+  const bits: number[] = [];
+  const put = (val: number, len: number) => { for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+  put(0b0100, 4); put(bytes.length, 8);
+  for (const b of bytes) put(b, 8);
+  for (let i = 0, term = Math.min(4, dataLen * 8 - bits.length); i < term; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+  const cw: number[] = [];
+  for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; cw.push(b); }
+  for (let pad = 0; cw.length < dataLen; pad++) cw.push(pad % 2 === 0 ? 0xec : 0x11);
+  const all = cw.concat(qrEcc(cw, eccLen));
+
+  // Matrix.
+  const size = 17 + 4 * version;
+  const modules: (boolean | null)[][] = Array.from({ length: size }, () => new Array(size).fill(null));
+  const isFn: boolean[][] = Array.from({ length: size }, () => new Array(size).fill(false));
+  const setFn = (r: number, c: number, dark: boolean) => {
+    if (r < 0 || c < 0 || r >= size || c >= size) return;
+    modules[r][c] = dark; isFn[r][c] = true;
+  };
+  // Finder patterns + separators.
+  const finder = (r0: number, c0: number) => {
+    for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+      const inner = r >= 0 && r <= 6 && c >= 0 && c <= 6;
+      const dark = inner && (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      setFn(r0 + r, c0 + c, dark);
+    }
+  };
+  finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+  // Timing patterns.
+  for (let i = 0; i < size; i++) {
+    if (modules[6][i] === null) setFn(6, i, i % 2 === 0);
+    if (modules[i][6] === null) setFn(i, 6, i % 2 === 0);
+  }
+  // Alignment pattern (versions 2–5: a single centre).
+  const a = QR_ALIGN[version];
+  if (a) for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++)
+    setFn(a + r, a + c, Math.max(Math.abs(r), Math.abs(c)) !== 1);
+  // Reserve the format-info modules (filled with real bits after masking).
+  const drawFormat = (value: number) => {
+    const bit = (i: number) => ((value >> i) & 1) !== 0;
+    for (let i = 0; i <= 5; i++) setFn(i, 8, bit(i));
+    setFn(7, 8, bit(6)); setFn(8, 8, bit(7)); setFn(8, 7, bit(8));
+    for (let i = 9; i < 15; i++) setFn(8, 14 - i, bit(i));
+    for (let i = 0; i < 8; i++) setFn(8, size - 1 - i, bit(i));
+    for (let i = 8; i < 15; i++) setFn(size - 15 + i, 8, bit(i));
+    setFn(size - 8, 8, true);
+  };
+  drawFormat(0);
+
+  // Lay the codeword bits in the zigzag, skipping function modules.
+  let bi = 0;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      for (let j = 0; j < 2; j++) {
+        const col = right - j;
+        const upward = ((right + 1) & 2) === 0;
+        const row = upward ? size - 1 - vert : vert;
+        if (modules[row][col] === null) {
+          let dark = false;
+          if (bi < all.length * 8) { dark = ((all[bi >> 3] >> (7 - (bi & 7))) & 1) !== 0; bi++; }
+          modules[row][col] = dark;
+        }
+      }
+    }
+  }
+
+  // Choose the mask with the lowest penalty.
+  const applyMask = (mask: number) => {
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++)
+      if (!isFn[r][c] && qrMaskBit(mask, r, c)) modules[r][c] = !modules[r][c];
+  };
+  const penalty = (): number => {
+    let p = 0;
+    for (let r = 0; r < size; r++) {
+      let runC = 1, runR = 1;
+      for (let c = 1; c < size; c++) {
+        if (modules[r][c] === modules[r][c - 1]) { if (++runC >= 5) p += runC === 5 ? 3 : 1; } else runC = 1;
+        if (modules[c][r] === modules[c - 1][r]) { if (++runR >= 5) p += runR === 5 ? 3 : 1; } else runR = 1;
+      }
+    }
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++) {
+      const v = modules[r][c];
+      if (v === modules[r][c + 1] && v === modules[r + 1][c] && v === modules[r + 1][c + 1]) p += 3;
+    }
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (modules[r][c]) dark++;
+    p += Math.floor(Math.abs((dark * 100) / (size * size) - 50) / 5) * 10;
+    return p;
+  };
+  let best = 0, bestP = Infinity;
+  for (let mask = 0; mask < 8; mask++) {
+    applyMask(mask); drawFormat(qrFormatBits(mask));
+    const pp = penalty();
+    applyMask(mask); // undo (XOR is its own inverse)
+    if (pp < bestP) { bestP = pp; best = mask; }
+  }
+  applyMask(best); drawFormat(qrFormatBits(best));
+
+  return { size, version, mask: best, modules: modules as boolean[][], isFn, codewords: all };
+}
+
 // ---------- Game shell ----------
 
 function byId(id: string): HTMLElement {
@@ -3328,6 +3512,82 @@ function start(): void {
     await shareCanvas(c, "reliquary.png", "My reliquary — The Burning Vigil");
   }
 
+  // ---------- Start screen + sharing the game ----------
+  // The deployed page, sans any query/hash — what we hand out to others.
+  function gameUrl(): string { return location.origin + location.pathname; }
+
+  // The title screen: logo, a random fresco for art, and ways to share the game.
+  // "Enter the Vigil" drops into the city picker.
+  function showStart(): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const lg = loadPgLegacy();
+    // A random fresco for the title art — prefer ones the carrier has uncovered
+    // (so it teases the reliquary), else any from the pool.
+    const pool = lg.frescoesFound.length ? lg.frescoesFound : FRESCOES.map((_, i) => i);
+    const fi = pool[Math.floor(Math.random() * pool.length)];
+    const art = FRESCO_ART[fi];
+    const body =
+      `<img class="start-logo" src="./icons/icon-512.png" alt="The Burning Vigil">` +
+      (art
+        ? `<figure class="start-fresco"><img src="${art}" alt=""><figcaption>“${FRESCOES[fi]}”</figcaption></figure>`
+        : `<p class="frx-quote">“${FRESCOES[fi]}”</p>`) +
+      `<div class="start-share">` +
+      `<button class="start-act" data-act="link">Share game link</button>` +
+      `<button class="start-act" data-act="qr">Show QR code</button></div>`;
+    showOverlay("The Burning Vigil", body, "Enter the Vigil", () => showPicker());
+    ovBtn2.style.display = "none";
+    ovBody.querySelectorAll<HTMLImageElement>("img").forEach((im) => {
+      im.onerror = () => { im.style.display = "none"; }; // silent fallback, no broken image
+    });
+    ovBody.querySelectorAll<HTMLButtonElement>(".start-act").forEach((b) => {
+      b.onclick = () => { if (b.dataset.act === "link") void shareGameLink(); else showQR(); };
+    });
+  }
+
+  async function shareGameLink(): Promise<void> {
+    const url = gameUrl();
+    const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void> };
+    if (nav.share) {
+      try { await nav.share({ title: "The Burning Vigil", text: "Carry the flame through the dark city.", url }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast("Game link copied to the clipboard."); }
+    catch { showToast(url); }
+  }
+
+  // The QR view: a scannable code to the game, generated offline. "Share QR
+  // image" hands the rendered canvas to the share sheet / a download.
+  function showQR(): void {
+    const url = gameUrl();
+    const q = qrEncode(url);
+    const body =
+      `<p class="lede">Point a phone camera here to open The Burning Vigil.</p>` +
+      (q ? `<canvas id="qr-canvas" class="qr-canvas" aria-label="QR code linking to the game"></canvas>`
+         : `<p class="frx-quote">This address is too long to encode as a QR.</p>`) +
+      `<p class="qr-url">${url}</p>`;
+    if (q) {
+      showOverlay("Share the Vigil", body, "Back", () => showStart(),
+        "Share QR image", () => { void shareCanvas(byId("qr-canvas") as HTMLCanvasElement, "burning-vigil-qr.png", "The Burning Vigil"); });
+      drawQR(byId("qr-canvas") as HTMLCanvasElement, q);
+    } else {
+      showOverlay("Share the Vigil", body, "Back", () => showStart());
+    }
+  }
+
+  // Paint a QR matrix onto a canvas with a 4-module quiet zone (dark on a light
+  // parchment so a camera reads it cleanly).
+  function drawQR(canvas: HTMLCanvasElement, q: QrResult): void {
+    const quiet = 4, scale = 8, n = q.size + quiet * 2, px = n * scale;
+    canvas.width = px; canvas.height = px;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#f1e6cf"; ctx.fillRect(0, 0, px, px);
+    ctx.fillStyle = "#0b0a10";
+    for (let r = 0; r < q.size; r++) for (let c = 0; c < q.size; c++)
+      if (q.modules[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+  }
+
   byId("reset").addEventListener("click", () => showPicker());
 
   // Force-fresh the app to the newest deployed version. A cache-first service
@@ -3355,7 +3615,7 @@ function start(): void {
   setupZoom();
   clampCam();
   applyCam();
-  showPicker();
+  showStart();
 }
 
 // ---------- Service worker registration (offline play) ----------
@@ -3388,6 +3648,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
     weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
     recordFrescoes, frescoGalleryHtml, savePgLegacy,
+    qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
     K: {

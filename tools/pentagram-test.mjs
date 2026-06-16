@@ -557,6 +557,46 @@ pg.recordFrescoes(oc.frescoes);
 ok(pg.frescoGalleryHtml(pg.loadPgLegacy().frescoesFound).includes("illuminated"),
   "a fully-collected city shows the illuminated badge");
 
+// 23c. QR encoder — self-contained, offline byte-mode generator for sharing.
+const qrSmall = pg.qrEncode("AB");
+ok(qrSmall && qrSmall.size === 21, "a short string encodes to a version-1 (21x21) QR");
+ok(qrSmall.modules[0][0] && qrSmall.modules[0][6] && qrSmall.modules[6][0] && !qrSmall.modules[1][1],
+  "the top-left finder pattern is well-formed");
+ok(qrSmall.modules[0][20] && qrSmall.modules[20][0], "the top-right and bottom-left finders are present");
+ok(qrSmall.modules[6][8] && !qrSmall.modules[6][9], "the timing pattern alternates");
+ok(qrSmall.modules[qrSmall.size - 8][8] === true, "the fixed dark module is set");
+// Reed–Solomon: the full codeword polynomial vanishes at the generator roots.
+const qrEval = (coeffs, xExp) => {
+  let acc = 0;
+  for (const cf of coeffs) acc = pg.qrMul(acc, pg.QR_EXP[xExp % 255]) ^ cf;
+  return acc;
+};
+const qrEccB = pg.qrEcc([32, 65, 205, 69, 41, 220, 46, 128, 236], 10);
+const qrWord = [32, 65, 205, 69, 41, 220, 46, 128, 236].concat(qrEccB);
+let qrRsOk = true;
+for (let i = 0; i < 10; i++) if (qrEval(qrWord, i) !== 0) qrRsOk = false;
+ok(qrRsOk, "Reed-Solomon codewords vanish at the generator roots (valid ECC)");
+ok(pg.qrEncode("x".repeat(200)) === null, "an over-long string yields no QR (versions cap at 5)");
+// Place+mask round-trip: read the data bits back out of the finished matrix.
+const qr = pg.qrEncode("https://example.com/the-burning-vigil");
+const grid = qr.modules.map((row) => row.slice());
+for (let r = 0; r < qr.size; r++) for (let c = 0; c < qr.size; c++)
+  if (!qr.isFn[r][c] && pg.qrMaskBit(qr.mask, r, c)) grid[r][c] = !grid[r][c];
+const qrBits = [];
+for (let right = qr.size - 1; right >= 1; right -= 2) {
+  if (right === 6) right = 5;
+  for (let vert = 0; vert < qr.size; vert++) for (let j = 0; j < 2; j++) {
+    const col = right - j;
+    const upward = ((right + 1) & 2) === 0;
+    const row = upward ? qr.size - 1 - vert : vert;
+    if (!qr.isFn[row][col]) qrBits.push(grid[row][col] ? 1 : 0);
+  }
+}
+const qrCw = [];
+for (let i = 0; i + 8 <= qrBits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | qrBits[i + j]; qrCw.push(b); }
+ok(qrCw.slice(0, qr.codewords.length).every((v, i) => v === qr.codewords[i]),
+  "the QR's data round-trips back through placement and masking");
+
 // 24. Difficulty is real — a harder city raises a DENSER seal (more strands to
 //     bind), not merely a bigger health number. Same seed, two difficulties.
 const seedX = pg.hashSeed("old-city");

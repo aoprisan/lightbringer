@@ -323,6 +323,34 @@
   #ov-body .frx-where {
     margin: 12px auto 0; font-size: 11.5px; letter-spacing: 0.08em; color: var(--ink-dim);
   }
+  /* Title screen — logo, a fresco for art, and the share row. */
+  #ov-body .start-logo {
+    display: block; width: 132px; height: 132px; margin: 0 auto 14px;
+    border-radius: 22px; box-shadow: 0 0 40px rgba(255,106,60,0.25);
+  }
+  #ov-body .start-fresco { margin: 0 auto 18px; max-width: 320px; }
+  #ov-body .start-fresco img {
+    display: block; width: 100%; border-radius: 8px; border: 1px solid rgba(232,179,75,0.3);
+  }
+  #ov-body .start-fresco figcaption {
+    margin-top: 9px; font-style: italic; font-size: 13.5px; line-height: 1.5; color: var(--gold-bright);
+  }
+  #ov-body .start-share { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  #ov-body .start-act {
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 9px 14px; border: 1px solid rgba(232,179,75,0.35); border-radius: 6px;
+    background: rgba(255,216,122,0.04); color: var(--gold-bright); cursor: pointer;
+  }
+  #ov-body .start-act:hover { border-color: rgba(232,179,75,0.6); background: rgba(255,216,122,0.09); }
+  /* QR view. */
+  #ov-body .qr-canvas {
+    display: block; width: 280px; max-width: 78vw; height: auto; margin: 4px auto 12px;
+    image-rendering: pixelated; border-radius: 8px;
+    border: 1px solid rgba(232,179,75,0.3); background: #f1e6cf;
+  }
+  #ov-body .qr-url {
+    font-size: 11px; word-break: break-all; color: var(--ink-dim); max-width: 320px; margin: 0 auto;
+  }
   .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
   button {
     font-family: inherit; font-size: 12.5px; letter-spacing: 0.16em; text-transform: uppercase;
