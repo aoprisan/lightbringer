@@ -495,6 +495,16 @@ ok(sfr.shownFrescoes.length === 1, "the uncovered fresco is logged so it shows o
 sfr.pendingFresco = null;
 pg.stepCombat(sfr, 16, still);
 ok(sfr.pendingFresco === null, "a place already first-footed does not re-fire");
+// Only one fresco surfaces per descent: walking onto a *fresh* press after one
+// has already shown uncovers nothing more this run.
+const press2 = sfr.scenery.find((n) => n.kind === "press" && !n.seen);
+if (press2) {
+  sfr.pendingFresco = null;
+  sfr.hero.x = press2.x; sfr.hero.y = press2.y;
+  pg.stepCombat(sfr, 16, still);
+  ok(sfr.pendingFresco === null && sfr.shownFrescoes.length === 1,
+    "only one fresco surfaces per descent");
+}
 // The pool is finite: once every fresco is shown, no place uncovers more.
 const sfr2 = pg.buildArena(pg.levelById("old-city"));
 sfr2.shownFrescoes = pg.FRESCOES.map((_, i) => i);
