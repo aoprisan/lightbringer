@@ -2805,22 +2805,37 @@ function start(): void {
   }
   function hideOverlay(): void { overlay.classList.add("hidden"); }
 
+  const TOAST_MS = 3200; // how long a toast stays up (also gates the intro hold)
   function showToast(text: string): void {
     toastEl.textContent = text;
     toastEl.classList.add("show");
-    window.setTimeout(() => toastEl.classList.remove("show"), 3200);
+    window.setTimeout(() => toastEl.classList.remove("show"), TOAST_MS);
   }
 
   // ----- The descent loop -----
   let lastFrame = 0;
   let running = false;
+  // The opening tutorial toast is long; rather than let the swarm lurch forward
+  // while the carrier reads it, the fight is held frozen (scene drawn, nothing
+  // stepped) until the toast fades or the carrier gives input — so the descent
+  // only truly begins once the "popup" is gone. Set in startCity.
+  let introHold = false;
+  let introHoldTimer: ReturnType<typeof setTimeout> | undefined;
   function pgFrame(now: number): void {
     if (!running || !s) return;
     if (!lastFrame) lastFrame = now;
     let dt = now - lastFrame; lastFrame = now;
     if (dt > 100) dt = 100; // a backgrounded tab must not lurch the fight forward
 
-    if (s.phase === "fight") {
+    // Hold the opening: draw the arena but step nothing while the tutorial toast
+    // is up. The carrier's first move (joystick or WASD) dismisses it early.
+    if (introHold && (move.x || move.y || keys.size > 0)) {
+      introHold = false;
+      clearTimeout(introHoldTimer);
+      toastEl.classList.remove("show");
+    }
+
+    if (!introHold && s.phase === "fight") {
       if (!stick) {
         let mx = 0, my = 0;
         if (keys.has("a") || keys.has("arrowleft")) mx -= 1;
@@ -2906,6 +2921,11 @@ function start(): void {
     centerCam(s.hero.x, s.hero.y);
     hud();
     showToast("Cleanse the city: clear EVERY shade to win (watch the count, top-right). Stand still to inscribe the pentagram — it burns shades and lights the dark dwellings around you; move to dodge. Weave around presses, shrines and fences, run the pathways to kite the swarm. Keep out of the drifting veil pools (they unravel the sigil), break a shielded champion with a FULL inscription, and gather the embers the fallen leave to bite harder. (Lighting dwellings heals you and is worth score, but clearing the shades is what wins.)");
+    // Freeze the descent under the tutorial toast: the shades only begin to stir
+    // once the carrier has had a moment to read it (or moves to dismiss it).
+    introHold = true;
+    clearTimeout(introHoldTimer);
+    introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
   }
@@ -2969,6 +2989,7 @@ function start(): void {
 
   function showPicker(selId?: string): void {
     s = null; running = false;
+    introHold = false; clearTimeout(introHoldTimer); // drop any pending intro hold
     mmEl.style.display = "none"; // no arena to overview at the city select
     const l = loadPgLegacy();
     // The selected city — defaults to the first, and supplies the establishing

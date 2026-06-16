@@ -299,6 +299,10 @@
     .stats { gap: 8px; }
     .hpbar { width: 96px; }
     #help { padding: 0 18px; }
+    /* On a phone the painted card is a quieter aside still — smaller, so it
+       never crowds the action whichever edge revealFresco pins it to. */
+    #fresco { width: 142px; max-width: 44vw; bottom: calc(48px + env(safe-area-inset-bottom)); }
+    #fresco-cap { font-size: 11px; margin-top: 7px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
