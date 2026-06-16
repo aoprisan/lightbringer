@@ -390,6 +390,62 @@ ok(necro.scoreRun(ssc).untouched === 0, "a blow forfeits the untouched bonus");
 ok(necro.difficultyMult(necro.levelById("saint-aubers")) > necro.difficultyMult(necro.levelById("hollowmere")),
   "a harder village multiplies an overrun's score more");
 
+// 12b. Raising-rites — the unlockable pentagrams, each calling up its own skeleton.
+ok(Array.isArray(necro.RAISE_TYPES) && necro.RAISE_TYPES.length >= 3, `rites are defined (${necro.RAISE_TYPES.length})`);
+ok(new Set(necro.RAISE_TYPES.map((t) => t.id)).size === necro.RAISE_TYPES.length, "rite ids are unique");
+const starter = necro.RAISE_TYPES[0];
+ok(starter.cost === 0, "the starter rite costs nothing (always owned)");
+ok(necro.raiseTypeById("grave").id === "grave" && necro.raiseTypeById("nope").id === starter.id,
+  "raiseTypeById resolves known ids, falls back to the starter");
+
+// A fresh build equips the starter by default; the raised skeleton carries its variant.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+const sg = necro.buildArena(necro.levelById(id));
+ok(sg.rite.id === "grave", "a fresh march equips the starter rite by default");
+stowAll(sg);
+const gg = sg.graves[0]; sg.hero.x = gg.x; sg.hero.y = gg.y; sg.souls = 99; sg.hero.charge = 1;
+necro.stepRaise(sg);
+ok(sg.minions.length > 0 && sg.minions.every((m) => m.variant === "grave"), "the starter raises footsoldiers (variant grave)");
+
+// Equipping a heavier rite changes the raise: tougher skeletons, dearer in souls.
+const barrow = necro.RAISE_TYPES.find((t) => t.id === "barrow");
+const l0 = necro.loadNecroLegacy();
+l0.unlocked = ["grave", "barrow"]; l0.equipped = "barrow"; necro.saveNecroLegacy(l0);
+const sb = necro.buildArena(necro.levelById(id));
+ok(sb.rite.id === "barrow", "the equipped rite resolves onto the march");
+stowAll(sb);
+const gb = sb.graves[0]; sb.hero.x = gb.x; sb.hero.y = gb.y; sb.souls = 99; sb.hero.charge = 1;
+const soulsB = sb.souls;
+necro.stepRaise(sb);
+const expectHp = Math.round(K.MINION_HP * barrow.hpMul);
+ok(sb.minions.length > 0 && sb.minions.every((m) => m.variant === "barrow" && m.maxHp === expectHp),
+  `the barrow rite raises tougher bone (hp ${expectHp} vs ${K.MINION_HP})`);
+ok(soulsB - sb.souls === Math.max(1, Math.round(K.RAISE_COST * barrow.soulMul)),
+  "a dearer rite spends more souls per raise pulse");
+
+// Economy: learn a rite only when owned-less and affordable; equip only what's owned.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+let le = necro.unlockRite("barrow");
+ok(!le.unlocked.includes("barrow"), "a rite can't be learned with no relics");
+le = necro.loadNecroLegacy(); le.relics = 1000; necro.saveNecroLegacy(le);
+le = necro.unlockRite("barrow");
+ok(le.unlocked.includes("barrow") && le.relics === 1000 - barrow.cost, "learning a rite deducts its relics");
+le = necro.equipRite("cairn");
+ok(le.equipped !== "cairn", "an unowned rite can't be equipped");
+le = necro.equipRite("barrow");
+ok(le.equipped === "barrow", "an owned rite equips");
+
+// Relics bank from marches: an overrun banks score/RELIC_SCORE_DIV, a fall banks
+// per knight felled.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+const ow = necro.recordOverrun(necro.levelById(id), 1000, 0, 0, 17);
+ok(ow.relics === 17, "an overrun banks its relics");
+const fl = necro.recordFall(0, 0, 4);
+ok(fl.relics === 21, "a fall banks the relics of the fallen on top");
+
+// Restore a clean legacy so the render smoke-test below starts from the starter.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+
 // 13. Render smoke — render/scaffold don't throw with zero sprites, at the start
 //     and after state changes.
 const svgNode = makeNode();
