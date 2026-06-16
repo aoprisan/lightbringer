@@ -1,0 +1,27 @@
+ASSET: village-hollowmere.jpg — establishing card for Hollowmere (the first march)
+OUTPUT: art/village-hollowmere.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- This is the necromancer's view of the village he is about to overrun: ominous,
+  not heroic. The dead are about to rise. Leave room in the dark for the eye.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript meets minimal poster art. Palette:
+graveyard green-black (#060B08), cold slate and grave-stone grey, bone white
+(#E8EFD8); fierce NECROTIC green (#3CFF8A) and cold violet (#7A3CFF) for the rising
+dead — the village's own watch carries warm steel and lantern-amber. High contrast,
+deep negative darkness, soft volumetric glow, subtle grain. No outlines, no
+photorealism. Wide 16:9, low horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Hollowmere, a drowsy lakeside hamlet seen from a high
+three-quarter angle: a scatter of low stone-and-thatch cottages around a still black
+mere, pale mist lying on the water, shallow grave-slabs sunk in the boggy churchyard.
+A thin line of warm amber watch-lanterns dots the shore — few and far apart, a sparse
+guard. From the churchyard a first faint necrotic-green glow seeps up out of the
+shallow graves as the dead begin to stir. Quiet, drowsy, undefended — a fair first
+march. Wide 16:9 cinematic composition, deep negative darkness around a low horizon.

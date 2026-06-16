@@ -13,8 +13,14 @@ every shade to cleanse the city. ([more below](#the-burning-vigil--the-primary-g
 No install required — it runs in the browser; on mobile, use *Add to Home
 Screen* to install it as an offline app.
 
-### ✦ [**Play necro → Necro**](https://aoprisan.github.io/lightbringer/necro.html)
+### ☠ [**Play the spinoff → The Necromancer's March**](https://aoprisan.github.io/lightbringer/necro.html)
 
+A real-time "commander" spinoff that **thematically inverts** the others: instead
+of carrying light, you are a **necromancer** marching on a defended village. Stand
+by a **grave** to raise skeletons (they cost *souls*); your horde auto-fights the
+**knights** who guard the village; raze **houses** to heal the dead. Defeat every
+knight to overrun the village; lose your own health and you fall. ([more
+below](#the-necromancers-march--the-inversion-spinoff))
 
 ### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
 
@@ -91,6 +97,24 @@ it scorches. Each city holds a **finite** host of shades — clear them all and 
 city is cleansed; lose your health and you fall. It is its own installable PWA
 page, with its own quiet legacy (cities cleansed, best clear time).
 
+## The Necromancer's March — the inversion spinoff
+
+[**The Necromancer's March**](https://aoprisan.github.io/lightbringer/necro.html)
+is a third sibling game (`necro.ts` / `necro.html`) that **inverts** the parent's
+premise. Where the Light-Bringer kindles homes, here you are the **necromancer**:
+you walk a village as its dead rise behind you, raising a horde of skeletons from
+its **graves** and overrunning the **knights** who defend it. It is real-time
+"commander" play — move with a joystick (or WASD); standing near a grave raises
+1–3 skeletons for *souls*; your minions follow and auto-target the nearest knight;
+the watch fights back against both the horde and you. **Razing houses** heals the
+horde (a secondary objective that inverts the Vigil's lit-dwelling layer), and a
+held razed house rises into a bone-**totem** that fires on the watch. Defeat every
+knight to **overrun** the village; let your own health fall to zero and the march
+ends. It shares the world, the cities (re-themed as villages), and the art system
+— every undead sprite has a procedural SVG fallback, so it is **fully playable
+before any of its PNGs exist**. Like the others it is its own installable PWA page
+with its own legacy key (villages overrun, best clear time, houses razed).
+
 ## Tech
 
 A single TypeScript module rendering layered SVG (deep indigo world, light in
@@ -104,12 +128,16 @@ a bounded "while you were away" catch-up.
 | --- | --- |
 | `pentagram.ts` | **The Burning Vigil** (primary game) — combat sim + rendering — compiles to `pentagram.js` |
 | `pentagram.html` | The Burning Vigil page shell |
+| `necro.ts` | **The Necromancer's March** spinoff — march sim + rendering — compiles to `necro.js` |
+| `necro.html` | The Necromancer's March page shell |
 | `app.ts` | The original Light-Bringer — game logic + rendering — compiles to `app.js` |
 | `index.html` | Original Light-Bringer shell, styling, PWA tags |
-| `sw.js` | Service worker — offline app-shell cache (both games) |
-| `pentagram.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / the original) |
+| `sw.js` | Service worker — offline app-shell cache (all three games) |
+| `pentagram.webmanifest`, `necro.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / the original) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
+| `art/prompts/necro/` | Self-contained Gemini prompts for the undead sprite + village art |
 | `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
+| `tools/necro-test.mjs` | Headless march test for The Necromancer's March (`npm test`) |
 | `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
@@ -137,8 +165,8 @@ npm run typecheck           # type-check without emitting
 
 The site is the repository root. A workflow at
 `.github/workflows/deploy.yml` installs deps, compiles the TypeScript
-(`app.ts` → `app.js` and `pentagram.ts` → `pentagram.js`), and publishes on every
-push to `main`.
+(`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`),
+and publishes on every push to `main`.
 
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via

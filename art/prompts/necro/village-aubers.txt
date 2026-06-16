@@ -1,0 +1,28 @@
+ASSET: village-aubers.jpg — establishing card for Saint Auber's Rest
+OUTPUT: art/village-aubers.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- The hook is a WALLED, WELL-DEFENDED chantry-town: thick watch, many barricades,
+  consecrated ground. It should read as the hardest, most fortified village.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript meets minimal poster art. Palette:
+graveyard green-black (#060B08), cold slate and grave-stone grey, bone white
+(#E8EFD8); fierce NECROTIC green (#3CFF8A) and cold violet (#7A3CFF) for the rising
+dead — the village's own watch carries warm steel and lantern-amber, with a faint
+clean silver-white holy ward-light on the chantry. High contrast, deep negative
+darkness, soft volumetric glow, subtle grain. No outlines, no photorealism. Wide
+16:9, low horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Saint Auber's Rest, a walled chantry-town seen from a
+high three-quarter angle: a small stone chapel with a slender spire haloed in faint
+silver-white holy light, tight rows of cottages behind a high timber palisade and
+many sharpened barricades. Warm amber watch-lanterns crowd the walls — a thick, alert
+guard of knights. Only a thin thread of necrotic-green seeps from the consecrated
+churchyard, held back by the wards. Fortified, faithful, hard to take. Wide 16:9
+cinematic composition, deep negative darkness around a low horizon.
