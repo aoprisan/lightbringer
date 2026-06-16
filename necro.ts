@@ -1283,6 +1283,12 @@ function render(s: NecroState, layer: SVGGElement): void {
     }));
   }
 
+  // Can the necromancer raise at all right now? Souls in hand for at least one
+  // pulse of the equipped rite, and the horde under its cap. When he can't, every
+  // open grave dims — so a grave that won't answer reads as "no souls", not broken.
+  const raiseCost = Math.max(1, Math.round(RAISE_COST * s.rite.soulMul));
+  const canRaiseNow = s.souls >= raiseCost && aliveMinions(s) < MINION_CAP;
+
   // Scenery — the built world. A desecrated house glows necrotic green; a risen
   // totem shows its emitter reach; a re-blessed house's scar marks the ground.
   for (const n of s.scenery) {
@@ -1306,9 +1312,23 @@ function render(s: NecroState, layer: SVGGElement): void {
         }));
       }
     }
-    // A grave glows faintly while it still holds dead to raise.
+    // An open grave glows while it still holds dead to raise. A grave you can
+    // raise from *right now* (souls in hand, horde not capped, off its brief
+    // cooldown) pulses a bright ring in the equipped rite's hue; one you can't
+    // sits dim — so empty souls read as "wait", not as a dead grave.
     if (n.kind === "grave" && !n.graveSpent) {
-      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 26, fill: "url(#necro)", opacity: 0.5 }));
+      const offCooldown = s.elapsed - (n.desecAt ?? -Infinity) >= GRAVE_COOLDOWN_MS;
+      const ready = canRaiseNow && offCooldown;
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: 26, fill: "url(#necro)", opacity: ready ? 0.5 : 0.16,
+      }));
+      if (ready) {
+        const pulse = 1 + 0.12 * Math.sin(s.elapsed / 180);
+        layer.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 23 * pulse, fill: "none", stroke: s.rite.ring,
+          "stroke-width": 1.6, opacity: 0.55, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+        }));
+      }
     }
     const spriteName = scenerySprite(s, n);
     const key = spriteFor(s.level, spriteName);
