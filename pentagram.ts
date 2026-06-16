@@ -3181,15 +3181,151 @@ function start(): void {
       `as you walk the cities in the flesh. Each city hides its own set — collect ` +
       `one entire and it banks an ember bounty. Tap any you've found to read it again.</p>` +
       frescoGalleryHtml(l.frescoesFound);
-    showOverlay("The Reliquary", body, "Back to the cities", () => showPicker(backTo));
-    ovBtn2.style.display = "none";
+    showOverlay(
+      "The Reliquary", body, "Back to the cities", () => showPicker(backTo),
+      "Share as PNG", () => { void shareReliquary(l.frescoesFound); },
+    );
     // The img already shipped/cached; onerror hides a missing tile (no broken image).
     overlay.querySelectorAll<HTMLButtonElement>(".frx[data-frx]").forEach((b) => {
       const i = Number(b.dataset.frx);
-      b.onclick = () => { if (i >= 0 && i < FRESCOES.length) revealFresco(FRESCOES[i]); };
+      b.onclick = () => { if (i >= 0 && i < FRESCOES.length) showFresco(i, backTo); };
       const img = b.querySelector<HTMLImageElement>(".frx-img");
       if (img) img.onerror = () => { img.style.display = "none"; };
     });
+  }
+
+  // A single fresco, full size — the home for its own "share as PNG". Reached by
+  // tapping a tile in the reliquary; "Back" returns there (keeping `backTo`).
+  function showFresco(i: number, backTo?: string): void {
+    s = null; running = false;
+    const art = FRESCO_ART[i];
+    const city = LEVELS.find((lv) => lv.frescoes && lv.frescoes.includes(i));
+    const where = city ? `<p class="frx-where">Uncovered in <em>${city.name}</em></p>` : "";
+    const body =
+      (art ? `<img class="frx-full" src="${art}" alt="">` : "") +
+      `<p class="frx-quote">“${FRESCOES[i]}”</p>` + where;
+    showOverlay(
+      "A fresco", body, "Back", () => showReliquary(backTo),
+      "Share as PNG", () => { void shareFresco(i); },
+    );
+    const img = ovBody.querySelector<HTMLImageElement>(".frx-full");
+    if (img) img.onerror = () => { img.style.display = "none"; };
+  }
+
+  // ---------- Share as PNG ----------
+  // Render a share card to a canvas and hand it to the native share sheet when
+  // it accepts files (mobile PWAs); otherwise fall back to a plain download.
+  function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  async function shareCanvas(canvas: HTMLCanvasElement, filename: string, title: string): Promise<void> {
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+    if (!blob) { showToast("Could not render the image."); return; }
+    const nav = navigator as Navigator & {
+      canShare?: (d: unknown) => boolean; share?: (d: unknown) => Promise<void>;
+    };
+    const file = new File([blob], filename, { type: "image/png" });
+    if (nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+      try { await nav.share({ files: [file], title }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; } // cancelled
+      // share rejected for another reason — fall through to download
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  // Wrap `text` to `maxW` px (the canvas font must already be set).
+  function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+    const lines: string[] = [];
+    let line = "";
+    for (const w of text.split(" ")) {
+      const next = line ? `${line} ${w}` : w;
+      if (line && ctx.measureText(next).width > maxW) { lines.push(line); line = w; }
+      else line = next;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  const SHARE_BG = "#0b0a10", SHARE_INK = "#f1e6cf", SHARE_DIM = "#b9a98a", SHARE_GOLD = "#e8b34b";
+
+  async function shareFresco(i: number): Promise<void> {
+    showToast("Preparing image…");
+    const cw = 1080, ch = 1350, sq = cw; // painted square on top, caption below
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = SHARE_BG; ctx.fillRect(0, 0, cw, ch);
+    try {
+      const img = await loadImage(FRESCO_ART[i]);
+      const scale = Math.max(sq / img.width, sq / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, sq, sq); ctx.clip();
+      ctx.drawImage(img, (sq - dw) / 2, (sq - dh) / 2, dw, dh);
+      ctx.restore();
+    } catch { /* no art shipped — leave the dark panel */ }
+    const grad = ctx.createLinearGradient(0, sq - 220, 0, ch);
+    grad.addColorStop(0, "rgba(11,10,16,0)"); grad.addColorStop(1, SHARE_BG);
+    ctx.fillStyle = grad; ctx.fillRect(0, sq - 220, cw, ch - (sq - 220));
+    ctx.textAlign = "center";
+    ctx.fillStyle = SHARE_INK; ctx.font = "italic 46px Georgia, serif";
+    const lines = wrapLines(ctx, `“${FRESCOES[i]}”`, cw - 160);
+    let y = sq + 70;
+    for (const ln of lines) { ctx.fillText(ln, cw / 2, y); y += 62; }
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "600 26px Georgia, serif";
+    ctx.fillText("✦  THE BURNING VIGIL · RELIQUARY", cw / 2, ch - 56);
+    await shareCanvas(c, `fresco-${i}.png`, "A fresco from The Burning Vigil");
+  }
+
+  async function shareReliquary(found: number[]): Promise<void> {
+    showToast("Preparing image…");
+    const got = new Set(found);
+    const cw = 1080, pad = 60, cols = 4, gap = 18;
+    const cell = Math.floor((cw - pad * 2 - gap * (cols - 1)) / cols);
+    const rows = Math.ceil(FRESCOES.length / cols);
+    const top = 210, bottom = 110;
+    const ch = top + rows * cell + (rows - 1) * gap + bottom;
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = SHARE_BG; ctx.fillRect(0, 0, cw, ch);
+    ctx.textAlign = "center";
+    ctx.fillStyle = SHARE_INK; ctx.font = "600 64px Georgia, serif";
+    ctx.fillText("The Reliquary", cw / 2, 96);
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "500 34px Georgia, serif";
+    ctx.fillText(`${got.size} / ${FRESCOES.length} frescoes uncovered`, cw / 2, 152);
+    const imgs = await Promise.all(FRESCOES.map((_, i) =>
+      got.has(i) ? loadImage(FRESCO_ART[i]).catch(() => null) : Promise.resolve(null)));
+    for (let i = 0; i < FRESCOES.length; i++) {
+      const x = pad + (i % cols) * (cell + gap), y = top + Math.floor(i / cols) * (cell + gap);
+      const img = imgs[i];
+      if (got.has(i) && img) {
+        const scale = Math.max(cell / img.width, cell / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        ctx.save(); ctx.beginPath(); ctx.rect(x, y, cell, cell); ctx.clip();
+        ctx.drawImage(img, x + (cell - dw) / 2, y + (cell - dh) / 2, dw, dh);
+        ctx.restore();
+        ctx.strokeStyle = "rgba(232,179,75,0.5)"; ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cell, cell);
+      } else {
+        ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fillRect(x, y, cell, cell);
+        ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]); ctx.strokeRect(x + 1, y + 1, cell - 2, cell - 2); ctx.setLineDash([]);
+        ctx.fillStyle = SHARE_DIM; ctx.font = "italic 30px Georgia, serif";
+        ctx.fillText("?", x + cell / 2, y + cell / 2 + 10);
+      }
+    }
+    ctx.fillStyle = SHARE_GOLD; ctx.font = "600 26px Georgia, serif";
+    ctx.fillText("✦  THE BURNING VIGIL", cw / 2, ch - 50);
+    await shareCanvas(c, "reliquary.png", "My reliquary — The Burning Vigil");
   }
 
   byId("reset").addEventListener("click", () => showPicker());
