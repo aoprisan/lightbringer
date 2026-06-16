@@ -1,0 +1,8 @@
+=== 6v. Fresco — kill the kindness first ===
+For the fresco line: "The acolyte mends the Keeper so the Keeper need never heal —
+kill the kindness first." (FRESCOES index 21 — The Pale Bastion)
+Output: art/fresco-acolyte.jpg. Copy and paste the whole block below.
+
+Contemplative, reverent, illuminated-manuscript meets minimal poster art. Deep indigo night #080a14, warm gold light #e8b34b and #ffd87a with a near-white hot core #fff2cf, cold steel-blue accents #9fc4e8. High contrast, lots of negative darkness, soft volumetric glow, subtle film grain. No text, no watermark, no logos, no people's faces unless asked. Painterly but restrained — sacred, quiet, a little melancholy.
+
+A faded medieval fresco fragment painted on cracked whitewashed plaster, the whitewash partly scraped away to reveal cold steel-blue imagery beneath, a thread of warm gold at the edge. Weathered, sacred, aged, hairline cracks, faint gold leaf. Square 1:1. No modern elements, no text, faces hooded and turned away. SUBJECT: a pale-hooded acolyte figure laying a hand on a cold blue-robed Keeper, a thin steel-blue thread of mending light passing between them — the watch kept whole by tending, a kindness that must be undone.

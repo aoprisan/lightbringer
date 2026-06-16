@@ -1,0 +1,11 @@
+=== 13c. Building sprite — the ward-obelisk, cracked (spent) ===
+The CRACKED face of the ward-obelisk, shown once the hero has cracked it at a full
+inscription: its ward is broken and the watch around it is mortal again. Universal
+state sprite (not re-skinned per city). IMAGE-EDIT the standing obelisk (13b) so
+the silhouette and position match exactly. Output: art/obelisk-spent.png
+
+RULES:
+- No transparency. Flat solid #0B0E1A background. 1024×1024, no text, no border.
+- Keep the EXACT same silhouette, scale and position as art/obelisk.png.
+
+Edit the standing ward-obelisk image: the same pale stone, now cracked and spent. A jagged fracture splits it from top to base, the carved sigils gone dark and inert, the cold blue ward-light extinguished to a few dying steel-blue sparks guttering in the cracks. Slumped, broken, powerless — the armour shattered. Same silhouette and position as the standing obelisk. Flat solid #0B0E1A background, no text, 1024×1024.

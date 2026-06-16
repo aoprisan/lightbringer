@@ -1,0 +1,15 @@
+=== 13a. Building sprite — the lightwell (font) ===
+A new built-world object for The Burning Vigil: a LIGHTWELL, a stone well-mouth
+brimming with molten gold flame drawn up from the earth. In play it is PASSABLE
+(the hero stands in it) and its aura lets the sigil inscribe even while moving.
+Universal base sprite (cities may re-skin it in their own folder). The render
+falls back to a plain shape when this PNG is absent, so it is optional.
+Output: art/font.png
+
+RULES:
+- No transparency. Isolated on a flat solid #0B0E1A background. Never white.
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- View: three-quarter top-down ~60°, lit by its own welling flame.
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt illuminated-manuscript feel. Palette: deep indigo #0B0E1A, slate blue, charcoal stone; warm gold #e8b34b and #ffd87a with a near-white hot core #fff2cf. Soft painterly edges, no outlines, no photorealism.
+A circular carved stone well-mouth set into the ground, brimming to the rim with molten, luminous gold flame that wells gently upward and spills a warm glow and faint runnels of light onto the stones around it. Low and broad, inviting to stand beside, the brightest warm thing in the gloom — a wellspring of standing fire, not a bonfire. Single centered subject, flat solid #0B0E1A background, 1024×1024.

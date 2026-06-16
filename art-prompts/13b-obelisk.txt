@@ -1,0 +1,15 @@
+=== 13b. Building sprite — the ward-obelisk (standing) ===
+A new built-world object for The Burning Vigil: a WARD-OBELISK, a standing ward-
+stone carved with cold sigils that shields the watch around it. In play it is a
+SOLID (blocks bodies) and keeps nearby shades immune to partial pulses until the
+hero cracks it. Universal base sprite (cities may re-skin it). Generate this
+STANDING face FIRST, then image-edit it for the spent/cracked face (13c).
+Output: art/obelisk.png
+
+RULES:
+- No transparency. Isolated on a flat solid #0B0E1A background. Never white.
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- View: three-quarter top-down ~60°.
+
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, pale chalk-white stone, slate blue; COLD steel-blue ward-light #9fc4e8 (no warm gold here — this is the watch's stone). Soft edges, no outlines, no photorealism.
+A tall narrow standing ward-stone — a pale chalk-white obelisk, taller than it is wide, its faces carved with cold geometric Keeper-sigils that glow a faint steel-blue. A low dome of cold blue ward-light radiates from its base over the ground around it. Severe, intact, watchful, faintly humming with cold power — an armour the dark has raised over itself. Single centered subject, flat solid #0B0E1A background, 1024×1024.

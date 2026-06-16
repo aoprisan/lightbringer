@@ -1,0 +1,59 @@
+=== 9f. Per-city sprite set — THE PALE BASTION (fortified, warded) ===
+
+Re-skins the city's BUILT WORLD so The Pale Bastion reads as a fortified ward-
+quarter: pale chalk-white stone, blank curtain walls, cold blue ward-sigils. Same
+silhouettes as the base sprites — only the material changes — so each still reads
+as its kind. This city's SIGNATURE structure is the ward-obelisk, so its re-skin
+is included here; it does not use lightwells.
+
+OUTPUT FOLDER: art/bastion/    (the loader tries this city folder, then falls back
+to the base art/<name>.png). Files to produce, same names as the base set:
+  ground.png  dwelling-dark.png  dwelling-lit.png  dwelling-awakened.png
+  dwelling-snuffed.png  conduit.png  press.png  shrine.png  obelisk.png
+
+SHARED, DO NOT re-skin (universal forces): keeper-node, keeper-patrol,
+player-lantern, veil-scar, flame-spark, obelisk-spent (the cracked face is
+universal), font. The Bastion reuses the base ones.
+
+RULES (read once):
+- No transparency. Generate every sprite isolated on a flat solid #0B0E1A.
+  Never a white background.
+- 1024×1024, square, single centered subject, no text, no watermark, no border.
+- DWELLING CONTINUITY: generate dwelling-dark FIRST, then image-edit it for
+  lit / awakened / snuffed, so all four share one silhouette.
+- ground.png must tile SEAMLESSLY, edge to edge, no focal point.
+
+Each block below is self-contained — copy any one whole.
+
+--- bastion/ground.png ---
+Style: hand-painted dark-fantasy game asset, night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, pale chalk-white and grey stone; COLD steel-blue ward-light #9fc4e8; warm candle-gold #F5C66B only for the rare lit thing. Soft edges, no outlines. View: top-down. Single subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+Seamless tileable texture of a fortress courtyard floor seen from straight above at night: pale dressed chalk-white flagstones laid in a strict military grid, faint cold-blue sigil-lines inlaid here and there, swept severe stone. Very low contrast, cold and devout, no focal point, no warm light, edges must tile seamlessly. 1024×1024.
+
+--- bastion/dwelling-dark.png (GENERATE THIS FIRST) ---
+Style as above, light from its own flame only. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A small fortified cell-house of pale chalk-white stone, steep slate roof, one tall narrow arrow-slit window, a heavy banded door, an empty iron lamp-bracket. Completely unlit and cold. Pale blue-grey, almost a silhouette, a line of cold moonlight on the ridge.
+
+--- bastion/dwelling-lit.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same pale cell, now lit from within. Warm candle-gold glowing through the narrow arrow-slit and under the door, a small warm pool on the pale flags — a forbidden warmth in a cold fortress. The stone stays pale and cold; only the light is warm. Keep the exact same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- bastion/dwelling-awakened.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same pale cell transfigured. The arrow-slit blazing steady gold, a single clear small flame above the ridge like a beacon, thin gold filigree warming the pale stone courses, a calm radiant halo on the flags. Serene and defiant — a soul awake inside the ward. Same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- bastion/dwelling-snuffed.png (IMAGE-EDIT of dwelling-dark) ---
+Edit this image: the same pale cell sealed. The window and door barred over with cold iron grilles and pale stone blocks, a black-violet veil of cold smoke over it. No warm colour anywhere — walled up, silenced. Same silhouette and position. Flat solid #0B0E1A background, no text, 1024×1024.
+
+--- bastion/conduit.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A fortified covered way seen from above: a narrow stone gallery between high pale blank walls, a thin channel cut in the floor, cold blue ward-sigils faint on the walls. Dark, austere, watched — the faintest reflection along the channel hinting light could pass down it.
+
+--- bastion/press.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A clandestine press hidden in a pale fortress vault, slightly larger than a cell: a low arched door ajar, a heavy printing press in shadow among barred shelves of confiscated pages. Pale stone, cold iron, a little smuggled gilt. Unlit, secret, dangerous to light.
+
+--- bastion/shrine.png ---
+Style as above. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A wall-set ward-niche of pale stone: a carved warden-saint worn featureless, tiers of cold votive lamps glowing faint steel-blue, hanging chains and a sanctioned brass censer. Cold pale stone catching a faint gleam — the official, permitted, watched kind of light. Severe.
+
+--- bastion/obelisk.png (the city's signature ward-stone) ---
+Style as above, the coldest subject in the set (no warm gold). View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no border.
+A tall narrow standing ward-stone — a pale chalk-white obelisk carved with cold geometric Keeper-sigils that glow faint steel-blue, a low dome of cold blue ward-light radiating from its base over the pale flags around it. Severe, intact, humming with cold power — the armour of this quarter's watch. 1024×1024.

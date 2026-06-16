@@ -849,5 +849,99 @@ ok(sroster.shades.some((e) => e.spitter) && sroster.shades.some((e) => e.darter)
 ok(sroster.shades.every((e) => !(e.spitter && e.darter) && !(e.elite && e.spitter) && !(e.elite && e.darter)),
   "no shade holds two roles at once");
 
+// 35. Lightwells (fonts) — within a font's aura the hero inscribes EVEN WHILE
+//     MOVING (the well feeds the flame), inverting the stand-still rule.
+const sfont = pg.buildArena(pg.levelById("old-city"));
+sfont.solids = []; sfont.fences = []; sfont.veils = [];
+for (const e of sfont.shades) park(e, 5, 5);
+const font = { x: 1000, y: 1000, kind: "font" };
+sfont.scenery = [font]; sfont.conduitLinks = []; sfont.penta.charge = 0;
+ok(pg.inFontAura(sfont, font.x, font.y), "a font's aura covers its centre");
+ok(!pg.inFontAura(sfont, font.x + K.FONT_AURA + 40, font.y), "a font's aura is finite");
+const moveR = { x: 1, y: 0 };
+// Pin the hero on the font each slice and drive a hard move vector: a moving hero
+// would normally let the sigil fade, but on the well it inscribes regardless.
+for (let t = 0; t < 700; t += 16) {
+  sfont.hero.x = font.x; sfont.hero.y = font.y;
+  pg.stepCombat(sfont, 16, moveR);
+}
+ok(sfont.penta.charge > 0.5, `a moving hero inscribes inside a font (charge=${sfont.penta.charge.toFixed(2)})`);
+// Off any font, a moving hero lets the sigil fade — the rule only bends on the well.
+const sfar = pg.buildArena(pg.levelById("old-city"));
+sfar.solids = []; sfar.fences = []; sfar.veils = []; sfar.scenery = []; sfar.conduitLinks = [];
+for (const e of sfar.shades) park(e, 5, 5);
+sfar.penta.charge = 1;
+run(sfar, 500, moveR);
+ok(sfar.penta.charge < 1, "off any font, a moving hero lets the sigil fade");
+
+// 36. Ward-obelisks — a STANDING obelisk keeps shades in its aura SHIELDED (a
+//     partial pulse does nothing); cracking it (full inscription within reach)
+//     lifts the ward so a full pulse can then shatter the shields.
+const sob = pg.buildArena(pg.levelById("old-city"));
+sob.fences = []; sob.veils = []; sob.pathways = [];
+const ob = { x: 1200, y: 1200, kind: "obelisk" };
+sob.scenery = [ob]; sob.solids = [ob]; sob.conduitLinks = [];
+for (let i = 1; i < sob.shades.length; i++) park(sob.shades[i], 5, 5);
+const wob = sob.shades[0];
+wob.elite = false; wob.shielded = false; wob.spitter = false; wob.darter = false; wob.healer = false;
+wob.hp = K.SHADE_HP; wob.maxHp = K.SHADE_HP;
+wob.x = ob.x + 120; wob.y = ob.y; // inside the ward aura
+sob.hero.x = ob.x + 220; sob.hero.y = ob.y; // near the shade, but out of cracking reach
+const obHp0 = wob.hp;
+for (let t = 0; t < 1500; t += 16) { sob.penta.charge = 1; pg.stepObelisks(sob); pg.stepPentagram(sob, 16); }
+ok(!ob.spent, "an obelisk out of reach is not cracked by the pulse");
+ok(wob.shielded && wob.hp === obHp0, "a shade warded by a standing obelisk takes no damage");
+// Crack it: stand on it at a full inscription.
+sob.hero.x = ob.x; sob.hero.y = ob.y; sob.penta.charge = 1;
+pg.stepObelisks(sob);
+ok(ob.spent, "standing on an obelisk at full charge cracks it");
+const obHp1 = wob.hp;
+for (let t = 0; t < 1500; t += 16) { sob.penta.charge = 1; pg.stepObelisks(sob); pg.stepPentagram(sob, 16); }
+ok(wob.hp < obHp1 || wob.dead, "once the obelisk is cracked the warded shade can be burned");
+
+// 37. Warden-acolytes (healers) — a healer holds back and MENDS wounded shades
+//     near it (never itself, never spawning any), so it must be killed first.
+const sheal = pg.buildArena(pg.levelById("old-city"));
+sheal.fences = []; sheal.solids = []; sheal.veils = []; sheal.pathways = [];
+for (let i = 2; i < sheal.shades.length; i++) park(sheal.shades[i], 5, 5);
+const heal = sheal.shades[0];
+heal.healer = true; heal.elite = false; heal.shielded = false; heal.spitter = false; heal.darter = false;
+heal.hp = K.HEALER_HP; heal.maxHp = K.HEALER_HP; heal.cooldown = 0;
+heal.x = 1500; heal.y = 1500; wake(heal); heal.homeX = heal.x; heal.homeY = heal.y;
+const patient = sheal.shades[1];
+patient.healer = false; patient.elite = false; patient.shielded = false; patient.spitter = false; patient.darter = false;
+patient.maxHp = K.SHADE_HP; patient.hp = 10; // wounded, beside the healer
+const totalBefore = sheal.shades.length;
+const patHp0 = patient.hp;
+for (let t = 0; t < K.HEALER_COOLDOWN_MS + 100; t += 16) {
+  patient.x = heal.x + 40; patient.y = heal.y;          // keep the patient beside the healer
+  sheal.hero.x = heal.x - K.HEALER_STANDOFF; sheal.hero.y = heal.y; // pin the healer at standoff (still)
+  pg.stepShades(sheal, 16);
+}
+ok(patient.hp > patHp0, `a healer mends a wounded shade (${patHp0} -> ${patient.hp})`);
+ok(patient.hp <= patient.maxHp, "a heal never overfills past maxHp");
+ok(sheal.shades.length === totalBefore, "a healer never spawns new shades (the host stays finite)");
+ok(K.HEALER_HP < K.SHADE_HP, "a healer is frail");
+// Healers roster on a disjoint post band from spitters (slot 1) — never two roles on one shade.
+const shRoster = pg.buildArena(pg.levelById("bastion"));
+ok(shRoster.shades.some((e) => e.healer), "a healer-leaning city rosters acolytes");
+ok(shRoster.shades.every((e) =>
+  !(e.healer && e.spitter) && !(e.healer && e.elite) && !(e.healer && e.darter)),
+  "no shade is both a healer and another role");
+
+// 38. The two new cities resolve, generate their signature structures, and keep
+//     the fresco reliquary completable (the per-city subsets still partition all).
+ok(pg.levelById("foundry") && pg.levelById("bastion"), "the two new cities resolve by id");
+const sfo = pg.buildArena(pg.levelById("foundry"));
+ok(sfo.scenery.some((n) => n.kind === "font"), "the Ember Foundry generates lightwells");
+ok(sfo.shades.some((e) => e.healer), "the Ember Foundry rosters acolytes");
+const sba = pg.buildArena(pg.levelById("bastion"));
+ok(sba.scenery.some((n) => n.kind === "obelisk"), "the Pale Bastion generates ward-obelisks");
+ok(sba.solids.some((n) => n.kind === "obelisk"), "a ward-obelisk is a solid (blocks bodies)");
+const union2 = new Set();
+for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union2.add(i);
+ok(union2.size === pg.FRESCOES.length,
+  "with the new cities, the per-city subsets still cover every fresco");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

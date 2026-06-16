@@ -1,0 +1,11 @@
+=== 8g. City card — The Pale Bastion ===
+Establishing card shown when the carrier chooses to descend into THE PALE BASTION:
+a fortified ward-quarter where the watch is kept immortal by standing ward-stones
+and whole by robed acolytes who mend the Keepers. Its signature is the WARD-
+OBELISK — crack the stone and the warded watch turns mortal again. The hardest of
+the new descents. Output: art/city-bastion.jpg
+Wide 16:9. Copy and paste the whole block below.
+
+Contemplative, reverent, illuminated-manuscript meets minimal poster art. Deep indigo night #080a14, warm gold light #e8b34b and #ffd87a with a near-white hot core #fff2cf, cold steel-blue accents #9fc4e8. High contrast, lots of negative darkness, soft volumetric glow, subtle film grain. No text, no watermark, no logos, no people's faces. Painterly but restrained — sacred, quiet, a little melancholy, and here cold and fortified.
+
+An establishing night view of a pale fortified quarter seen from a high three-quarter angle: blank chalk-white curtain walls, ranks of tall narrow standing ward-stones — pale obelisks carved with cold blue-glowing sigils — set at every junction, each radiating a faint steel-blue dome of ward-light over the streets around it. Within those cold domes the robed Keepers stand thick and untouchable, and pale-hooded acolyte figures move among them tending the watch. Almost no warmth anywhere — the obelisks' cold blue light owns the frame. A single fragile point of warm gold burns far off in one barred window, besieged on every side by the pale wards. Severe, cold, fortress-like — a city that has armoured the dark. Wide 16:9 cinematic composition, overwhelming pale-blue ward-light against one distant point of gold.
