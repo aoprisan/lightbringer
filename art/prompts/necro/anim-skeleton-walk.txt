@@ -1,0 +1,54 @@
+ASSET: skeleton walk frames — two stride extremes for the horde's shamble cycle
+OUTPUT: art/skeleton-stepA.png  and  art/skeleton-stepB.png
+FORMAT: 1024×1024 each, square, single centered subject, no text, no watermark, no border.
+
+--- WHAT THIS IS ---
+The skeleton is the raised minion — the horde is many and drawn SMALL. Today it
+draws as ONE static sprite (art/skeleton.png) and slides when it advances. These
+two frames are the stride extremes of a 3-frame shamble cycle the game plays while
+a minion moves:
+  stepA  →  skeleton.png (neutral)  →  stepB  →  skeleton.png  →  …
+and the neutral base sprite alone when it has stopped. The three skeleton VARIANTS
+(brute / wight / revenant) and the priest reuse these same base frames via the
+game's fallback, so getting this one shamble right animates the whole horde.
+
+--- GENERATION RULES (read once) ---
+- Use Gemini's IMAGE-EDIT mode on art/skeleton.png for BOTH frames. Do NOT
+  generate from scratch — continuity beats per-frame beauty.
+- Keep EVERYTHING fixed except the gait: same skull, same ribcage, same rusted
+  blade, same green eye-fire, same colours, same lighting, same SIZE/SCALE, and
+  the same CENTER (the body stays centered in the 1024 square). Only the legs and
+  the swinging arm/blade move, plus a tiny body bob. Misregistered frames jitter
+  on swap.
+- No transparency. Flat solid #060B08 (graveyard green-black) background, exactly
+  like the base sprite. Never white — the green glow would halo.
+- Face SCREEN-RIGHT (or stay front-facing 3/4 as the base does). The game mirrors
+  the sprite to face left; do not bake in a left-facing pose.
+- Three-quarter top-down (~60°), the same camera as the base sprite.
+- This is a TINY sprite: the shamble must read as a clear SILHOUETTE change — leg
+  spread and blade swing — not fine bone detail. Keep it frail and lurching, never
+  a smooth confident march.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, plague-haunted medieval village at
+night, ink-and-bone illuminated-manuscript feel. Palette: graveyard green-black,
+BONE WHITE (#E8EFD8) skeleton; faint necrotic green (#7AFFB0) glow in the
+eye-sockets and along the bones. Soft painterly edges, subtle grain, no outlines,
+no photorealism. Three-quarter top-down (about 60°), isolated on a flat solid #060B08.
+
+--- FRAME A: art/skeleton-stepA.png (IMAGE-EDIT of skeleton.png) ---
+Edit this image: the SAME risen skeleton, now mid-shamble with the LEFT leg thrown
+forward and the right trailing — knees loose and uneven, the spine hunched a touch
+lower, the rusted blade-arm swung BACK to counter the step, skull lolling slightly.
+A lurching, off-balance forward stagger, not a clean march. Keep the exact same
+skull, ribs, blade, green eye-fire, palette, lighting, scale and center as the
+original. Flat solid #060B08 background, no text, 1024×1024.
+
+--- FRAME B: art/skeleton-stepB.png (IMAGE-EDIT of skeleton.png) ---
+Edit this image: the SAME risen skeleton, the OPPOSITE shamble — the RIGHT leg
+thrown forward, the left trailing, weight lurched to the other side, the rusted
+blade-arm swung FORWARD this time, the body bobbed a little higher at the crest of
+the step. A clean alternation with frame A so the two read as a believable
+shambling walk. Keep the exact same skull, ribs, blade, green eye-fire, palette,
+lighting, scale and center as the original. Flat solid #060B08 background, no text,
+1024×1024.
