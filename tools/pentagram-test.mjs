@@ -502,6 +502,61 @@ const anyNode = sfr2.scenery.find((n) => n.kind === "press" || n.kind === "shrin
 if (anyNode) pg.maybeFresco(sfr2, anyNode);
 ok(sfr2.pendingFresco === null, "an exhausted fresco pool uncovers nothing");
 
+// 23b. The reliquary — frescoes are collected into the lifetime profile, drawn
+//      from per-city signature subsets, with a one-time ember bounty per set.
+store.delete(LEGACY_KEY);
+ok(pg.loadPgLegacy().frescoesFound.length === 0, "a fresh reliquary is empty");
+const fr1 = pg.recordFrescoes([3, 3, 1]);
+ok(JSON.stringify(fr1.found) === "[1,3]", "recordFrescoes dedupes and sorts a descent's finds");
+const fr2 = pg.recordFrescoes([1, 7]);
+ok(JSON.stringify(fr2.found) === "[1,3,7]", "a later descent unions into the lifetime reliquary");
+const fr3 = pg.recordFrescoes([-1, 99]);
+ok(JSON.stringify(fr3.found) === "[1,3,7]", "out-of-range indices are ignored");
+
+// Every fresco belongs to some city's subset, so the collection is completable.
+const union = new Set();
+for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union.add(i);
+ok(union.size === pg.FRESCOES.length, "the per-city subsets cover every fresco (the reliquary is completable)");
+
+// Completing a city's whole subset banks the bounty — exactly once.
+store.delete(LEGACY_KEY);
+const oc = pg.levelById("old-city");
+const eBefore = pg.loadPgLegacy().embers;
+const frC = pg.recordFrescoes(oc.frescoes);
+ok(frC.bonus === K.FRESCO_SET_BONUS && frC.completed.includes(oc.name),
+  "completing a city's subset banks the reliquary bounty");
+ok(pg.loadPgLegacy().embers === eBefore + K.FRESCO_SET_BONUS, "the bounty lands in the legacy embers");
+ok(pg.recordFrescoes(oc.frescoes).bonus === 0, "an already-complete subset never re-pays");
+
+// A city draws frescoes from its own subset until that subset is spent.
+const sash = pg.buildArena(pg.levelById("ashfold"));
+const ashSub = pg.levelById("ashfold").frescoes;
+for (let i = 0; i < 50 && sash.shownFrescoes.length < ashSub.length; i++) {
+  const node = sash.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
+  sash.pendingFresco = null;
+  pg.maybeFresco(sash, node);
+}
+ok(sash.shownFrescoes.length === ashSub.length && sash.shownFrescoes.every((i) => ashSub.includes(i)),
+  "a city draws frescoes only from its own signature subset");
+// With its subset spent, it falls back to the global pool.
+sash.pendingFresco = null;
+const fbNode = sash.scenery.find((n) => n.kind === "press" || n.kind === "shrine");
+pg.maybeFresco(sash, fbNode);
+const lastIdx = sash.shownFrescoes[sash.shownFrescoes.length - 1];
+ok(sash.pendingFresco !== null && !ashSub.includes(lastIdx),
+  "a spent subset falls back to the global fresco pool");
+
+// The gallery renders progress, tappable tiles, whitewashed gaps, and badges.
+store.delete(LEGACY_KEY);
+pg.recordFrescoes([0, 6]);
+const gal = pg.frescoGalleryHtml(pg.loadPgLegacy().frescoesFound);
+ok(gal.includes(`2/${pg.FRESCOES.length} uncovered`), "the gallery reports collection progress");
+ok(gal.includes('data-frx="0"') && gal.includes('data-frx="6"'), "uncovered frescoes render as tappable tiles");
+ok(gal.includes("Beneath the whitewash…"), "uncollected frescoes stay whitewashed");
+pg.recordFrescoes(oc.frescoes);
+ok(pg.frescoGalleryHtml(pg.loadPgLegacy().frescoesFound).includes("illuminated"),
+  "a fully-collected city shows the illuminated badge");
+
 // 24. Difficulty is real — a harder city raises a DENSER seal (more strands to
 //     bind), not merely a bigger health number. Same seed, two difficulties.
 const seedX = pg.hashSeed("old-city");

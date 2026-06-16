@@ -365,6 +365,8 @@ const SCORE_DWELLINGS_MAX = 300; // full points for a fully-relit city
 const SCORE_SURVIVAL_MAX = 200;  // full points for full HP at the clear
 const SCORE_UNTOUCHED = 250;     // flawless bonus (no blow landed all descent)
 const SCORE_EMBERS_DIV = 10;     // embers earned = score / this (min 1)
+const FRESCO_SET_BONUS = 5;      // embers banked once, when a city's whole fresco
+                                 // subset is first uncovered (see the reliquary)
 
 // Pentagram-power tuning (the signature tricks; see PENTA_TYPES).
 const CHAIN_RADIUS = 70;         // Pyre: a kill arcs to other shades within this
@@ -476,6 +478,10 @@ interface LevelDef {
   spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
   darterCount?: number;  // keeper-posts whose wave includes a quick darter (default 0)
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
+  frescoes?: number[]; // FRESCO indices this city can surface — its signature
+                       // subset. The union across LEVELS must cover every index
+                       // (see the reliquary), so the collection wants every city.
+                       // Undefined/exhausted falls back to the global pool.
 }
 
 const LEVELS: LevelDef[] = [
@@ -488,6 +494,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
     keeperCount: 6, keeperSpacing: 360,
     fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
+    frescoes: [0, 6, 8, 15], // the foundational creed
   },
   {
     id: "ashfold",
@@ -498,6 +505,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     keeperCount: 7, keeperSpacing: 320,
     fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
+    frescoes: [4, 9, 11], // fire and the spoken word
   },
   {
     id: "drowned",
@@ -508,6 +516,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     keeperCount: 4, keeperSpacing: 420,
     fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
+    frescoes: [1, 3, 10], // mercy, the veil, the patient morning
   },
   {
     id: "glassworks",
@@ -518,6 +527,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     keeperCount: 9, keeperSpacing: 270,
     fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
+    frescoes: [7, 13, 14], // seeing clearly, scratching the whitewash
   },
   {
     id: "vesper",
@@ -528,6 +538,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     keeperCount: 11, keeperSpacing: 250,
     fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
+    frescoes: [2, 5, 12, 16], // the faithful's quarter
   },
 ];
 
@@ -1207,11 +1218,16 @@ function maybeFresco(s: PgState, n: ArenaNode): void {
   // Presses and shrines always carry text; plainer ground rarely — as in app.ts.
   const chance = n.kind === "press" || n.kind === "shrine" ? 1 : 0.06;
   if (Math.random() > chance) return;
-  const remaining = FRESCOES
-    .map((_, i) => i)
-    .filter((i) => !s.shownFrescoes.includes(i));
-  if (!remaining.length) return;
-  const idx = remaining[Math.floor(Math.random() * remaining.length)];
+  // Draw from this city's signature subset (so collecting the reliquary wants
+  // every city); fall back to the global pool when the city has none or its
+  // subset is spent this descent. Which index, never whether one fires.
+  const all = FRESCOES.map((_, i) => i).filter((i) => !s.shownFrescoes.includes(i));
+  const sub = s.level.frescoes
+    ? s.level.frescoes.filter((i) => !s.shownFrescoes.includes(i))
+    : [];
+  const choices = sub.length ? sub : all;
+  if (!choices.length) return;
+  const idx = choices[Math.floor(Math.random() * choices.length)];
   s.shownFrescoes.push(idx);
   s.pendingFresco = FRESCOES[idx];
 }
@@ -2395,10 +2411,11 @@ interface PgLegacy {
   embers: number;       // unlock currency, banked from clears
   unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
   equipped: string;     // the sigil id currently equipped
+  frescoesFound: number[]; // the reliquary — FRESCO indices uncovered, ever
 }
 
 function emptyPgLegacy(): PgLegacy {
-  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil" };
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [] };
 }
 
 function loadPgLegacy(): PgLegacy {
@@ -2413,11 +2430,15 @@ function loadPgLegacy(): PgLegacy {
       for (const id of l.unlocked) if (pentaTypeById(id).id === id) owned.add(id);
     }
     const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "vigil";
+    const found = Array.isArray(l.frescoesFound)
+      ? [...new Set(l.frescoesFound.filter((i) => i >= 0 && i < FRESCOES.length))].sort((a, b) => a - b)
+      : [];
     return {
       runs: l.runs || 0, clears: l.clears || 0, best: l.best || {},
       dwellingsLit: l.dwellingsLit || 0,
       dwellingsAwakened: l.dwellingsAwakened || 0,
       embers: l.embers || 0, unlocked: [...owned], equipped,
+      frescoesFound: found,
     };
   } catch { return emptyPgLegacy(); }
 }
@@ -2465,6 +2486,68 @@ function recordDeath(lit = 0, awoke = 0): PgLegacy {
   l.dwellingsAwakened += awoke;
   savePgLegacy(l);
   return l;
+}
+
+// Fold a descent's uncovered frescoes into the lifetime reliquary. Called once
+// at each genuine run-end (win or fall), beside recordClear/recordDeath — the
+// write-once-per-end ethos. Idempotent (a set union), and a city's whole subset
+// being newly completed banks a one-time ember bounty (a once-complete subset
+// stays complete in `before` forever after, so it never re-pays). Returns the
+// fresh collection, the embers banked this fold, and the cities just completed.
+function recordFrescoes(shown: number[]): { found: number[]; bonus: number; completed: string[] } {
+  const l = loadPgLegacy();
+  const before = new Set(l.frescoesFound);
+  const after = new Set(before);
+  for (const i of shown) if (i >= 0 && i < FRESCOES.length) after.add(i);
+  let bonus = 0;
+  const completed: string[] = [];
+  for (const lv of LEVELS) {
+    const subset = lv.frescoes;
+    if (!subset || !subset.length) continue;
+    if (!subset.every((i) => before.has(i)) && subset.every((i) => after.has(i))) {
+      bonus += FRESCO_SET_BONUS;
+      completed.push(lv.name);
+    }
+  }
+  l.frescoesFound = [...after].sort((a, b) => a - b);
+  l.embers += bonus;
+  savePgLegacy(l);
+  return { found: l.frescoesFound, bonus, completed };
+}
+
+// The reliquary gallery for the picker (pure string, no DOM). Tiles grouped by
+// the city that carries each fresco; an uncovered tile shows its painted jpg
+// (reused from the parent, already cached) and its line, a hidden one a CSS
+// whitewash. A city whose whole subset is found wins an "illuminated" badge.
+function frescoGalleryHtml(found: number[]): string {
+  const got = new Set(found);
+  // Every fresco belongs to exactly one city's subset; anything unassigned
+  // (shouldn't happen — the union covers all) falls under "The streets".
+  const assigned = new Set<number>();
+  let groups = "";
+  for (const lv of LEVELS) {
+    const subset = lv.frescoes;
+    if (!subset || !subset.length) continue;
+    const complete = subset.every((i) => got.has(i));
+    const badge = complete ? ` <span class="legacy-new">illuminated</span>` : "";
+    const tiles = subset.map((i) => {
+      assigned.add(i);
+      return got.has(i)
+        ? `<button class="frx" data-frx="${i}"><img class="frx-img" src="${FRESCO_ART[i]}" alt="" loading="lazy"><span class="frx-line">${FRESCOES[i]}</span></button>`
+        : `<div class="frx frx-hidden"><span class="frx-wash">Beneath the whitewash…</span></div>`;
+    }).join("");
+    groups += `<div class="frx-city">${lv.name}${badge}</div><div class="reliquary">${tiles}</div>`;
+  }
+  const stray = FRESCOES.map((_, i) => i).filter((i) => !assigned.has(i));
+  if (stray.length) {
+    const tiles = stray.map((i) => got.has(i)
+      ? `<button class="frx" data-frx="${i}"><img class="frx-img" src="${FRESCO_ART[i]}" alt="" loading="lazy"><span class="frx-line">${FRESCOES[i]}</span></button>`
+      : `<div class="frx frx-hidden"><span class="frx-wash">Beneath the whitewash…</span></div>`).join("");
+    groups += `<div class="frx-city">The streets</div><div class="reliquary">${tiles}</div>`;
+  }
+  return `<div class="legacy"><div class="legacy-head">` +
+    `Reliquary <span class="legacy-new">${got.size}/${FRESCOES.length} uncovered</span></div></div>` +
+    groups;
 }
 
 // ---------- Game shell ----------
@@ -2937,6 +3020,8 @@ function start(): void {
     const awoke = s.scenery.filter((n) => n.awoke).length;
     const sc = scoreRun(s);
     const l = recordClear(s.level, ms, lit, sc.embers, awoke);
+    const fr = recordFrescoes(s.shownFrescoes); // fold the reliquary; may bank a bonus
+    const banked = l.embers + fr.bonus;
     const best = l.best[s.level.id];
     const relit = (lit >= total && total > 0
       ? `You relit every dwelling — <em>${total}</em>. The city is whole again.`
@@ -2954,7 +3039,10 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("City difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
-      row("Embers earned", `+${sc.embers} <span class="legacy-new">${l.embers} banked</span>`) +
+      (fr.bonus
+        ? row("Reliquary", `${fr.completed.join(", ")} <em>illuminated</em> · +${fr.bonus}`)
+        : "") +
+      row("Embers earned", `+${sc.embers + fr.bonus} <span class="legacy-new">${banked} banked</span>`) +
       `</dl></div>`;
     showOverlay(
       "The city is cleansed",
@@ -2971,6 +3059,11 @@ function start(): void {
   function onLost(): void {
     if (!s) return;
     recordDeath(s.litCount, s.scenery.filter((n) => n.awoke).length);
+    const fr = recordFrescoes(s.shownFrescoes); // the reliquary keeps what you saw, even in falling
+    const reliquary = fr.bonus
+      ? `<br><br>Yet you uncovered the frescoes of <em>${fr.completed.join(", ")}</em> — ` +
+        `<em>+${fr.bonus} embers</em> for the reliquary.`
+      : "";
     const unbound = s.boss ? s.boss.seal.edges.filter((e) => !e.done).length : 0;
     const how = s.boss
       ? `The Veilwarden of <em>${s.level.name}</em> snuffed your flame with ` +
@@ -2980,7 +3073,8 @@ function start(): void {
     showOverlay(
       "You fell",
       `${how}<br><br>` +
-      `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.<br><br>` +
+      `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.` +
+      `${reliquary}<br><br>` +
       `<em>The dark is patient. Descend again.</em>`,
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
@@ -3045,6 +3139,11 @@ function start(): void {
         `<div><dt>Dwellings relit</dt><dd>${l.dwellingsLit}</dd></div>` +
         `<div><dt>Dwellings awakened</dt><dd>${l.dwellingsAwakened}</dd></div></dl></div>`;
     }
+
+    // The reliquary — the frescoes uncovered across every descent. Tap an
+    // uncovered one to read it again; complete a city's set for an ember bounty.
+    html += frescoGalleryHtml(l.frescoesFound);
+
     showOverlay("The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel));
     ovBtn2.style.display = "none";
     // The establishing image fails silently when its art isn't shipped offline.
@@ -3066,6 +3165,14 @@ function start(): void {
         else if (act === "equip") equipType(id);
         showPicker(); // re-render so the new ownership/equip state shows
       };
+    });
+    // Tapping an uncovered fresco re-shows its painted card (the same in-descent
+    // reveal). The img already shipped/cached; onerror hides a missing tile.
+    overlay.querySelectorAll<HTMLButtonElement>(".frx[data-frx]").forEach((b) => {
+      const i = Number(b.dataset.frx);
+      b.onclick = () => { if (i >= 0 && i < FRESCOES.length) revealFresco(FRESCOES[i]); };
+      const img = b.querySelector<HTMLImageElement>(".frx-img");
+      if (img) img.onerror = () => { img.style.display = "none"; };
     });
   }
 
@@ -3127,7 +3234,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
     aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
-    weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_REACH,
+    weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
+    recordFrescoes, frescoGalleryHtml, savePgLegacy,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
     K: {
@@ -3139,7 +3247,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
-      SCORCH_RADIUS, SCORCH_MAX,
+      SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
       BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,
