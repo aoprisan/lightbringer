@@ -62,6 +62,8 @@ interface Hero {
   x: number; y: number; vx: number; vy: number;
   hp: number; maxHp: number;
   hurt: number; // remaining i-frame ms after a knight's blow (0 = vulnerable)
+  charge: number; // 0..1 — how fully the raising-pentagram is inscribed (ramps while still)
+  angle: number;  // the sigil's slow cosmetic spin, in degrees
 }
 
 // A raised skeleton minion — the horde. Follows the necromancer until a knight is
@@ -153,6 +155,17 @@ const GRAVE_RADIUS = 18;         // a grave's footprint (for the reach test)
 const GRAVE_RAISES = 5;          // raise pulses a grave holds before it is spent
 const GRAVE_COOLDOWN_MS = 900;   // ms between raise pulses from one grave
 const SOUL_PER_KILL = 1;         // souls a felled knight grants directly
+
+// The raising-pentagram — the necromancer's sigil and the gate on every raise.
+// Standing still inscribes it (charge ramps to 1); marching lets it fade. The dead
+// rise ONLY beneath a sufficiently-inscribed sigil (stepRaise gates on PENTA_RAISE_AT),
+// so a raise is a deliberate stand over a grave — not something you do on the run.
+// Mirror of the Burning Vigil's stand-still pentagram, inverted from smiting to raising.
+const HERO_STILL_MAXSPEED = 40;  // travel slower than this (units/s) to inscribe
+const PENTA_CHARGE_MS = 420;     // time stationary to fully inscribe (and to fade)
+const PENTA_RAISE_AT = 0.6;      // the sigil raises the dead once at least this inscribed
+const PENTA_RADIUS = 64;         // the sigil's drawn reach around the necromancer
+const PENTA_SPIN = 0.05;         // degrees of sigil rotation per ms (cosmetic)
 const WISP_DROP_CHANCE = 0.5;    // fraction of kills that leave a gatherable wisp
 const WISP_SOULS = 1;            // souls a gathered wisp grants
 const WISP_TTL_MS = 7000;        // how long a wisp waits to be gathered
@@ -464,6 +477,7 @@ function buildArena(level: LevelDef): NecroState {
   const causeways = weaveSegments(scenery, level.causewayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
+    charge: 0, angle: 0,
   };
   const knights: Knight[] = [];
   const captainCount = Math.min(level.captainCount ?? 0, posts.length);
@@ -573,13 +587,16 @@ function killKnight(s: NecroState, e: Knight): void {
   }
 }
 
-// Raise the dead: for each grave the necromancer stands beside, off cooldown, with
-// raises left and souls to spend and room in the horde, deduct souls, decrement
+// Raise the dead: only while the raising-pentagram is inscribed (charge ≥ PENTA_RAISE_AT,
+// i.e. the necromancer has held still — see stepMarch). Then for each grave he stands
+// beside, off cooldown, with raises left and souls to spend and room in the horde,
+// deduct souls, decrement
 // the grave's raises (→ graveSpent), spawn RAISE_MIN..MAX minions in a burst, and
 // push a bone-burst FX. The single raise path. A grave's cooldown rides on its own
 // `desecAt`-style field — we reuse `desecAt` as the grave's last-raise time.
 function stepRaise(s: NecroState): void {
   const h = s.hero;
+  if (h.charge < PENTA_RAISE_AT) return; // the dead rise only beneath an inscribed sigil
   for (const g of s.graves) {
     if (g.graveSpent || !g.raisesLeft || g.raisesLeft <= 0) continue;
     const rr = (GRAVE_REACH + GRAVE_RADIUS) ** 2;
@@ -938,7 +955,16 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
-  stepRaise(s);        // graves underfoot raise skeletons (costs souls)
+  // The raising-pentagram inscribes while the necromancer holds still and bleeds
+  // away as he marches; only an inscribed sigil raises the dead (see stepRaise).
+  if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
+    h.charge = Math.min(1, h.charge + dt / PENTA_CHARGE_MS);
+  } else {
+    h.charge = Math.max(0, h.charge - dt / PENTA_CHARGE_MS);
+  }
+  h.angle = (h.angle + dt * PENTA_SPIN) % 360;
+
+  stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
   stepKnights(s, dt);  // the watch guards / engages the horde and the necromancer
@@ -1039,6 +1065,21 @@ function tiledSegment(patId: string, seg: Segment, thick: number, opacity: numbe
     x: 0, y: 0, width: len, height: thick, fill: `url(#${patId})`, opacity,
     transform: `translate(${seg.x1.toFixed(1)} ${seg.y1.toFixed(1)}) rotate(${ang.toFixed(2)}) translate(0 ${(-thick / 2).toFixed(1)})`,
   });
+}
+
+// The raising-pentagram's five-pointed star, as an SVG path centred on (cx,cy).
+// Pure geometry (mirrors pentagram.ts's, but this module shares nothing with it):
+// five rim points stepped by 72°, joined in the 0-2-4-1-3 star order and closed.
+function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): string {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < 5; i++) {
+    const a = ((-90 + rotDeg + i * 72) * Math.PI) / 180;
+    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  const order = [0, 2, 4, 1, 3];
+  let d = `M${pts[order[0]][0].toFixed(1)} ${pts[order[0]][1].toFixed(1)} `;
+  for (let i = 1; i < 5; i++) d += `L${pts[order[i]][0].toFixed(1)} ${pts[order[i]][1].toFixed(1)} `;
+  return d + "Z";
 }
 
 // ---------- Render (reads NecroState; wholesale rebuild each frame) ----------
@@ -1320,8 +1361,32 @@ function render(s: NecroState, layer: SVGGElement): void {
     }
   }
 
-  // The necromancer, drawn last over everything with a necrotic aura.
+  // The raising-pentagram — the only procedural sigil. It scales and brightens as
+  // it inscribes (charge), turns slowly, and flares brighter once it is armed to
+  // raise (charge ≥ PENTA_RAISE_AT). Drawn under the necromancer so he stands at its heart.
   const h = s.hero;
+  if (h.charge > 0.02) {
+    const r = PENTA_RADIUS * (0.72 + 0.28 * h.charge);
+    const op = 0.2 + 0.6 * h.charge;
+    const armed = h.charge >= PENTA_RAISE_AT;
+    layer.appendChild(el("circle", { cx: h.x, cy: h.y, r, fill: "url(#necro)", opacity: op * 0.6 }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r, fill: "none", stroke: "#7affb0", "stroke-width": 1.6,
+      opacity: op, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("path", {
+      d: pentagramPath(h.x, h.y, r * 0.92, h.angle),
+      fill: "none", stroke: armed ? "#d8ffe6" : "#7affb0",
+      "stroke-width": 2.4, "stroke-linejoin": "round",
+      opacity: op, filter: "url(#glow)",
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: "#7affb0",
+      "stroke-width": 1, opacity: op * 0.6,
+    }));
+  }
+
+  // The necromancer, drawn last over everything with a necrotic aura.
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 30, fill: "url(#haloRise)", opacity: 0.85 }));
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 22, fill: "url(#necro)", opacity: 0.5 }));
   if (sprites.has("necromancer")) {
@@ -1887,13 +1952,14 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
-    weaveSegments, closestOnSegment, pushOut,
+    weaveSegments, closestOnSegment, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       SOUL_START, RAISE_COST, RAISE_MIN, RAISE_MAX, GRAVE_REACH, GRAVE_RADIUS,
       GRAVE_RAISES, GRAVE_COOLDOWN_MS, SOUL_PER_KILL,
+      HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
       WISP_DROP_CHANCE, WISP_SOULS, WISP_TTL_MS, WISP_RADIUS,
       MINION_HP, MINION_SPEED, MINION_RADIUS, MINION_DMG, MINION_ATTACK_CD,
       MINION_ATTACK_REACH, MINION_SEP, MINION_FOLLOW_DIST, MINION_AGGRO, MINION_CAP,

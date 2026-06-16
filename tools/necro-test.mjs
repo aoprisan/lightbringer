@@ -82,12 +82,18 @@ ok(s.souls === K.SOUL_START && s.minions.length === 0, "the march begins with th
 ok(necro.aliveKnights(s) === s.total && necro.clearedPct(s) === 0, "all knights alive, nothing overrun yet");
 ok(s.knights.every((e) => e.state === "guard"), "the watch begins guarding, not rushing");
 
-// 3. Raising from graves — souls drop by RAISE_COST, 1–3 minions, raisesLeft--; a
-//    spent grave / no souls / a full horde no-op.
+// 3. Raising from graves — only beneath an inscribed pentagram (stand still). Souls
+//    drop by RAISE_COST, 1–3 minions, raisesLeft--; a not-yet-inscribed sigil / spent
+//    grave / no souls / a full horde no-op.
 const s2 = necro.buildArena(necro.levelById(id));
 stowAll(s2);
 const grave = s2.graves[0];
 s2.hero.x = grave.x; s2.hero.y = grave.y; // stand on the grave
+// A grave underfoot but a fading sigil (charge below the raise threshold) raises nothing.
+s2.hero.charge = K.PENTA_RAISE_AT - 0.01;
+necro.stepRaise(s2);
+ok(s2.minions.length === 0, "a faint (uninscribed) sigil raises nothing, even on a grave");
+s2.hero.charge = 1; // sigil fully inscribed (the necromancer held still)
 const soulsBefore = s2.souls, raisesBefore = grave.raisesLeft;
 necro.stepRaise(s2);
 ok(s2.souls === soulsBefore - K.RAISE_COST, `raising deducts RAISE_COST souls (${soulsBefore} -> ${s2.souls})`);
@@ -113,9 +119,33 @@ stowAll(s2b);
 s2b.souls = 999;
 for (let i = 0; i < K.MINION_CAP; i++) s2b.minions.push({ x: 10, y: 10, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 });
 const g2b = s2b.graves[0]; s2b.hero.x = g2b.x; s2b.hero.y = g2b.y;
+s2b.hero.charge = 1; // sigil inscribed — so the cap, not the sigil, is what holds it back
 const capCount = s2b.minions.length;
 necro.stepRaise(s2b);
 ok(s2b.minions.length === capCount, "a full horde raises nothing (MINION_CAP)");
+
+// 3b. The stand-still gate end-to-end through stepMarch: marching past a grave with
+//     a steady input never inscribes the sigil (charge stays low), so the dead don't
+//     rise; halting over a grave inscribes it and then raises.
+const sMarch = necro.buildArena(necro.levelById(id));
+stowAll(sMarch);
+const gMarch = sMarch.graves[0];
+sMarch.hero.x = gMarch.x; sMarch.hero.y = gMarch.y; sMarch.souls = 99;
+const marching = { x: 1, y: 0 }; // a full-tilt march
+run(sMarch, 600, marching);      // sweeps off the grave, sigil never inscribes
+ok(sMarch.hero.charge < K.PENTA_RAISE_AT, `a marching necromancer's sigil stays faint (${sMarch.hero.charge.toFixed(2)})`);
+const sHold = necro.buildArena(necro.levelById(id));
+stowAll(sHold);
+const gHold = sHold.graves[0];
+sHold.hero.x = gHold.x; sHold.hero.y = gHold.y; sHold.souls = 99;
+run(sHold, 1200, still);         // hold still over the grave
+ok(sHold.hero.charge >= K.PENTA_RAISE_AT, `holding still inscribes the sigil (${sHold.hero.charge.toFixed(2)})`);
+ok(sHold.minions.length >= K.RAISE_MIN, `an inscribed sigil over a grave raises the dead (${sHold.minions.length})`);
+
+// 3c. The pentagram geometry: five points, closed path, distinct vertices.
+const pp = necro.pentagramPath(100, 100, 50, 0);
+ok(pp.startsWith("M") && pp.trimEnd().endsWith("Z"), "pentagramPath is a closed path");
+ok((pp.match(/L/g) || []).length === 4, "pentagramPath strings the five star points");
 
 // 4. Minion auto-target — a minion flips to attack a knight in aggro and closes the
 //    distance; with none in range it follows within FOLLOW_DIST.
