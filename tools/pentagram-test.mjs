@@ -1082,5 +1082,47 @@ ok(pg.loadPgLegacy().ascension["old-city"] === 2, "clearing at a tier records it
 pg.recordClear(pg.levelById("old-city"), 1000, 0, 0, 0, 1);
 ok(pg.loadPgLegacy().ascension["old-city"] === 2, "a shallower clear can't lower the recorded tier");
 
+// 42. District plans: the arena clusters its nodes into named quarters of varying
+//     density, each with an open plaza at its heart (a shrine landmark, no
+//     buildings), and the centre stays a neutral crossroads where the hero spawns.
+const dcity = pg.levelById("old-city");
+const dDist = pg.resolveDistricts(dcity);
+const dW = Math.round(K.W * (dcity.sizeScale ?? 1)), dH = Math.round(K.H * (dcity.sizeScale ?? 1));
+ok(dDist.length === 5, `a city resolves its districts (${dDist.length})`);
+ok(dDist.every((d) => d.x >= 60 && d.x <= dW - 60 && d.y >= 60 && d.y <= dH - 60),
+  "every district anchor sits inside the arena bounds");
+ok(Math.abs(dDist.reduce((sum, d) => sum + d.weight, 0) - 1) < 1e-9, "district weights are normalized");
+// The arena heart (hero spawn) is left clear of any plaza.
+ok(dDist.every((d) => (d.x - dW / 2) ** 2 + (d.y - dH / 2) ** 2 > d.plazaR ** 2),
+  "no plaza covers the arena heart (the hero's crossroads)");
+
+const distCity = pg.generateCity(dcity);
+// Plazas are open: no BUILDING lies inside a plaza (a shrine landmark at the exact
+// centre is allowed — it IS the plaza's landmark).
+const buildings = distCity.filter((n) => n.kind !== "shrine");
+ok(buildings.every((n) => dDist.every((d) => (d.x - n.x) ** 2 + (d.y - n.y) ** 2 >= d.plazaR ** 2)),
+  "plazas stay clear of buildings");
+// The scatter is clustered, not uniform: most nodes lie within reach of an anchor.
+const nearAnchor = distCity.filter((n) =>
+  dDist.some((d) => (d.x - n.x) ** 2 + (d.y - n.y) ** 2 <= (d.falloffR * 1.5) ** 2)).length;
+ok(nearAnchor / distCity.length >= 0.6,
+  `nodes cluster into the quarters (${nearAnchor}/${distCity.length} near an anchor)`);
+// A shrine landmark sits at each plaza heart (up to shrineCount of them).
+const landmarks = dDist.filter((d) =>
+  distCity.some((n) => n.kind === "shrine" && (d.x - n.x) ** 2 + (d.y - n.y) ** 2 < 1)).length;
+ok(landmarks === Math.min(dDist.length, dcity.shrineCount), `each plaza carries a shrine landmark (${landmarks})`);
+
+// Every city still dresses with density to spare and its exact shrine count — the
+// clustering never starves a city or drifts the scenery counts.
+for (const lvl of pg.LEVELS) {
+  const sc = pg.generateCity(lvl);
+  ok(sc.length > 80, `${lvl.id}: arena keeps its density (${sc.length} nodes)`);
+  ok(sc.filter((n) => n.kind === "keeper").length >= 4, `${lvl.id}: keeper-posts present`);
+  ok(sc.filter((n) => n.kind === "shrine").length === lvl.shrineCount,
+    `${lvl.id}: shrine count preserved (${lvl.shrineCount})`);
+  ok(sc.filter((n) => n.kind === "font").length === (lvl.fontCount ?? 0), `${lvl.id}: font count preserved`);
+  ok(sc.filter((n) => n.kind === "obelisk").length === (lvl.obeliskCount ?? 0), `${lvl.id}: obelisk count preserved`);
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
