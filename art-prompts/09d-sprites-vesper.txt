@@ -9,10 +9,11 @@ cell.
 OUTPUT FOLDER: art/vesper/    (the loader tries this city folder, then falls back
 to the base art/<name>.png). Files to produce, same names as the base set:
   ground.png  dwelling-dark.png  dwelling-lit.png  dwelling-awakened.png
-  dwelling-snuffed.png  conduit.png  press.png  shrine.png
+  dwelling-snuffed.png  conduit.png  press.png  shrine.png  font.png  obelisk.png
 
 SHARED, DO NOT re-skin (universal forces): keeper-node, keeper-patrol,
-player-lantern, veil-scar, flame-spark. Vesper Row reuses the base ones (the
+player-lantern, veil-scar, flame-spark, obelisk-spent (the cracked face is
+universal — only the STANDING obelisk.png is re-skinned below). Vesper Row reuses the base ones (the
 Order is the same everywhere — most at home here).
 
 RULES (read once):
@@ -54,3 +55,12 @@ A clandestine monastic scriptorium-press, slightly larger than a cell: a low arc
 --- vesper/shrine.png ---
 Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; cold steel-blue, warm gold #F5C66B for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
 An austere wall-set devotional niche: a carved saint worn featureless, tiers of melted candle stubs, a hanging brass censer and votive chains, a dried palm frond. Cold stone catching a faint gleam, severe and sanctioned — the official, permitted kind of light. Intimate but watched.
+
+--- vesper/font.png (a LIGHTWELL — Vesper Row now seeds one) ---
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, austere pale stone, slate, cold steel-blue; warm gold #e8b34b / #ffd87a with a near-white hot core #fff2cf for the welling flame — the brightest warm subject in the set, a forbidden warmth in a cold quarter. Soft edges, no outlines, no photorealism. View: three-quarter top-down ~60°, lit by its own welling flame. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A lightwell breaking up through cloister flags: a circular carved stone well-mouth set in austere pale paving, brimming with molten luminous gold flame welling gently upward and spilling warm light across the cold severe stone around it — an unsanctioned wellspring of standing fire in the watched quarter, the one warm thing the Order could not seal. Low and inviting to stand in. Not a bonfire. 1024×1024.
+
+--- vesper/obelisk.png (a WARD-OBELISK, standing — the Order's own, most at home here) ---
+Style as the set, the coldest subject (no warm gold). Palette: deep indigo #0B0E1A, austere pale stone, slate; COLD steel-blue ward-light #9fc4e8. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A tall narrow standing ward-stone of austere pale ecclesiastical stone: an obelisk taller than wide, its faces incised with cold geometric Keeper-sigils glowing faint steel-blue, carved here with extra devotional rigour — fluted edges and a small worn relief at its head. A low dome of cold blue ward-light radiates from its base over the severe flags around it. Severe, intact, sanctioned, humming with cold power — the watch's own stone, most at home in this faithful quarter. 1024×1024.
+(The cracked/spent face is the universal art/obelisk-spent.png — do not re-skin it here.)
