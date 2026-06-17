@@ -195,6 +195,7 @@ interface PgState {
   fxCharge: number;
   fxPulse: number;
   fxDmg: number;
+  curse: Curse;          // the ascension curse baked into this descent (tier 0 = none)
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
   rings: Ring[];         // consecration rings — warded ground a full inscription seared
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
@@ -758,7 +759,30 @@ function pushOut(s: PgState, x: number, y: number, radius: number): { x: number;
 
 // Build a fresh descent: dress the city, drop the hero at its heart, and raise a
 // finite host of shades from each keeper-post in staggered waves.
-function buildArena(level: LevelDef): PgState {
+// Ascension — replaying a cleared city under stacking curses. Each tier makes the
+// host tougher and harder-hitting and drifts in another veil pool (to unravel the
+// sigil), and it pays a proportionally larger score/ember multiplier. A perkMods-style
+// modifier resolved once per descent: buildArena bakes hp/veils, the contact site
+// reads contactMul, and scoreRun adds scoreMul. Tier 0 is the plain city (identity).
+const ASC_HP_PER_TIER = 0.14;       // +14% shade HP per tier
+const ASC_CONTACT_PER_TIER = 0.10;  // +10% shade contact damage per tier
+const ASC_VEILS_PER_TIER = 1;       // +1 drifting veil pool per tier
+const ASC_SCORE_PER_TIER = 0.20;    // +0.20 to the score/ember multiplier per tier
+const ASC_MAX = 5;                  // the deepest ascension a city offers
+interface Curse { tier: number; hpMul: number; contactMul: number; extraVeils: number; scoreMul: number }
+function curseFor(tier: number): Curse {
+  const t = clamp(Math.round(tier), 0, ASC_MAX);
+  return {
+    tier: t,
+    hpMul: 1 + t * ASC_HP_PER_TIER,
+    contactMul: 1 + t * ASC_CONTACT_PER_TIER,
+    extraVeils: t * ASC_VEILS_PER_TIER,
+    scoreMul: t * ASC_SCORE_PER_TIER,
+  };
+}
+
+function buildArena(level: LevelDef, ascension = 0): PgState {
+  const curse = curseFor(ascension);
   const w = Math.round(W * (level.sizeScale ?? 1));
   const h = Math.round(H * (level.sizeScale ?? 1));
   const scenery = generateCity(level, w, h);
@@ -788,8 +812,9 @@ function buildArena(level: LevelDef): PgState {
       const healer = !elite && !spitter && j === 1
         && pi >= spitterCount && pi < spitterCount + healerCount;
       const darter = !elite && !spitter && !healer && j === 2 && pi < darterCount;
-      const hp = elite ? SHADE_HP * ELITE_HP_MUL
+      const baseHp = elite ? SHADE_HP * ELITE_HP_MUL
         : spitter ? SPITTER_HP : healer ? HEALER_HP : darter ? DARTER_HP : SHADE_HP;
+      const hp = baseHp * curse.hpMul; // ascension toughens the whole host (×1 at tier 0)
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
@@ -835,7 +860,8 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], rings: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
+    curse,
+    scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils), motes: [], bolts: [], surgeUntil: 0,
     arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
@@ -910,7 +936,7 @@ function scoreRun(s: PgState): ScoreBreakdown {
     ? Math.round((s.litCount / s.dwellingsTotal) * SCORE_DWELLINGS_MAX) : 0;
   const survival = Math.round((s.hero.hp / s.hero.maxHp) * SCORE_SURVIVAL_MAX);
   const untouched = s.hits === 0 ? SCORE_UNTOUCHED : 0;
-  const mult = difficultyMult(s.level);
+  const mult = difficultyMult(s.level) + s.curse.scoreMul; // ascension pays proportionally more
   const total = Math.round((base + speed + dwellings + survival + untouched) * mult);
   const embers = Math.max(1, Math.round(total / SCORE_EMBERS_DIV));
   return { base, speed, dwellings, survival, untouched, mult, total, embers };
@@ -1592,7 +1618,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= reach) {
-        h.hp -= e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG;
+        h.hp -= (e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG) * s.curse.contactMul;
         s.hits++;
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
@@ -2727,10 +2753,11 @@ interface PgLegacy {
   unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
   equipped: string;     // the sigil id currently equipped
   frescoesFound: number[]; // the reliquary — FRESCO indices uncovered, ever
+  ascension: Record<string, number>; // highest ascension tier CLEARED per city (next available = +1)
 }
 
 function emptyPgLegacy(): PgLegacy {
-  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [] };
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [], ascension: {} };
 }
 
 function loadPgLegacy(): PgLegacy {
@@ -2754,6 +2781,7 @@ function loadPgLegacy(): PgLegacy {
       dwellingsAwakened: l.dwellingsAwakened || 0,
       embers: l.embers || 0, unlocked: [...owned], equipped,
       frescoesFound: found,
+      ascension: (l.ascension && typeof l.ascension === "object") ? l.ascension : {},
     };
   } catch { return emptyPgLegacy(); }
 }
@@ -2762,13 +2790,15 @@ function savePgLegacy(l: PgLegacy): void {
   try { localStorage.setItem(PG_LEGACY_KEY, JSON.stringify(l)); } catch { /* ignore */ }
 }
 
-function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0, awoke = 0): PgLegacy {
+function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0, awoke = 0, ascension = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++; l.clears++;
   l.dwellingsLit += lit;
   l.dwellingsAwakened += awoke;
   l.embers += embers;
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
+  // Record the deepest tier this city has been cleared at, unlocking the next.
+  if (ascension > (l.ascension[level.id] ?? -1)) l.ascension[level.id] = ascension;
   savePgLegacy(l);
   return l;
 }
@@ -3494,8 +3524,8 @@ function start(): void {
     frescoImg.src = art;
   }
 
-  function startCity(level: LevelDef): void {
-    s = buildArena(level);
+  function startCity(level: LevelDef, ascension = 0): void {
+    s = buildArena(level, ascension);
     loadCitySprites(level.id, repaint);
     hideOverlay();
     clearTimeout(frescoTimer); frescoEl.classList.remove("show"); // no card lingers into a new run
@@ -3518,7 +3548,7 @@ function start(): void {
     const lit = s.litCount, total = s.dwellingsTotal;
     const awoke = s.scenery.filter((n) => n.awoke).length;
     const sc = scoreRun(s);
-    const l = recordClear(s.level, ms, lit, sc.embers, awoke);
+    const l = recordClear(s.level, ms, lit, sc.embers, awoke, s.curse.tier);
     const fr = recordFrescoes(s.shownFrescoes); // fold the reliquary; may bank a bonus
     const banked = l.embers + fr.bonus;
     const best = l.best[s.level.id];
@@ -3580,7 +3610,7 @@ function start(): void {
     );
   }
 
-  function showPicker(selId?: string): void {
+  function showPicker(selId?: string, asc = 0): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer); // drop any pending intro hold
     mmEl.style.display = "none"; // no arena to overview at the city select
@@ -3588,6 +3618,12 @@ function start(): void {
     // The selected city — defaults to the first, and supplies the establishing
     // art shown at the top of the card (mirrors the parent's Lamplighter intro).
     const sel = levelById(selId || "") || LEVELS[0];
+    // Ascension — tier 0 is always available; clearing a city unlocks one tier above
+    // the deepest cleared. The chosen tier is clamped to that range.
+    const ascBest = l.ascension[sel.id] ?? -1;
+    const ascMax = Math.min(ASC_MAX, ascBest + 1);
+    const tier = clamp(Math.round(asc), 0, ascMax);
+    const curse = curseFor(tier);
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
     let html =
       card +
@@ -3605,6 +3641,22 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // Ascension — replay a cleared city under stacking curses for a bigger payout.
+    const ascScore = (difficultyMult(sel) + curse.scoreMul).toFixed(2);
+    const curseLine = tier === 0
+      ? (ascMax > 0 ? "No curse. Step up an ascension to brave a harder host for more embers."
+                    : "No curse. Cleanse this city to unlock its ascensions.")
+      : `+${Math.round(curse.hpMul * 100 - 100)}% shade vigor · +${Math.round(curse.contactMul * 100 - 100)}% their bite · ` +
+        `+${curse.extraVeils} veil${curse.extraVeils === 1 ? "" : "s"} · ×${ascScore} score`;
+    html +=
+      `<div class="legacy"><div class="legacy-head">Ascension` +
+      (ascBest >= 0 ? ` <span class="legacy-new">cleared ×${ascBest}</span>` : ``) +
+      `</div><div class="asc">` +
+      `<button class="asc-step" data-asc="${tier - 1}"${tier <= 0 ? " disabled" : ""}>◀</button>` +
+      `<span class="asc-tier">×${tier}</span>` +
+      `<button class="asc-step" data-asc="${tier + 1}"${tier >= ascMax ? " disabled" : ""}>▶</button>` +
+      `<span class="city-line">${curseLine}</span></div></div>`;
 
     // Sigils — the unlockable pentagrams. Each clear banks embers; spend them
     // here to own a sigil, then equip it for your next descent.
@@ -3642,7 +3694,8 @@ function start(): void {
     // The reliquary opens as its own view (the secondary button), not buried in
     // this card — the gallery is a lot to scroll past on the way to a descent.
     showOverlay(
-      "The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel),
+      "The Burning Vigil", html,
+      `Descend into ${sel.name}${tier ? ` ×${tier}` : ""}`, () => startCity(sel, tier),
       `The reliquary · ${l.frescoesFound.length}/${FRESCOES.length}`, () => showReliquary(sel.id),
     );
     // The establishing image fails silently when its art isn't shipped offline.
@@ -3653,8 +3706,12 @@ function start(): void {
     overlay.querySelectorAll<HTMLButtonElement>(".city").forEach((b) => {
       b.onclick = () => {
         const lv = levelById(b.dataset.id || "");
-        if (lv) showPicker(lv.id);
+        if (lv) showPicker(lv.id); // switching city resets the ascension tier to 0
       };
+    });
+    overlay.querySelectorAll<HTMLButtonElement>(".asc-step").forEach((b) => {
+      if (b.disabled) return;
+      b.onclick = () => showPicker(sel.id, Number(b.dataset.asc));
     });
     overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
       const id = b.dataset.id || "", act = b.dataset.act || "";
@@ -3662,7 +3719,7 @@ function start(): void {
       b.onclick = () => {
         if (act === "unlock") { unlockType(id); equipType(id); }
         else if (act === "equip") equipType(id);
-        showPicker(); // re-render so the new ownership/equip state shows
+        showPicker(sel.id, tier); // re-render, keeping the city and tier in view
       };
     });
   }
@@ -3960,7 +4017,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     pentagramSegments, traceScore,
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
-    aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
+    aliveShades, clearedPct, scoreRun, difficultyMult, curseFor, LEVELS, levelById,
     weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
     recordFrescoes, frescoGalleryHtml, savePgLegacy,
     qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
@@ -3978,6 +4035,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       CONSECRATE_MS, CONSECRATE_RADIUS, CONSECRATE_DPS, CONSECRATE_MERGE, CONSECRATE_MAX,
       FONT_AURA, OBELISK_AURA, OBELISK_REACH,
       SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
+      ASC_HP_PER_TIER, ASC_CONTACT_PER_TIER, ASC_VEILS_PER_TIER, ASC_SCORE_PER_TIER, ASC_MAX,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
       BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,

@@ -1029,5 +1029,31 @@ sco.constellations = 0; clink.dwellings[0].veil = 0; // scar faded
 pg.kindleDwelling(sco, clink.dwellings[0], 0);
 ok(sco.constellations === 1, "re-lighting the broken dwelling re-completes the constellation");
 
+// 41. Ascension: a curse tier toughens the host, drifts in extra veils, and pays a
+//     bigger score multiplier; the legacy tracks the deepest tier cleared per city
+//     (unlocking the next). Tier 0 is the plain city, identical to no ascension.
+ok(pg.curseFor(0).hpMul === 1 && pg.curseFor(0).scoreMul === 0 && pg.curseFor(0).extraVeils === 0,
+  "ascension tier 0 is the plain city (no curse)");
+const cz = pg.curseFor(3);
+ok(cz.tier === 3 && cz.hpMul > 1 && cz.contactMul > 1 && cz.extraVeils === 3 && cz.scoreMul > 0,
+  "a higher tier stacks vigor, bite, veils and reward");
+ok(pg.curseFor(99).tier === K.ASC_MAX, "ascension is capped at ASC_MAX");
+
+const a0 = pg.buildArena(pg.levelById("old-city"), 0);
+const a2 = pg.buildArena(pg.levelById("old-city"), 2);
+ok(a2.curse.tier === 2, "buildArena bakes the chosen ascension onto the descent");
+ok(a2.veils.length === a0.veils.length + 2, "a curse drifts in extra veil pools");
+const ascHp0 = a0.shades.reduce((m, e) => m + e.maxHp, 0);
+const ascHp2 = a2.shades.reduce((m, e) => m + e.maxHp, 0);
+ok(ascHp2 > ascHp0, `a curse toughens the host (${ascHp0 | 0} -> ${ascHp2 | 0} total HP)`);
+ok(pg.scoreRun(a2).mult > pg.scoreRun(a0).mult, "a curse multiplies the score/embers more");
+
+store.delete(LEGACY_KEY);
+ok(Object.keys(pg.emptyPgLegacy().ascension).length === 0, "a fresh legacy has no ascensions");
+pg.recordClear(pg.levelById("old-city"), 1000, 0, 0, 0, 2);
+ok(pg.loadPgLegacy().ascension["old-city"] === 2, "clearing at a tier records it (unlocking the next)");
+pg.recordClear(pg.levelById("old-city"), 1000, 0, 0, 0, 1);
+ok(pg.loadPgLegacy().ascension["old-city"] === 2, "a shallower clear can't lower the recorded tier");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
