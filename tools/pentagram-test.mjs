@@ -90,6 +90,7 @@ ok(far.state === "wander", "a shade beyond aggro range stays lurking");
 
 // 5. Moving decays the sigil.
 const s4 = pg.buildArena(pg.levelById("old-city"));
+s4.pathways = []; // off any lane — the hero's spawn sits on the avenue crossroads
 for (const e of s4.shades) park(e, 5, 5);
 run(s4, K.PENTA_CHARGE_MS + 30, still);
 const charged = s4.penta.charge;
@@ -903,7 +904,7 @@ for (let t = 0; t < 700; t += 16) {
 ok(sfont.penta.charge > 0.5, `a moving hero inscribes inside a font (charge=${sfont.penta.charge.toFixed(2)})`);
 // Off any font, a moving hero lets the sigil fade — the rule only bends on the well.
 const sfar = pg.buildArena(pg.levelById("old-city"));
-sfar.solids = []; sfar.fences = []; sfar.veils = []; sfar.scenery = []; sfar.conduitLinks = [];
+sfar.solids = []; sfar.fences = []; sfar.veils = []; sfar.scenery = []; sfar.conduitLinks = []; sfar.pathways = [];
 for (const e of sfar.shades) park(e, 5, 5);
 sfar.penta.charge = 1;
 run(sfar, 500, moveR);
@@ -1088,7 +1089,7 @@ ok(pg.loadPgLegacy().ascension["old-city"] === 2, "a shallower clear can't lower
 const dcity = pg.levelById("old-city");
 const dDist = pg.resolveDistricts(dcity);
 const dW = Math.round(K.W * (dcity.sizeScale ?? 1)), dH = Math.round(K.H * (dcity.sizeScale ?? 1));
-ok(dDist.length === 5, `a city resolves its districts (${dDist.length})`);
+ok(dDist.length === 4, `a city resolves its districts (${dDist.length})`);
 ok(dDist.every((d) => d.x >= 60 && d.x <= dW - 60 && d.y >= 60 && d.y <= dH - 60),
   "every district anchor sits inside the arena bounds");
 ok(Math.abs(dDist.reduce((sum, d) => sum + d.weight, 0) - 1) < 1e-9, "district weights are normalized");
@@ -1111,6 +1112,34 @@ ok(nearAnchor / distCity.length >= 0.6,
 const landmarks = dDist.filter((d) =>
   distCity.some((n) => n.kind === "shrine" && (d.x - n.x) ** 2 + (d.y - n.y) ** 2 < 1)).length;
 ok(landmarks === Math.min(dDist.length, dcity.shrineCount), `each plaza carries a shrine landmark (${landmarks})`);
+
+// 42b. Authored terrain: the Old City traces its map's streets and rampart — six
+//      avenues (a gate-cross plus four corner diagonals) and a gated perimeter
+//      wall — merged onto the woven terrain. Its woven pathways are off, so its
+//      pathways are exactly the six authored avenues.
+const sav = pg.buildArena(pg.levelById("old-city"));
+ok(sav.pathways.length === 6, `the Old City lays its six avenues (${sav.pathways.length})`);
+// A vertical gate-to-gate avenue runs the full height through the centre.
+ok(sav.pathways.some((p) => Math.abs(p.x1 - sav.w / 2) < 1 && Math.abs(p.x2 - sav.w / 2) < 1
+  && Math.abs(p.y2 - p.y1) > sav.h * 0.8), "an avenue crosses gate-to-gate through the heart");
+// The rampart's wall segments are present among the fences (authored walls merge
+// into the fence layer — they block bodies, not flame).
+const wallSegs = sav.fences.filter((f) =>
+  (Math.abs(f.x1 - f.x2) < 1 || Math.abs(f.y1 - f.y2) < 1) // axis-aligned
+  && (f.x1 < sav.w * 0.05 || f.x1 > sav.w * 0.95 || f.y1 < sav.h * 0.05 || f.y1 > sav.h * 0.95));
+ok(wallSegs.length >= 8, `the rampart rings the city (${wallSegs.length} wall segments)`);
+// Cities without authored terrain weave their lanes as before (no walls/avenues).
+ok(pg.levelById("ashfold").avenues === undefined && pg.levelById("ashfold").walls === undefined,
+  "other cities author no terrain (woven only)");
+// The authored avenues stay clear of buildings — the streets read as open
+// corridors, not blocks paved over (generateCity rejects nodes on a lane).
+const avCity = pg.generateCity(pg.levelById("old-city"));
+const avSegs = pg.levelById("old-city").avenues.map((a) =>
+  ({ x1: a.x1 * sav.w, y1: a.y1 * sav.h, x2: a.x2 * sav.w, y2: a.y2 * sav.h }));
+const onLane = (n) => avSegs.some((a) =>
+  pg.closestOnSegment(n.x, n.y, a.x1, a.y1, a.x2, a.y2).d < K.PATHWAY_HALF);
+ok(avCity.filter((n) => n.kind !== "shrine").every((n) => !onLane(n)),
+  "buildings keep clear of the avenues (open streets)");
 
 // Every city still dresses with density to spare and its exact shrine count — the
 // clustering never starves a city or drifts the scenery counts.
