@@ -280,6 +280,24 @@ ssc.hits = 2; // took blows
 ok(pg.scoreRun(ssc).untouched === 0, "a blow forfeits the untouched bonus");
 ok(pg.difficultyMult(pg.levelById("vesper")) > pg.difficultyMult(pg.levelById("old-city")),
   "a harder city multiplies a clear's score more");
+// 14b. Difficulty prices in the threat load, not just host size: the veil-heavy
+//      Drowned Quarter now out-rewards the fair tutorial, every menace dial
+//      strictly raises the multiplier, fonts never drop a city below its host
+//      floor, and no city beats the ceiling (the Bastion is the hardest).
+ok(pg.difficultyMult(pg.levelById("drowned")) > pg.difficultyMult(pg.levelById("old-city")),
+  "the veil-heavy Drowned Quarter now out-rewards the tutorial");
+const baseLvl = { keeperCount: 6, sizeScale: 1 };
+ok(pg.difficultyMult({ ...baseLvl, eliteCount: 3 }) > pg.difficultyMult(baseLvl),
+  "elites raise a city's difficulty multiplier");
+ok(pg.difficultyMult({ ...baseLvl, veilCount: 4 }) > pg.difficultyMult(baseLvl),
+  "veil pools raise a city's difficulty multiplier");
+ok(pg.difficultyMult({ ...baseLvl, fontCount: 5 }) === pg.difficultyMult(baseLvl),
+  "lightwells never drop a city below its host baseline");
+ok(pg.LEVELS.every((l) => pg.difficultyMult(l) <= 1.6),
+  "no city exceeds the difficulty ceiling");
+ok(pg.LEVELS.every((l) => l.id === "bastion"
+    || pg.difficultyMult(l) <= pg.difficultyMult(pg.levelById("bastion"))),
+  "The Pale Bastion is the hardest descent");
 
 // 15. Pentagram types: the equipped sigil leans the effective stats, and its
 //     signature power fires. Unlocks/equips persist in the legacy (no key bump).
@@ -942,6 +960,101 @@ const union2 = new Set();
 for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union2.add(i);
 ok(union2.size === pg.FRESCOES.length,
   "with the new cities, the per-city subsets still cover every fresco");
+
+// 39. Consecration rings: a full inscription sears warded ground that chips shades
+//     standing on it, protects a lit dwelling inside it from snuffing, and fades
+//     after CONSECRATE_MS. Standing refreshes the ring underfoot rather than spamming.
+const scr = pg.buildArena(pg.levelById("old-city"));
+for (const e of scr.shades) park(e, 5, 5); // stow the host far away
+run(scr, scr.fxCharge + scr.fxPulse + 50, still); // stand until a full pulse fires
+ok(scr.rings.length >= 1, "a full inscription sears a consecration ring");
+ok(pg.inConsecration(scr, scr.hero.x, scr.hero.y), "the hero stands on warded ground");
+const ringsAfterFirst = scr.rings.length;
+run(scr, scr.fxPulse * 3, still); // keep standing in place
+ok(scr.rings.length === ringsAfterFirst, "standing still refreshes the ring, not spawns new ones");
+
+// Chip: a shade left standing on a ring loses health over time.
+const ringVictim = scr.shades[0];
+park(ringVictim, scr.hero.x, scr.hero.y);
+const ringHp0 = ringVictim.hp;
+pg.stepRings(scr, 1000); // a second on warded ground
+ok(ringVictim.hp < ringHp0, `a shade on a consecration ring is chipped (${ringHp0} -> ${ringVictim.hp})`);
+
+// Snuff protection: a lit dwelling inside a ring resists a brushing shade — and the
+// same setup without the ring snuffs it (the control).
+const scrP = pg.buildArena(pg.levelById("old-city"));
+for (const e of scrP.shades) park(e, 5, 5);
+const dwP = scrP.scenery.find((n) => n.kind === "dwelling" && !pg.inShrineAura(scrP, n.x, n.y));
+dwP.lit = true; dwP.litAt = scrP.elapsed; scrP.litCount = 1;
+scrP.rings.push({ x: dwP.x, y: dwP.y, until: scrP.elapsed + 5000 });
+park(scrP.shades[0], dwP.x, dwP.y);
+pg.stepShades(scrP, 16);
+ok(dwP.lit === true, "a lit dwelling on a consecration ring resists snuffing");
+
+const scrC = pg.buildArena(pg.levelById("old-city"));
+for (const e of scrC.shades) park(e, 5, 5);
+const dwC = scrC.scenery.find((n) => n.kind === "dwelling" && !pg.inShrineAura(scrC, n.x, n.y));
+dwC.lit = true; dwC.litAt = scrC.elapsed; scrC.litCount = 1;
+park(scrC.shades[0], dwC.x, dwC.y);
+pg.stepShades(scrC, 16);
+ok(dwC.lit === false, "without a ring, a brushing shade snuffs the dwelling (control)");
+
+// Fade: an expired ring is retired and no longer wards its ground.
+const scrF = pg.buildArena(pg.levelById("old-city"));
+scrF.rings.push({ x: 100, y: 100, until: scrF.elapsed - 1 });
+pg.stepRings(scrF, 16);
+ok(scrF.rings.length === 0, "an expired consecration ring fades");
+ok(!pg.inConsecration(scrF, 100, 100), "expired warded ground no longer protects");
+
+// 40. Constellations: lighting every dwelling a conduit fuses completes the pattern
+//     — its dwellings awaken at once and the carrier is healed; it fires once until a
+//     snuff re-arms the fuse. Rewards where you relight, not how many.
+const sco = pg.buildArena(pg.levelById("old-city"));
+const clink = sco.conduitLinks[0];
+ok(clink && clink.dwellings.length >= 2, "a city fuses at least one constellation");
+for (const d of clink.dwellings) { d.lit = false; d.awoke = false; d.veil = 0; }
+sco.litCount = 0; sco.constellations = 0; sco.hero.hp = 1; // dark start, room to heal
+for (let i = 0; i < clink.dwellings.length - 1; i++) pg.kindleDwelling(sco, clink.dwellings[i], 0);
+ok(sco.constellations === 0, "an incomplete fuse grants no constellation");
+const cHpBefore = sco.hero.hp;
+pg.kindleDwelling(sco, clink.dwellings[clink.dwellings.length - 1], 0);
+ok(sco.constellations === 1, "lighting the whole fuse completes a constellation");
+ok(sco.bursts.length === 1, "a completed constellation spawns a kindle-flash FX");
+ok(clink.dwellings.every((d) => d.awoke), "a completed constellation awakens its dwellings at once");
+ok(sco.hero.hp > cHpBefore, `a completed constellation rallies the carrier (${cHpBefore} -> ${sco.hero.hp})`);
+ok(pg.litReadout(sco).includes("✸"), "the HUD shows the constellation tally");
+// A snuff breaks the pattern and re-arms the fuse; re-lighting re-completes it.
+pg.snuffDwelling(sco, clink.dwellings[0]);
+ok(clink.done === false, "snuffing a constellation dwelling re-arms the fuse");
+sco.constellations = 0; clink.dwellings[0].veil = 0; // scar faded
+pg.kindleDwelling(sco, clink.dwellings[0], 0);
+ok(sco.constellations === 1, "re-lighting the broken dwelling re-completes the constellation");
+
+// 41. Ascension: a curse tier toughens the host, drifts in extra veils, and pays a
+//     bigger score multiplier; the legacy tracks the deepest tier cleared per city
+//     (unlocking the next). Tier 0 is the plain city, identical to no ascension.
+ok(pg.curseFor(0).hpMul === 1 && pg.curseFor(0).scoreMul === 0 && pg.curseFor(0).extraVeils === 0,
+  "ascension tier 0 is the plain city (no curse)");
+const cz = pg.curseFor(3);
+ok(cz.tier === 3 && cz.hpMul > 1 && cz.contactMul > 1 && cz.extraVeils === 3 && cz.scoreMul > 0,
+  "a higher tier stacks vigor, bite, veils and reward");
+ok(pg.curseFor(99).tier === K.ASC_MAX, "ascension is capped at ASC_MAX");
+
+const a0 = pg.buildArena(pg.levelById("old-city"), 0);
+const a2 = pg.buildArena(pg.levelById("old-city"), 2);
+ok(a2.curse.tier === 2, "buildArena bakes the chosen ascension onto the descent");
+ok(a2.veils.length === a0.veils.length + 2, "a curse drifts in extra veil pools");
+const ascHp0 = a0.shades.reduce((m, e) => m + e.maxHp, 0);
+const ascHp2 = a2.shades.reduce((m, e) => m + e.maxHp, 0);
+ok(ascHp2 > ascHp0, `a curse toughens the host (${ascHp0 | 0} -> ${ascHp2 | 0} total HP)`);
+ok(pg.scoreRun(a2).mult > pg.scoreRun(a0).mult, "a curse multiplies the score/embers more");
+
+store.delete(LEGACY_KEY);
+ok(Object.keys(pg.emptyPgLegacy().ascension).length === 0, "a fresh legacy has no ascensions");
+pg.recordClear(pg.levelById("old-city"), 1000, 0, 0, 0, 2);
+ok(pg.loadPgLegacy().ascension["old-city"] === 2, "clearing at a tier records it (unlocking the next)");
+pg.recordClear(pg.levelById("old-city"), 1000, 0, 0, 0, 1);
+ok(pg.loadPgLegacy().ascension["old-city"] === 2, "a shallower clear can't lower the recorded tier");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

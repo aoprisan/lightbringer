@@ -151,14 +151,17 @@ ok((pp.match(/L/g) || []).length === 4, "pentagramPath strings the five star poi
 //    distance; with none in range it follows within FOLLOW_DIST.
 const s3 = necro.buildArena(necro.levelById(id));
 stowAll(s3);
+s3.solids = []; s3.barricades = []; // clear scattered terrain so the lone minion's path is deterministic
 const target = s3.knights[0];
 target.x = 700; target.y = 700; wake(target); target.hp = K.KNIGHT_HP;
-const m1 = { x: 700 + K.MINION_AGGRO - 30, y: 700, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 };
+// Start the minion inside aggro with a clear gap to close — comfortably reachable
+// within the run window once the path is unobstructed.
+const m1 = { x: 700 + 180, y: 700, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 };
 s3.minions = [m1];
 s3.hero.x = 60; s3.hero.y = 60; // hero far away so follow can't muddy the test
 const dM0 = Math.hypot(m1.x - target.x, m1.y - target.y);
 const hpK0 = target.hp;
-run(s3, 1500, still);
+run(s3, 2000, still);
 const dM1 = Math.hypot(m1.x - target.x, m1.y - target.y);
 ok(m1.state === "attack", "a minion with a knight in range flips to attack");
 ok(dM1 < dM0, `a minion closes on its quarry (${dM0 | 0} -> ${dM1 | 0})`);

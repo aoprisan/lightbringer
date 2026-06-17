@@ -119,6 +119,44 @@ and tileable**, then apply at low opacity / `mix-blend-mode: soft-light`.
 > into wet paper, deep blue-black `#01020a`, soft organic edges, no focal point,
 > fully tileable, square 1:1. Ominous, smothering.
 
+## 8. The Burning Vigil — constellations & ascension
+
+Two flourishes for the primary game (`pentagram.ts`). Both are **optional /
+decorative** — the game already renders them procedurally (constellations via the
+awakened-dwelling glow + drawn conduit threads; ascension as text in the picker),
+so these only *enrich*, they don't unblock. Keep the Vigil's hotter, more urgent
+register while staying inside the house palette.
+
+**Constellation kindle — burst FX** (→ `art/constellation-burst.png`, blitted once
+when a conduit fuse's dwellings all light at the same time):
+> [House style]. A small celestial burst: five to seven warm-gold stars (`#ffd87a`
+> with near-white `#fff2cf` cores) arranged in a loose constellation and joined by
+> faint glowing gold threads, flaring outward from a bright center with a soft
+> radial bloom. Sacred and brief, like a sigil suddenly catching light. On a
+> transparent background, isolated subject, no backdrop. Square 1:1, centered,
+> generous even padding so the bloom never clips.
+
+**Ascension seal / curse badge** (→ `art/ascension-seal.png`, the picker's tier
+indicator beside the `×N` stepper):
+> [House style]. An emblem: a single five-pointed pentagram drawn in clean thin
+> warm-gold strokes (`#e8b34b`), partly overtaken by a creeping cold steel-blue
+> veil (`#9fc4e8`) of smoke seeping in from the lower edge and dimming the gold.
+> Ominous but restrained — a blessing curdling into a curse. On a transparent
+> background, isolated subject, no backdrop. Square 1:1, centered, symmetrical.
+
+> *Tier ramp (optional):* generate the badge above for tier 1, then feed it back —
+> *"same seal and palette, but the cold steel-blue veil has crept further and
+> swallowed more of the gold, the pentagram dimmer and more strangled"* — once per
+> step up to tier 5, for a five-frame escalation the picker can index by tier.
+
+**Cursed veil tile** (optional, → `art/<cityId>/veil.png` per-city override): only
+if you want ascension to read in the arena, not just the HUD. The drifting veil
+pools already draw procedurally; this just gives them a darker face under a curse.
+> [House style]. A seamless tileable texture of a drifting unholy veil: deep
+> indigo-violet `#0a0820` smoke shot through with faint cold steel-blue (`#9fc4e8`)
+> filaments, soft organic churning edges, no focal point, fully tileable, square
+> 1:1. Smothering, light-hungry — it looks like it eats glow.
+
 ---
 
 ## Integration checklist

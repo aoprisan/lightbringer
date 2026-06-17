@@ -46,6 +46,12 @@ interface PentaType {
 // stand on it until it cools. Live-play terrain, never persisted.
 interface Scorch { x: number; y: number; until: number }
 
+// A consecration ring — warded ground a FULL inscription sears beneath the hero.
+// While it lasts it chips any shade standing on it and (like a shrine) bars the
+// watch from snuffing a lit dwelling inside it, so holding — or chaining — full
+// inscriptions carves a safe corridor. Live-play terrain, never persisted.
+interface Ring { x: number; y: number; until: number }
+
 // A veil pool — a drifting patch of the old dark. Standing in one doesn't
 // inscribe the sigil; it UNRAVELS it (charge bleeds away faster than a normal
 // fade), so a still hero must pick clean ground. Woven at build from the city's
@@ -63,6 +69,7 @@ interface Mote { x: number; y: number; until: number }
 // shade; a Nova is the Wrath's expanding eruption ring on a full inscription.
 interface Arc { x1: number; y1: number; x2: number; y2: number; until: number }
 interface Nova { x: number; y: number; r: number; until: number }
+interface Burst { x: number; y: number; until: number } // constellation-kindle flash (cosmetic)
 
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
@@ -177,7 +184,7 @@ interface PgState {
   w: number; h: number;  // this arena's world size (W/H scaled by level.sizeScale)
   scenery: ArenaNode[];
   solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
-  conduitLinks: { c: ArenaNode; dwellings: ArenaNode[] }[]; // each conduit and the dwellings it fuses (a relay graph, built once)
+  conduitLinks: { c: ArenaNode; dwellings: ArenaNode[]; done?: boolean }[]; // each conduit and the dwellings it fuses (a relay graph + constellation set, built once)
   spreadQueue: { node: ArenaNode; at: number }[]; // dwellings awaiting a conduit relay's delayed kindle (live, not persisted)
   fences: Segment[];     // low walls the hero/shades must weave around
   pathways: Segment[];   // open lanes the hero runs swift along
@@ -189,13 +196,16 @@ interface PgState {
   fxCharge: number;
   fxPulse: number;
   fxDmg: number;
+  curse: Curse;          // the ascension curse baked into this descent (tier 0 = none)
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  rings: Ring[];         // consecration rings — warded ground a full inscription seared
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
   motes: Mote[];         // gatherable ember sparks dropped by slain shades
   bolts: Bolt[];         // spitters' in-flight bolts (live FX, not persisted)
   surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
+  bursts: Burst[];       // fading constellation-kindle flashes — purely cosmetic
   novaFired: boolean;    // has the Wrath's nova fired for this charge-up
   pulseAcc: number; // ms accumulated toward the next damage pulse
   elapsed: number;  // ms since the descent began (clear time)
@@ -205,6 +215,7 @@ interface PgState {
   dwellingsTotal: number; // dark dwellings the city began with
   litCount: number;     // how many are kindled right now (secondary objective)
   snuffed: number;      // lights the watch has clawed back this descent
+  constellations: number; // conduit-fuse patterns completed this descent (a snuff can re-arm one)
   shownFrescoes: number[]; // FRESCO indices already uncovered this descent
   pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
   phase: Phase;
@@ -336,6 +347,7 @@ const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
 const HEAL_CAP = 0.6;            // …but the city can only rally you to this frac of maxHp.
+const CONSTELLATION_HEAL = 14;   // hero HP restored when a conduit-fuse constellation completes (clamped by HEAL_CAP)
                                  // A clean run above the cap isn't pulled down; once a swarm
                                  // bites you below it, relighting mends only back up to the cap —
                                  // so a real hit can't be fully facetanked away. This is what
@@ -368,6 +380,17 @@ const PRESS_BURST_DMG = 60;      // damage dealt to every shade caught
 // (a safe quarter to relight), and a hero standing in the aura inscribes even on
 // veiled/scarred ground (a place to make a stand).
 const SHRINE_AURA = 150;         // radius of a shrine's consecrated ground
+
+// Consecration rings — a FULL inscription sears the ground beneath the hero into a
+// warded ring. While it lasts it chips any shade standing on it and (like a shrine)
+// bars the watch from snuffing a lit dwelling inside it. Standing refreshes the ring
+// underfoot; moving on and re-inscribing lays a fresh one, so a stand-still carrier
+// carves a safe corridor block by block. Live-play, never persisted.
+const CONSECRATE_MS = 4200;      // how long a seared ring wards the ground
+const CONSECRATE_RADIUS = 120;   // radius of a ring's warded ground
+const CONSECRATE_DPS = 12;       // damage per second to shades standing on a ring
+const CONSECRATE_MERGE = 80;     // a sear within this of a live ring refreshes it instead of adding one
+const CONSECRATE_MAX = 5;        // cap on simultaneous rings (the oldest drops)
 
 // Lightwells (fonts) — a wellspring of standing flame. Passable (you stand in it).
 // Within a font's aura the sigil inscribes EVEN WHILE MOVING (the well feeds it),
@@ -406,6 +429,7 @@ const SCORCH_MAX = 6;            // …cap on simultaneous patches
 const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
 const ARC_MS = 180;              // Pyre: how long a chain spark stays drawn
 const NOVA_FX_MS = 320;          // Wrath: how long the eruption ring expands/fades
+const CONSTELLATION_FX_MS = 720; // how long a constellation-kindle flash expands/fades
 const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh blow
 
 // The Veilwarden duel (per-city boss). When the host falls, the city's master
@@ -738,7 +762,30 @@ function pushOut(s: PgState, x: number, y: number, radius: number): { x: number;
 
 // Build a fresh descent: dress the city, drop the hero at its heart, and raise a
 // finite host of shades from each keeper-post in staggered waves.
-function buildArena(level: LevelDef): PgState {
+// Ascension — replaying a cleared city under stacking curses. Each tier makes the
+// host tougher and harder-hitting and drifts in another veil pool (to unravel the
+// sigil), and it pays a proportionally larger score/ember multiplier. A perkMods-style
+// modifier resolved once per descent: buildArena bakes hp/veils, the contact site
+// reads contactMul, and scoreRun adds scoreMul. Tier 0 is the plain city (identity).
+const ASC_HP_PER_TIER = 0.14;       // +14% shade HP per tier
+const ASC_CONTACT_PER_TIER = 0.10;  // +10% shade contact damage per tier
+const ASC_VEILS_PER_TIER = 1;       // +1 drifting veil pool per tier
+const ASC_SCORE_PER_TIER = 0.20;    // +0.20 to the score/ember multiplier per tier
+const ASC_MAX = 5;                  // the deepest ascension a city offers
+interface Curse { tier: number; hpMul: number; contactMul: number; extraVeils: number; scoreMul: number }
+function curseFor(tier: number): Curse {
+  const t = clamp(Math.round(tier), 0, ASC_MAX);
+  return {
+    tier: t,
+    hpMul: 1 + t * ASC_HP_PER_TIER,
+    contactMul: 1 + t * ASC_CONTACT_PER_TIER,
+    extraVeils: t * ASC_VEILS_PER_TIER,
+    scoreMul: t * ASC_SCORE_PER_TIER,
+  };
+}
+
+function buildArena(level: LevelDef, ascension = 0): PgState {
+  const curse = curseFor(ascension);
   const w = Math.round(W * (level.sizeScale ?? 1));
   const h = Math.round(H * (level.sizeScale ?? 1));
   const scenery = generateCity(level, w, h);
@@ -768,8 +815,9 @@ function buildArena(level: LevelDef): PgState {
       const healer = !elite && !spitter && j === 1
         && pi >= spitterCount && pi < spitterCount + healerCount;
       const darter = !elite && !spitter && !healer && j === 2 && pi < darterCount;
-      const hp = elite ? SHADE_HP * ELITE_HP_MUL
+      const baseHp = elite ? SHADE_HP * ELITE_HP_MUL
         : spitter ? SPITTER_HP : healer ? HEALER_HP : darter ? DARTER_HP : SHADE_HP;
+      const hp = baseHp * curse.hpMul; // ascension toughens the whole host (×1 at tier 0)
       const a = Math.random() * Math.PI * 2;
       const r = 18 + Math.random() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
@@ -815,11 +863,12 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
-    arcs: [], novas: [], novaFired: false,
+    curse,
+    scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils), motes: [], bolts: [], surgeUntil: 0,
+    arcs: [], novas: [], bursts: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
-    litCount: 0, snuffed: 0,
+    litCount: 0, snuffed: 0, constellations: 0,
     shownFrescoes: [], pendingFresco: null,
     phase: "fight",
   };
@@ -843,17 +892,35 @@ function clearedPct(s: PgState): number {
 // total, with a star mark for any that have awakened into ally emitters.
 function litReadout(s: PgState): string {
   const awoke = s.scenery.reduce((c, n) => c + (n.awoke ? 1 : 0), 0);
-  const base = `+${s.litCount} / ${s.dwellingsTotal} lit`;
-  return awoke ? `${base} · ${awoke}✦` : base;
+  let out = `+${s.litCount} / ${s.dwellingsTotal} lit`;
+  if (awoke) out += ` · ${awoke}✦`;
+  if (s.constellations) out += ` · ${s.constellations}✸`;
+  return out;
 }
 
-// How much a city multiplies a clear's score. Leans on the difficulty the data
-// already encodes — the host size (keeperCount) and the ground to cover
-// (sizeScale) — normalized so The Old City sits near 1.0 and Vesper near 1.5.
+// How much a city multiplies a clear's score. The host size (keeperCount) and the
+// ground to cover (sizeScale) set the floor; on top of that, every *menace* dial —
+// veils, elites, spitters, darters, healers, ward-obelisks — adds to the city's
+// real challenge (fonts are player-favourable, so they shave it back, but never
+// below the host floor). Normalized so The Old City sits near 1.0 and the hardest
+// cities near 1.5–1.6 (capped). Pricing the threat load — not just the host — is
+// what keeps the embers a clear pays honest: a veil-heavy city now out-rewards a
+// fair one with the same host size.
+const DIFFICULTY_CEIL = 1.6;             // the most a clear's score can be multiplied
+const THREAT_WEIGHT = {                  // per-unit challenge each menace dial adds
+  elite: 0.6, healer: 0.5, obelisk: 0.5, spitter: 0.4, veil: 0.35, darter: 0.3,
+  font: -0.3,                            // a lightwell eases the descent
+};
 function difficultyMult(level: LevelDef): number {
-  const km = level.keeperCount / 6;       // 1.0 at old-city, ~1.83 at vesper
+  const km = level.keeperCount / 6;       // host size: 1.0 at old-city
   const sm = level.sizeScale ?? 1;        // bigger ground = more hunting
-  return +(0.6 + 0.4 * km * sm).toFixed(2);
+  const host = 0.4 * km * sm;
+  const w = THREAT_WEIGHT;
+  const threat = w.elite * (level.eliteCount ?? 0) + w.healer * (level.healerCount ?? 0)
+    + w.obelisk * (level.obeliskCount ?? 0) + w.spitter * (level.spitterCount ?? 0)
+    + w.veil * (level.veilCount ?? 0) + w.darter * (level.darterCount ?? 0)
+    + w.font * (level.fontCount ?? 0);
+  return +Math.min(DIFFICULTY_CEIL, 0.6 + host + 0.03 * Math.max(0, threat)).toFixed(2);
 }
 
 interface ScoreBreakdown {
@@ -872,7 +939,7 @@ function scoreRun(s: PgState): ScoreBreakdown {
     ? Math.round((s.litCount / s.dwellingsTotal) * SCORE_DWELLINGS_MAX) : 0;
   const survival = Math.round((s.hero.hp / s.hero.maxHp) * SCORE_SURVIVAL_MAX);
   const untouched = s.hits === 0 ? SCORE_UNTOUCHED : 0;
-  const mult = difficultyMult(s.level);
+  const mult = difficultyMult(s.level) + s.curse.scoreMul; // ascension pays proportionally more
   const total = Math.round((base + speed + dwellings + survival + untouched) * mult);
   const embers = Math.max(1, Math.round(total / SCORE_EMBERS_DIV));
   return { base, speed, dwellings, survival, untouched, mult, total, embers };
@@ -927,6 +994,17 @@ function inShrineAura(s: PgState, x: number, y: number): boolean {
   return false;
 }
 
+// Is the point on warded ground (within any live consecration ring)? Like a shrine
+// aura it protects a lit dwelling from snuffing — but a ring is transient and
+// player-laid, fading once its time is up.
+function inConsecration(s: PgState, x: number, y: number): boolean {
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    if ((x - r.x) ** 2 + (y - r.y) ** 2 <= CONSECRATE_RADIUS ** 2) return true;
+  }
+  return false;
+}
+
 // Is the point within a lightwell's aura? Standing here the hero inscribes the
 // sigil EVEN WHILE MOVING (the well feeds the flame), inverting the stand-still
 // rule — a burn-on-the-run zone. Pure geometry off the font nodes.
@@ -963,6 +1041,29 @@ function kindleDwelling(s: PgState, n: ArenaNode, heal: number): void {
       }
     }
   }
+  completeConstellations(s, n);
+}
+
+// A constellation: when every dwelling a conduit fuses is lit at once, the pattern
+// "kindles" — its dwellings AWAKEN into ally emitters instantly (no DWELLING_AWAKEN_MS
+// wait) and the city rallies the carrier. This rewards *where* you relight (a whole
+// connected set) over how many scattered lights, leaning into the stand-and-hold
+// identity rather than raw firepower. Fires once per fuse; a snuff re-arms it.
+function completeConstellations(s: PgState, n: ArenaNode): void {
+  for (const link of s.conduitLinks) {
+    if (link.done || !link.dwellings.includes(n)) continue;
+    if (!link.dwellings.every((d) => d.lit)) continue;
+    link.done = true;
+    s.constellations++;
+    for (const d of link.dwellings) d.awoke = true;
+    const ceil = Math.max(s.hero.hp, s.hero.maxHp * HEAL_CAP);
+    s.hero.hp = Math.min(ceil, s.hero.hp + CONSTELLATION_HEAL);
+    // A cosmetic flash at the pattern's centre (art/constellation-burst.png, or a
+    // procedural ring when the PNG is absent).
+    let cx = 0, cy = 0;
+    for (const d of link.dwellings) { cx += d.x; cy += d.y; }
+    s.bursts.push({ x: cx / link.dwellings.length, y: cy / link.dwellings.length, until: s.elapsed + CONSTELLATION_FX_MS });
+  }
 }
 
 // Snuff a lit dwelling back to dark: scar the ground (a charge-damping veil that
@@ -972,6 +1073,11 @@ function snuffDwelling(s: PgState, n: ArenaNode): void {
   n.veil = s.elapsed + SNUFF_VEIL_MS;
   if (s.litCount > 0) s.litCount--;
   s.snuffed++;
+  // A snuffed dwelling breaks any constellation it belonged to, re-arming the fuse
+  // so re-completing it rewards the carrier again.
+  for (const link of s.conduitLinks) {
+    if (link.done && link.dwellings.includes(n)) link.done = false;
+  }
 }
 
 // Advance the conduit relays: any queued dwelling whose travel time has elapsed
@@ -1152,13 +1258,14 @@ function stepShades(s: PgState, dt: number): void {
     const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
 
-    // A shade brushing a lit dwelling snuffs it back to dark — unless that
-    // dwelling stands on consecrated ground (a shrine's aura protects it).
+    // A shade brushing a lit dwelling snuffs it back to dark — unless that dwelling
+    // stands on consecrated ground: a shrine's aura, or a consecration ring the
+    // carrier seared (both protect it).
     const sr2 = (SHADE_RADIUS + SNUFF_REACH) ** 2;
     for (const n of s.scenery) {
       if (n.kind !== "dwelling" || !n.lit) continue;
       if ((n.x - e.x) ** 2 + (n.y - e.y) ** 2 > sr2) continue;
-      if (inShrineAura(s, n.x, n.y)) continue;
+      if (inShrineAura(s, n.x, n.y) || inConsecration(s, n.x, n.y)) continue;
       snuffDwelling(s, n);
     }
   }
@@ -1195,6 +1302,45 @@ function stepBolts(s: PgState, dt: number): void {
   s.bolts = s.bolts.filter((b) => b.born >= 0 && s.elapsed - b.born < BOLT_LIFETIME_MS);
 }
 
+// Sear (or refresh) a consecration ring under the hero — called when a pulse fires
+// at a FULL inscription. A sear within CONSECRATE_MERGE of a live ring just refreshes
+// the one underfoot (so standing keeps your ground warded); otherwise it lays a new
+// ring, capped to the most recent CONSECRATE_MAX so moving on carves a corridor.
+function consecrate(s: PgState): void {
+  const h = s.hero;
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    if ((r.x - h.x) ** 2 + (r.y - h.y) ** 2 <= CONSECRATE_MERGE ** 2) {
+      r.until = s.elapsed + CONSECRATE_MS;
+      return;
+    }
+  }
+  s.rings.push({ x: h.x, y: h.y, until: s.elapsed + CONSECRATE_MS });
+  if (s.rings.length > CONSECRATE_MAX) s.rings.shift();
+}
+
+// Consecration rings burn shades that stand on warded ground every frame, then the
+// rings that have run out fade. Runs continuously (like scorch), independent of the
+// pulse clock. A still-shielded elite shrugs the chip off — only a full pulse breaks
+// the shield.
+function stepRings(s: PgState, dt: number): void {
+  if (!s.rings.length) return;
+  const rdmg = (CONSECRATE_DPS * dt) / 1000;
+  const rr = CONSECRATE_RADIUS ** 2;
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    for (const e of s.shades) {
+      if (e.dead || e.shielded) continue;
+      if ((e.x - r.x) ** 2 + (e.y - r.y) ** 2 <= rr) {
+        e.hp -= rdmg;
+        e.hit = s.elapsed + SHADE_HIT_MS;
+        if (e.hp <= 0) killShade(s, e);
+      }
+    }
+  }
+  s.rings = s.rings.filter((r) => r.until > s.elapsed);
+}
+
 // The pentagram pulses on its own clock: every PENTA_PULSE_MS it burns every
 // risen shade within its ring for PENTA_DMG scaled by how fully it is inscribed,
 // and kindles any dark dwelling the ring has caught (mending the hero a little).
@@ -1227,6 +1373,7 @@ function stepPentagram(s: PgState, dt: number): void {
     if (s.penta.charge <= 0) continue;
     const r2 = s.fxRadius ** 2;
     const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
+    if (full) consecrate(s); // a full inscription sears warded ground underfoot
     const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
     const dmg = s.fxDmg * s.penta.charge * surge;
     const justKilled: Shade[] = [];
@@ -1441,6 +1588,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
   stepObelisks(s);   // ward shades near standing obelisks (and crack one underfoot)
   stepPentagram(s, dt);
+  stepRings(s, dt);  // consecration rings chip shades on warded ground, then fade
   stepSpread(s);     // advance any conduit relays whose travel time has elapsed
   stepDwellings(s);  // mature lit dwellings into awakened ally emitters
   stepPress(s);      // a press by the hero, at full charge, fires its cascade
@@ -1471,6 +1619,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // Retire spent cosmetic FX (cheap; only when any are live).
   if (s.arcs.length) s.arcs = s.arcs.filter((a) => a.until > s.elapsed);
   if (s.novas.length) s.novas = s.novas.filter((n) => n.until > s.elapsed);
+  if (s.bursts.length) s.bursts = s.bursts.filter((b) => b.until > s.elapsed);
 
   // Contact: a shade on the hero, outside i-frames, bites and is shoved off.
   if (h.hurt <= 0) {
@@ -1478,7 +1627,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     for (const e of s.shades) {
       if (e.dead) continue;
       if ((e.x - h.x) ** 2 + (e.y - h.y) ** 2 <= reach) {
-        h.hp -= e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG;
+        h.hp -= (e.elite ? ELITE_CONTACT_DMG : SHADE_CONTACT_DMG) * s.curse.contactMul;
         s.hits++;
         h.hurt = HERO_IFRAMES_MS;
         const dx = h.x - e.x, dy = h.y - e.y;
@@ -1871,6 +2020,9 @@ const SPRITE_NAMES = [
   // procedural lines when the PNG is absent.
   "pathway", "fence",
   "keeper-node", "keeper-patrol", "player-lantern",
+  // The constellation-kindle flash (universal FX; render falls back to a procedural
+  // ring when absent).
+  "constellation-burst",
 ] as const;
 
 // Which sprites a city may re-skin (art/<cityId>/<name>.png) — the built world.
@@ -1878,6 +2030,9 @@ const SPRITE_NAMES = [
 const CITY_SPRITES = new Set<string>([
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
   "conduit", "press", "shrine", "font", "obelisk",
+  // A city may give its drifting veil pools a cursed face (art/<cityId>/veil.png);
+  // render falls back to the procedural #veil pattern when absent.
+  "veil",
 ]);
 
 const sprites = new Set<string>();
@@ -2226,11 +2381,28 @@ function render(s: PgState, layer: SVGGElement): void {
 
   // Veil pools — drifting patches of the old dark on the floor. A still hero
   // standing in one cannot inscribe; the sigil unravels. Drawn low, on the ground.
+  // A city may re-skin them (art/<cityId>/veil.png); else the procedural pattern.
+  const veilKey = spriteFor(s.level, "veil");
   for (const v of s.veils) {
-    layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
+    if (veilKey) layer.appendChild(spriteImage(veilKey, v.x, v.y, v.r * 2.3, 0.9));
+    else layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
     layer.appendChild(el("circle", {
       cx: v.x, cy: v.y, r: v.r, fill: "none",
       stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
+    }));
+  }
+
+  // Consecration rings — warded ground a full inscription seared: a soft warm disc
+  // with a dashed bright rim that fades as the ward runs out.
+  for (const r of s.rings) {
+    const life = Math.max(0, (r.until - s.elapsed) / CONSECRATE_MS);
+    if (life <= 0) continue;
+    layer.appendChild(el("circle", {
+      cx: r.x, cy: r.y, r: CONSECRATE_RADIUS, fill: "url(#penta)", opacity: 0.10 * life,
+    }));
+    layer.appendChild(el("circle", {
+      cx: r.x, cy: r.y, r: CONSECRATE_RADIUS, fill: "none",
+      stroke: s.type.ring, "stroke-width": 1.5, "stroke-dasharray": "4 6", opacity: 0.4 * life,
     }));
   }
 
@@ -2269,6 +2441,25 @@ function render(s: PgState, layer: SVGGElement): void {
       fill: "none", stroke: s.type.ring, "stroke-width": 3 + 5 * life,
       opacity: 0.6 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
     }));
+  }
+
+  // Constellation kindles — a brief gold flash where a conduit fuse's dwellings all
+  // lit at once. art/constellation-burst.png if shipped, else a procedural ring.
+  for (const b of s.bursts) {
+    const life = Math.max(0, (b.until - s.elapsed) / CONSTELLATION_FX_MS);
+    if (life <= 0) continue;
+    if (sprites.has("constellation-burst")) {
+      layer.appendChild(spriteImage("constellation-burst", b.x, b.y, 110 * (1.3 - life * 0.5), life));
+    } else {
+      layer.appendChild(el("circle", {
+        cx: b.x, cy: b.y, r: 28 + (1 - life) * 52, fill: "none",
+        stroke: s.type.star, "stroke-width": 2 + 3 * life,
+        opacity: 0.7 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      layer.appendChild(el("circle", {
+        cx: b.x, cy: b.y, r: 4 + 10 * life, fill: s.type.star, opacity: 0.5 * life,
+      }));
+    }
   }
 
   // Spitters' bolts — motes of the old dark hurled at the hero. Drawn as a small
@@ -2599,10 +2790,11 @@ interface PgLegacy {
   unlocked: string[];   // sigil ids the carrier owns (always includes "vigil")
   equipped: string;     // the sigil id currently equipped
   frescoesFound: number[]; // the reliquary — FRESCO indices uncovered, ever
+  ascension: Record<string, number>; // highest ascension tier CLEARED per city (next available = +1)
 }
 
 function emptyPgLegacy(): PgLegacy {
-  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [] };
+  return { runs: 0, clears: 0, best: {}, dwellingsLit: 0, dwellingsAwakened: 0, embers: 0, unlocked: ["vigil"], equipped: "vigil", frescoesFound: [], ascension: {} };
 }
 
 function loadPgLegacy(): PgLegacy {
@@ -2626,6 +2818,7 @@ function loadPgLegacy(): PgLegacy {
       dwellingsAwakened: l.dwellingsAwakened || 0,
       embers: l.embers || 0, unlocked: [...owned], equipped,
       frescoesFound: found,
+      ascension: (l.ascension && typeof l.ascension === "object") ? l.ascension : {},
     };
   } catch { return emptyPgLegacy(); }
 }
@@ -2634,13 +2827,15 @@ function savePgLegacy(l: PgLegacy): void {
   try { localStorage.setItem(PG_LEGACY_KEY, JSON.stringify(l)); } catch { /* ignore */ }
 }
 
-function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0, awoke = 0): PgLegacy {
+function recordClear(level: LevelDef, ms: number, lit = 0, embers = 0, awoke = 0, ascension = 0): PgLegacy {
   const l = loadPgLegacy();
   l.runs++; l.clears++;
   l.dwellingsLit += lit;
   l.dwellingsAwakened += awoke;
   l.embers += embers;
   if (!l.best[level.id] || ms < l.best[level.id]) l.best[level.id] = ms;
+  // Record the deepest tier this city has been cleared at, unlocking the next.
+  if (ascension > (l.ascension[level.id] ?? -1)) l.ascension[level.id] = ascension;
   savePgLegacy(l);
   return l;
 }
@@ -3366,8 +3561,8 @@ function start(): void {
     frescoImg.src = art;
   }
 
-  function startCity(level: LevelDef): void {
-    s = buildArena(level);
+  function startCity(level: LevelDef, ascension = 0): void {
+    s = buildArena(level, ascension);
     loadCitySprites(level.id, repaint);
     hideOverlay();
     clearTimeout(frescoTimer); frescoEl.classList.remove("show"); // no card lingers into a new run
@@ -3390,7 +3585,7 @@ function start(): void {
     const lit = s.litCount, total = s.dwellingsTotal;
     const awoke = s.scenery.filter((n) => n.awoke).length;
     const sc = scoreRun(s);
-    const l = recordClear(s.level, ms, lit, sc.embers, awoke);
+    const l = recordClear(s.level, ms, lit, sc.embers, awoke, s.curse.tier);
     const fr = recordFrescoes(s.shownFrescoes); // fold the reliquary; may bank a bonus
     const banked = l.embers + fr.bonus;
     const best = l.best[s.level.id];
@@ -3452,7 +3647,7 @@ function start(): void {
     );
   }
 
-  function showPicker(selId?: string): void {
+  function showPicker(selId?: string, asc = 0): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer); // drop any pending intro hold
     mmEl.style.display = "none"; // no arena to overview at the city select
@@ -3460,6 +3655,12 @@ function start(): void {
     // The selected city — defaults to the first, and supplies the establishing
     // art shown at the top of the card (mirrors the parent's Lamplighter intro).
     const sel = levelById(selId || "") || LEVELS[0];
+    // Ascension — tier 0 is always available; clearing a city unlocks one tier above
+    // the deepest cleared. The chosen tier is clamped to that range.
+    const ascBest = l.ascension[sel.id] ?? -1;
+    const ascMax = Math.min(ASC_MAX, ascBest + 1);
+    const tier = clamp(Math.round(asc), 0, ascMax);
+    const curse = curseFor(tier);
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
     let html =
       card +
@@ -3477,6 +3678,22 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // Ascension — replay a cleared city under stacking curses for a bigger payout.
+    const ascScore = (difficultyMult(sel) + curse.scoreMul).toFixed(2);
+    const curseLine = tier === 0
+      ? (ascMax > 0 ? "No curse. Step up an ascension to brave a harder host for more embers."
+                    : "No curse. Cleanse this city to unlock its ascensions.")
+      : `+${Math.round(curse.hpMul * 100 - 100)}% shade vigor · +${Math.round(curse.contactMul * 100 - 100)}% their bite · ` +
+        `+${curse.extraVeils} veil${curse.extraVeils === 1 ? "" : "s"} · ×${ascScore} score`;
+    html +=
+      `<div class="legacy"><div class="legacy-head">Ascension` +
+      (ascBest >= 0 ? ` <span class="legacy-new">cleared ×${ascBest}</span>` : ``) +
+      `</div><div class="asc">` +
+      `<button class="asc-step" data-asc="${tier - 1}"${tier <= 0 ? " disabled" : ""}>◀</button>` +
+      `<span class="asc-tier">${tier ? `<img class="asc-seal" alt="">` : ""}×${tier}</span>` +
+      `<button class="asc-step" data-asc="${tier + 1}"${tier >= ascMax ? " disabled" : ""}>▶</button>` +
+      `<span class="city-line">${curseLine}</span></div></div>`;
 
     // Sigils — the unlockable pentagrams. Each clear banks embers; spend them
     // here to own a sigil, then equip it for your next descent.
@@ -3514,19 +3731,35 @@ function start(): void {
     // The reliquary opens as its own view (the secondary button), not buried in
     // this card — the gallery is a lot to scroll past on the way to a descent.
     showOverlay(
-      "The Burning Vigil", html, `Descend into ${sel.name}`, () => startCity(sel),
+      "The Burning Vigil", html,
+      `Descend into ${sel.name}${tier ? ` ×${tier}` : ""}`, () => startCity(sel, tier),
       `The reliquary · ${l.frescoesFound.length}/${FRESCOES.length}`, () => showReliquary(sel.id),
     );
     // The establishing image fails silently when its art isn't shipped offline.
     const img = ovBody.querySelector<HTMLImageElement>(".city-art");
     if (img) img.onerror = () => { img.style.display = "none"; };
+    // The ascension seal badge: prefer a per-tier frame (art/ascension-seal-N.png),
+    // fall back to the base seal, then vanish if neither ships — the ×N text stays.
+    const seal = ovBody.querySelector<HTMLImageElement>(".asc-seal");
+    if (seal) {
+      seal.style.cssText = "width:20px;height:20px;vertical-align:middle;margin-right:5px";
+      seal.onerror = () => {
+        if (seal.src.endsWith(`ascension-seal-${tier}.png`)) seal.src = "art/ascension-seal.png";
+        else seal.remove();
+      };
+      seal.src = `art/ascension-seal-${tier}.png`;
+    }
     // Picking a city re-renders the card so its art and highlight follow the
     // selection; the descent begins from the primary button.
     overlay.querySelectorAll<HTMLButtonElement>(".city").forEach((b) => {
       b.onclick = () => {
         const lv = levelById(b.dataset.id || "");
-        if (lv) showPicker(lv.id);
+        if (lv) showPicker(lv.id); // switching city resets the ascension tier to 0
       };
+    });
+    overlay.querySelectorAll<HTMLButtonElement>(".asc-step").forEach((b) => {
+      if (b.disabled) return;
+      b.onclick = () => showPicker(sel.id, Number(b.dataset.asc));
     });
     overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
       const id = b.dataset.id || "", act = b.dataset.act || "";
@@ -3534,7 +3767,7 @@ function start(): void {
       b.onclick = () => {
         if (act === "unlock") { unlockType(id); equipType(id); }
         else if (act === "equip") equipType(id);
-        showPicker(); // re-render so the new ownership/equip state shows
+        showPicker(sel.id, tier); // re-render, keeping the city and tier in view
       };
     });
   }
@@ -3826,13 +4059,13 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
-    nearScar, inShrineAura, inFontAura, litReadout,
+    stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
-    aliveShades, clearedPct, scoreRun, difficultyMult, LEVELS, levelById,
+    aliveShades, clearedPct, scoreRun, difficultyMult, curseFor, LEVELS, levelById,
     weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
     recordFrescoes, frescoGalleryHtml, savePgLegacy,
     qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
@@ -3843,12 +4076,14 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
-      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, CONSTELLATION_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
+      CONSECRATE_MS, CONSECRATE_RADIUS, CONSECRATE_DPS, CONSECRATE_MERGE, CONSECRATE_MAX,
       FONT_AURA, OBELISK_AURA, OBELISK_REACH,
       SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
+      ASC_HP_PER_TIER, ASC_CONTACT_PER_TIER, ASC_VEILS_PER_TIER, ASC_SCORE_PER_TIER, ASC_MAX,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,
       SPITTER_HP, SPITTER_STANDOFF, SPITTER_SPEED_MUL, SPITTER_RANGE, SPITTER_COOLDOWN_MS,
       BOLT_SPEED, BOLT_DMG, BOLT_RADIUS, BOLT_LIFETIME_MS,
