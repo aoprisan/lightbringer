@@ -1088,7 +1088,7 @@ ok(pg.loadPgLegacy().ascension["old-city"] === 2, "a shallower clear can't lower
 const dcity = pg.levelById("old-city");
 const dDist = pg.resolveDistricts(dcity);
 const dW = Math.round(K.W * (dcity.sizeScale ?? 1)), dH = Math.round(K.H * (dcity.sizeScale ?? 1));
-ok(dDist.length === 5, `a city resolves its districts (${dDist.length})`);
+ok(dDist.length === 4, `a city resolves its districts (${dDist.length})`);
 ok(dDist.every((d) => d.x >= 60 && d.x <= dW - 60 && d.y >= 60 && d.y <= dH - 60),
   "every district anchor sits inside the arena bounds");
 ok(Math.abs(dDist.reduce((sum, d) => sum + d.weight, 0) - 1) < 1e-9, "district weights are normalized");

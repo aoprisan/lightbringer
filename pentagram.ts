@@ -563,11 +563,24 @@ const LEVELS: LevelDef[] = [
     epigraph: "Where you first stole the flame. The watch is even — a fair first descent.",
     art: "art/city-old.jpg",
     nodeCount: 124, minDist: 70,
-    conduitFrac: 0.16, pressCount: 4, shrineCount: 5,
+    conduitFrac: 0.16, pressCount: 4, shrineCount: 4,
     fontCount: 1, // a single lightwell teaches the burn-on-the-run early — still fair
     keeperCount: 6, keeperSpacing: 360,
     fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
     frescoes: [0, 6, 8, 15], // the foundational creed
+    // The Old City map (art/city-old.jpg) reads as a symmetric four-quarter
+    // town: a central bonfire — the hero's spawn — at the crossing of the radial
+    // streets, four densely-built quarters around it, and a single well at the
+    // heart of each quarter. We mirror that exactly: four symmetric quadrant
+    // anchors of equal density (one well-shrine landmark each, matching the four
+    // wellheads on the map) ringed off the centre, so the arena heart stays the
+    // open crossroads where you stand to inscribe.
+    districts: [
+      { name: "The Northern Ward", fx: 0.26, fy: 0.27, weight: 1.0 },
+      { name: "The Watch Quarter", fx: 0.74, fy: 0.27, weight: 1.0 },
+      { name: "The Hearthing",     fx: 0.26, fy: 0.73, weight: 1.0 },
+      { name: "The Ember Rows",    fx: 0.74, fy: 0.73, weight: 1.0 },
+    ],
   },
   {
     id: "ashfold",
