@@ -183,7 +183,7 @@ interface PgState {
   w: number; h: number;  // this arena's world size (W/H scaled by level.sizeScale)
   scenery: ArenaNode[];
   solids: ArenaNode[];   // scenery the hero/shades can't pass (presses, shrines)
-  conduitLinks: { c: ArenaNode; dwellings: ArenaNode[] }[]; // each conduit and the dwellings it fuses (a relay graph, built once)
+  conduitLinks: { c: ArenaNode; dwellings: ArenaNode[]; done?: boolean }[]; // each conduit and the dwellings it fuses (a relay graph + constellation set, built once)
   spreadQueue: { node: ArenaNode; at: number }[]; // dwellings awaiting a conduit relay's delayed kindle (live, not persisted)
   fences: Segment[];     // low walls the hero/shades must weave around
   pathways: Segment[];   // open lanes the hero runs swift along
@@ -212,6 +212,7 @@ interface PgState {
   dwellingsTotal: number; // dark dwellings the city began with
   litCount: number;     // how many are kindled right now (secondary objective)
   snuffed: number;      // lights the watch has clawed back this descent
+  constellations: number; // conduit-fuse patterns completed this descent (a snuff can re-arm one)
   shownFrescoes: number[]; // FRESCO indices already uncovered this descent
   pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
   phase: Phase;
@@ -343,6 +344,7 @@ const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
 const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
 const HEAL_CAP = 0.6;            // …but the city can only rally you to this frac of maxHp.
+const CONSTELLATION_HEAL = 14;   // hero HP restored when a conduit-fuse constellation completes (clamped by HEAL_CAP)
                                  // A clean run above the cap isn't pulled down; once a swarm
                                  // bites you below it, relighting mends only back up to the cap —
                                  // so a real hit can't be fully facetanked away. This is what
@@ -837,7 +839,7 @@ function buildArena(level: LevelDef): PgState {
     arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
-    litCount: 0, snuffed: 0,
+    litCount: 0, snuffed: 0, constellations: 0,
     shownFrescoes: [], pendingFresco: null,
     phase: "fight",
   };
@@ -861,8 +863,10 @@ function clearedPct(s: PgState): number {
 // total, with a star mark for any that have awakened into ally emitters.
 function litReadout(s: PgState): string {
   const awoke = s.scenery.reduce((c, n) => c + (n.awoke ? 1 : 0), 0);
-  const base = `+${s.litCount} / ${s.dwellingsTotal} lit`;
-  return awoke ? `${base} · ${awoke}✦` : base;
+  let out = `+${s.litCount} / ${s.dwellingsTotal} lit`;
+  if (awoke) out += ` · ${awoke}✦`;
+  if (s.constellations) out += ` · ${s.constellations}✸`;
+  return out;
 }
 
 // How much a city multiplies a clear's score. The host size (keeperCount) and the
@@ -1008,6 +1012,24 @@ function kindleDwelling(s: PgState, n: ArenaNode, heal: number): void {
       }
     }
   }
+  completeConstellations(s, n);
+}
+
+// A constellation: when every dwelling a conduit fuses is lit at once, the pattern
+// "kindles" — its dwellings AWAKEN into ally emitters instantly (no DWELLING_AWAKEN_MS
+// wait) and the city rallies the carrier. This rewards *where* you relight (a whole
+// connected set) over how many scattered lights, leaning into the stand-and-hold
+// identity rather than raw firepower. Fires once per fuse; a snuff re-arms it.
+function completeConstellations(s: PgState, n: ArenaNode): void {
+  for (const link of s.conduitLinks) {
+    if (link.done || !link.dwellings.includes(n)) continue;
+    if (!link.dwellings.every((d) => d.lit)) continue;
+    link.done = true;
+    s.constellations++;
+    for (const d of link.dwellings) d.awoke = true;
+    const ceil = Math.max(s.hero.hp, s.hero.maxHp * HEAL_CAP);
+    s.hero.hp = Math.min(ceil, s.hero.hp + CONSTELLATION_HEAL);
+  }
 }
 
 // Snuff a lit dwelling back to dark: scar the ground (a charge-damping veil that
@@ -1017,6 +1039,11 @@ function snuffDwelling(s: PgState, n: ArenaNode): void {
   n.veil = s.elapsed + SNUFF_VEIL_MS;
   if (s.litCount > 0) s.litCount--;
   s.snuffed++;
+  // A snuffed dwelling breaks any constellation it belonged to, re-arming the fuse
+  // so re-completing it rewards the carrier again.
+  for (const link of s.conduitLinks) {
+    if (link.done && link.dwellings.includes(n)) link.done = false;
+  }
 }
 
 // Advance the conduit relays: any queued dwelling whose travel time has elapsed
@@ -3944,7 +3971,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
       SHADE_HP, SHADE_RADIUS, SHADE_CONTACT_DMG, SHADE_PER_KEEPER,
       AGGRO_RADIUS, SHADE_WANDER_SPEED, SHADE_LEASH,
-      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
+      OBSTACLE_RADIUS, DWELLING_HEAL, HEAL_CAP, CONSTELLATION_HEAL, FENCE_HALF, PATHWAY_HALF, PATHWAY_BOOST,
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,

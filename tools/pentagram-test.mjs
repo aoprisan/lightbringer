@@ -1006,5 +1006,28 @@ pg.stepRings(scrF, 16);
 ok(scrF.rings.length === 0, "an expired consecration ring fades");
 ok(!pg.inConsecration(scrF, 100, 100), "expired warded ground no longer protects");
 
+// 40. Constellations: lighting every dwelling a conduit fuses completes the pattern
+//     — its dwellings awaken at once and the carrier is healed; it fires once until a
+//     snuff re-arms the fuse. Rewards where you relight, not how many.
+const sco = pg.buildArena(pg.levelById("old-city"));
+const clink = sco.conduitLinks[0];
+ok(clink && clink.dwellings.length >= 2, "a city fuses at least one constellation");
+for (const d of clink.dwellings) { d.lit = false; d.awoke = false; d.veil = 0; }
+sco.litCount = 0; sco.constellations = 0; sco.hero.hp = 1; // dark start, room to heal
+for (let i = 0; i < clink.dwellings.length - 1; i++) pg.kindleDwelling(sco, clink.dwellings[i], 0);
+ok(sco.constellations === 0, "an incomplete fuse grants no constellation");
+const cHpBefore = sco.hero.hp;
+pg.kindleDwelling(sco, clink.dwellings[clink.dwellings.length - 1], 0);
+ok(sco.constellations === 1, "lighting the whole fuse completes a constellation");
+ok(clink.dwellings.every((d) => d.awoke), "a completed constellation awakens its dwellings at once");
+ok(sco.hero.hp > cHpBefore, `a completed constellation rallies the carrier (${cHpBefore} -> ${sco.hero.hp})`);
+ok(pg.litReadout(sco).includes("✸"), "the HUD shows the constellation tally");
+// A snuff breaks the pattern and re-arms the fuse; re-lighting re-completes it.
+pg.snuffDwelling(sco, clink.dwellings[0]);
+ok(clink.done === false, "snuffing a constellation dwelling re-arms the fuse");
+sco.constellations = 0; clink.dwellings[0].veil = 0; // scar faded
+pg.kindleDwelling(sco, clink.dwellings[0], 0);
+ok(sco.constellations === 1, "re-lighting the broken dwelling re-completes the constellation");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
