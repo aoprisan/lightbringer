@@ -46,6 +46,12 @@ interface PentaType {
 // stand on it until it cools. Live-play terrain, never persisted.
 interface Scorch { x: number; y: number; until: number }
 
+// A consecration ring — warded ground a FULL inscription sears beneath the hero.
+// While it lasts it chips any shade standing on it and (like a shrine) bars the
+// watch from snuffing a lit dwelling inside it, so holding — or chaining — full
+// inscriptions carves a safe corridor. Live-play terrain, never persisted.
+interface Ring { x: number; y: number; until: number }
+
 // A veil pool — a drifting patch of the old dark. Standing in one doesn't
 // inscribe the sigil; it UNRAVELS it (charge bleeds away faster than a normal
 // fade), so a still hero must pick clean ground. Woven at build from the city's
@@ -190,6 +196,7 @@ interface PgState {
   fxPulse: number;
   fxDmg: number;
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
+  rings: Ring[];         // consecration rings — warded ground a full inscription seared
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
   motes: Mote[];         // gatherable ember sparks dropped by slain shades
   bolts: Bolt[];         // spitters' in-flight bolts (live FX, not persisted)
@@ -368,6 +375,17 @@ const PRESS_BURST_DMG = 60;      // damage dealt to every shade caught
 // (a safe quarter to relight), and a hero standing in the aura inscribes even on
 // veiled/scarred ground (a place to make a stand).
 const SHRINE_AURA = 150;         // radius of a shrine's consecrated ground
+
+// Consecration rings — a FULL inscription sears the ground beneath the hero into a
+// warded ring. While it lasts it chips any shade standing on it and (like a shrine)
+// bars the watch from snuffing a lit dwelling inside it. Standing refreshes the ring
+// underfoot; moving on and re-inscribing lays a fresh one, so a stand-still carrier
+// carves a safe corridor block by block. Live-play, never persisted.
+const CONSECRATE_MS = 4200;      // how long a seared ring wards the ground
+const CONSECRATE_RADIUS = 120;   // radius of a ring's warded ground
+const CONSECRATE_DPS = 12;       // damage per second to shades standing on a ring
+const CONSECRATE_MERGE = 80;     // a sear within this of a live ring refreshes it instead of adding one
+const CONSECRATE_MAX = 5;        // cap on simultaneous rings (the oldest drops)
 
 // Lightwells (fonts) — a wellspring of standing flame. Passable (you stand in it).
 // Within a font's aura the sigil inscribes EVEN WHILE MOVING (the well feeds it),
@@ -815,7 +833,7 @@ function buildArena(level: LevelDef): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    scorch: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
+    scorch: [], rings: [], veils: weaveVeils(w, h, level.veilCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
     arcs: [], novas: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
@@ -939,6 +957,17 @@ function inShrineAura(s: PgState, x: number, y: number): boolean {
   for (const n of s.scenery) {
     if (n.kind !== "shrine") continue;
     if ((x - n.x) ** 2 + (y - n.y) ** 2 <= SHRINE_AURA ** 2) return true;
+  }
+  return false;
+}
+
+// Is the point on warded ground (within any live consecration ring)? Like a shrine
+// aura it protects a lit dwelling from snuffing — but a ring is transient and
+// player-laid, fading once its time is up.
+function inConsecration(s: PgState, x: number, y: number): boolean {
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    if ((x - r.x) ** 2 + (y - r.y) ** 2 <= CONSECRATE_RADIUS ** 2) return true;
   }
   return false;
 }
@@ -1168,13 +1197,14 @@ function stepShades(s: PgState, dt: number): void {
     const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
 
-    // A shade brushing a lit dwelling snuffs it back to dark — unless that
-    // dwelling stands on consecrated ground (a shrine's aura protects it).
+    // A shade brushing a lit dwelling snuffs it back to dark — unless that dwelling
+    // stands on consecrated ground: a shrine's aura, or a consecration ring the
+    // carrier seared (both protect it).
     const sr2 = (SHADE_RADIUS + SNUFF_REACH) ** 2;
     for (const n of s.scenery) {
       if (n.kind !== "dwelling" || !n.lit) continue;
       if ((n.x - e.x) ** 2 + (n.y - e.y) ** 2 > sr2) continue;
-      if (inShrineAura(s, n.x, n.y)) continue;
+      if (inShrineAura(s, n.x, n.y) || inConsecration(s, n.x, n.y)) continue;
       snuffDwelling(s, n);
     }
   }
@@ -1211,6 +1241,45 @@ function stepBolts(s: PgState, dt: number): void {
   s.bolts = s.bolts.filter((b) => b.born >= 0 && s.elapsed - b.born < BOLT_LIFETIME_MS);
 }
 
+// Sear (or refresh) a consecration ring under the hero — called when a pulse fires
+// at a FULL inscription. A sear within CONSECRATE_MERGE of a live ring just refreshes
+// the one underfoot (so standing keeps your ground warded); otherwise it lays a new
+// ring, capped to the most recent CONSECRATE_MAX so moving on carves a corridor.
+function consecrate(s: PgState): void {
+  const h = s.hero;
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    if ((r.x - h.x) ** 2 + (r.y - h.y) ** 2 <= CONSECRATE_MERGE ** 2) {
+      r.until = s.elapsed + CONSECRATE_MS;
+      return;
+    }
+  }
+  s.rings.push({ x: h.x, y: h.y, until: s.elapsed + CONSECRATE_MS });
+  if (s.rings.length > CONSECRATE_MAX) s.rings.shift();
+}
+
+// Consecration rings burn shades that stand on warded ground every frame, then the
+// rings that have run out fade. Runs continuously (like scorch), independent of the
+// pulse clock. A still-shielded elite shrugs the chip off — only a full pulse breaks
+// the shield.
+function stepRings(s: PgState, dt: number): void {
+  if (!s.rings.length) return;
+  const rdmg = (CONSECRATE_DPS * dt) / 1000;
+  const rr = CONSECRATE_RADIUS ** 2;
+  for (const r of s.rings) {
+    if (r.until <= s.elapsed) continue;
+    for (const e of s.shades) {
+      if (e.dead || e.shielded) continue;
+      if ((e.x - r.x) ** 2 + (e.y - r.y) ** 2 <= rr) {
+        e.hp -= rdmg;
+        e.hit = s.elapsed + SHADE_HIT_MS;
+        if (e.hp <= 0) killShade(s, e);
+      }
+    }
+  }
+  s.rings = s.rings.filter((r) => r.until > s.elapsed);
+}
+
 // The pentagram pulses on its own clock: every PENTA_PULSE_MS it burns every
 // risen shade within its ring for PENTA_DMG scaled by how fully it is inscribed,
 // and kindles any dark dwelling the ring has caught (mending the hero a little).
@@ -1243,6 +1312,7 @@ function stepPentagram(s: PgState, dt: number): void {
     if (s.penta.charge <= 0) continue;
     const r2 = s.fxRadius ** 2;
     const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
+    if (full) consecrate(s); // a full inscription sears warded ground underfoot
     const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
     const dmg = s.fxDmg * s.penta.charge * surge;
     const justKilled: Shade[] = [];
@@ -1457,6 +1527,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
   stepObelisks(s);   // ward shades near standing obelisks (and crack one underfoot)
   stepPentagram(s, dt);
+  stepRings(s, dt);  // consecration rings chip shades on warded ground, then fade
   stepSpread(s);     // advance any conduit relays whose travel time has elapsed
   stepDwellings(s);  // mature lit dwellings into awakened ally emitters
   stepPress(s);      // a press by the hero, at full charge, fires its cascade
@@ -2247,6 +2318,20 @@ function render(s: PgState, layer: SVGGElement): void {
     layer.appendChild(el("circle", {
       cx: v.x, cy: v.y, r: v.r, fill: "none",
       stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
+    }));
+  }
+
+  // Consecration rings — warded ground a full inscription seared: a soft warm disc
+  // with a dashed bright rim that fades as the ward runs out.
+  for (const r of s.rings) {
+    const life = Math.max(0, (r.until - s.elapsed) / CONSECRATE_MS);
+    if (life <= 0) continue;
+    layer.appendChild(el("circle", {
+      cx: r.x, cy: r.y, r: CONSECRATE_RADIUS, fill: "url(#penta)", opacity: 0.10 * life,
+    }));
+    layer.appendChild(el("circle", {
+      cx: r.x, cy: r.y, r: CONSECRATE_RADIUS, fill: "none",
+      stroke: s.type.ring, "stroke-width": 1.5, "stroke-dasharray": "4 6", opacity: 0.4 * life,
     }));
   }
 
@@ -3842,7 +3927,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     generateCity, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
-    nearScar, inShrineAura, inFontAura, litReadout,
+    stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
@@ -3863,6 +3948,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       DWELLING_AWAKEN_MS, AWAKENED_RADIUS, AWAKENED_DMG, SNUFF_REACH, SNUFF_VEIL_MS, SCAR_RADIUS,
       CONDUIT_REACH, CONDUIT_DELAY, CONDUIT_HEAL, CONDUIT_MAX_LINKS,
       PRESS_TRIGGER_REACH, PRESS_BURST_R, PRESS_BURST_DMG, SHRINE_AURA,
+      CONSECRATE_MS, CONSECRATE_RADIUS, CONSECRATE_DPS, CONSECRATE_MERGE, CONSECRATE_MAX,
       FONT_AURA, OBELISK_AURA, OBELISK_REACH,
       SCORCH_RADIUS, SCORCH_MAX, FRESCO_SET_BONUS,
       ELITE_HP_MUL, ELITE_CONTACT_DMG,

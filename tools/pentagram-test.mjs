@@ -961,5 +961,50 @@ for (const lvf of pg.LEVELS) for (const i of (lvf.frescoes || [])) union2.add(i)
 ok(union2.size === pg.FRESCOES.length,
   "with the new cities, the per-city subsets still cover every fresco");
 
+// 39. Consecration rings: a full inscription sears warded ground that chips shades
+//     standing on it, protects a lit dwelling inside it from snuffing, and fades
+//     after CONSECRATE_MS. Standing refreshes the ring underfoot rather than spamming.
+const scr = pg.buildArena(pg.levelById("old-city"));
+for (const e of scr.shades) park(e, 5, 5); // stow the host far away
+run(scr, scr.fxCharge + scr.fxPulse + 50, still); // stand until a full pulse fires
+ok(scr.rings.length >= 1, "a full inscription sears a consecration ring");
+ok(pg.inConsecration(scr, scr.hero.x, scr.hero.y), "the hero stands on warded ground");
+const ringsAfterFirst = scr.rings.length;
+run(scr, scr.fxPulse * 3, still); // keep standing in place
+ok(scr.rings.length === ringsAfterFirst, "standing still refreshes the ring, not spawns new ones");
+
+// Chip: a shade left standing on a ring loses health over time.
+const ringVictim = scr.shades[0];
+park(ringVictim, scr.hero.x, scr.hero.y);
+const ringHp0 = ringVictim.hp;
+pg.stepRings(scr, 1000); // a second on warded ground
+ok(ringVictim.hp < ringHp0, `a shade on a consecration ring is chipped (${ringHp0} -> ${ringVictim.hp})`);
+
+// Snuff protection: a lit dwelling inside a ring resists a brushing shade — and the
+// same setup without the ring snuffs it (the control).
+const scrP = pg.buildArena(pg.levelById("old-city"));
+for (const e of scrP.shades) park(e, 5, 5);
+const dwP = scrP.scenery.find((n) => n.kind === "dwelling" && !pg.inShrineAura(scrP, n.x, n.y));
+dwP.lit = true; dwP.litAt = scrP.elapsed; scrP.litCount = 1;
+scrP.rings.push({ x: dwP.x, y: dwP.y, until: scrP.elapsed + 5000 });
+park(scrP.shades[0], dwP.x, dwP.y);
+pg.stepShades(scrP, 16);
+ok(dwP.lit === true, "a lit dwelling on a consecration ring resists snuffing");
+
+const scrC = pg.buildArena(pg.levelById("old-city"));
+for (const e of scrC.shades) park(e, 5, 5);
+const dwC = scrC.scenery.find((n) => n.kind === "dwelling" && !pg.inShrineAura(scrC, n.x, n.y));
+dwC.lit = true; dwC.litAt = scrC.elapsed; scrC.litCount = 1;
+park(scrC.shades[0], dwC.x, dwC.y);
+pg.stepShades(scrC, 16);
+ok(dwC.lit === false, "without a ring, a brushing shade snuffs the dwelling (control)");
+
+// Fade: an expired ring is retired and no longer wards its ground.
+const scrF = pg.buildArena(pg.levelById("old-city"));
+scrF.rings.push({ x: 100, y: 100, until: scrF.elapsed - 1 });
+pg.stepRings(scrF, 16);
+ok(scrF.rings.length === 0, "an expired consecration ring fades");
+ok(!pg.inConsecration(scrF, 100, 100), "expired warded ground no longer protects");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
