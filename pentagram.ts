@@ -570,11 +570,14 @@ const LEVELS: LevelDef[] = [
     name: "The Old City",
     epigraph: "Where you first stole the flame. The watch is even — a fair first descent.",
     art: "art/city-old.jpg",
-    nodeCount: 124, minDist: 70,
+    // Dense, tightly-packed quarters (the map is wall-to-wall blocks) — dwellings
+    // are passable, so this is visual richness, not a combat change; the host
+    // (keeperCount) is unchanged. A small minDist packs the blocks close.
+    nodeCount: 200, minDist: 50, plazaRadius: 105, districtRadius: 420,
     conduitFrac: 0.16, pressCount: 4, shrineCount: 4,
     fontCount: 1, // a single lightwell teaches the burn-on-the-run early — still fair
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 8, pathwayCount: 0, sizeScale: 0.9, // kept fair: no veils/elites
+    fenceCount: 3, pathwayCount: 0, sizeScale: 0.9, // kept fair: no veils/elites; map has no interior walls
     frescoes: [0, 6, 8, 15], // the foundational creed
     // The Old City map (art/city-old.jpg) reads as a symmetric four-quarter
     // town: a central bonfire — the hero's spawn — at the crossing of the radial
@@ -761,6 +764,13 @@ function generateCity(
     districts.some((d) => (d.x - x) ** 2 + (d.y - y) ** 2 < d.plazaR ** 2);
   const spaced = (x: number, y: number) =>
     nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2);
+  // Keep buildings out of the authored avenues so the streets read as clean open
+  // corridors (the radial pattern of the map), not blocks paved over. Half a lane
+  // plus a margin clear on each side.
+  const avenues = resolveSegs(level.avenues, w, h);
+  const STREET_HALF = PATHWAY_HALF + 12;
+  const onAvenue = (x: number, y: number) =>
+    avenues.some((a) => closestOnSegment(x, y, a.x1, a.y1, a.x2, a.y2).d < STREET_HALF);
   // Center-biased sample within a district's falloff (pow > 1 favours the heart).
   const sampleDistrict = () => {
     let pick = Math.random(), d = districts[0];
@@ -776,7 +786,7 @@ function generateCity(
       ? { x: 60 + Math.random() * (w - 120), y: 60 + Math.random() * (h - 120) }
       : sampleDistrict();
     const inBounds = p.x >= 60 && p.x <= w - 60 && p.y >= 60 && p.y <= h - 60;
-    if (!inBounds || inPlaza(p.x, p.y) || !spaced(p.x, p.y)) {
+    if (!inBounds || inPlaza(p.x, p.y) || onAvenue(p.x, p.y) || !spaced(p.x, p.y)) {
       // A long run of misses means the clusters are packed; spill into uniform
       // fill so the city reaches its node count and the host stays whole.
       if (!uniform && ++rejectRun > 400) uniform = true;

@@ -1131,6 +1131,15 @@ ok(wallSegs.length >= 8, `the rampart rings the city (${wallSegs.length} wall se
 // Cities without authored terrain weave their lanes as before (no walls/avenues).
 ok(pg.levelById("ashfold").avenues === undefined && pg.levelById("ashfold").walls === undefined,
   "other cities author no terrain (woven only)");
+// The authored avenues stay clear of buildings — the streets read as open
+// corridors, not blocks paved over (generateCity rejects nodes on a lane).
+const avCity = pg.generateCity(pg.levelById("old-city"));
+const avSegs = pg.levelById("old-city").avenues.map((a) =>
+  ({ x1: a.x1 * sav.w, y1: a.y1 * sav.h, x2: a.x2 * sav.w, y2: a.y2 * sav.h }));
+const onLane = (n) => avSegs.some((a) =>
+  pg.closestOnSegment(n.x, n.y, a.x1, a.y1, a.x2, a.y2).d < K.PATHWAY_HALF);
+ok(avCity.filter((n) => n.kind !== "shrine").every((n) => !onLane(n)),
+  "buildings keep clear of the avenues (open streets)");
 
 // Every city still dresses with density to spare and its exact shrine count — the
 // clustering never starves a city or drifts the scenery counts.
