@@ -847,13 +847,29 @@ function litReadout(s: PgState): string {
   return awoke ? `${base} · ${awoke}✦` : base;
 }
 
-// How much a city multiplies a clear's score. Leans on the difficulty the data
-// already encodes — the host size (keeperCount) and the ground to cover
-// (sizeScale) — normalized so The Old City sits near 1.0 and Vesper near 1.5.
+// How much a city multiplies a clear's score. The host size (keeperCount) and the
+// ground to cover (sizeScale) set the floor; on top of that, every *menace* dial —
+// veils, elites, spitters, darters, healers, ward-obelisks — adds to the city's
+// real challenge (fonts are player-favourable, so they shave it back, but never
+// below the host floor). Normalized so The Old City sits near 1.0 and the hardest
+// cities near 1.5–1.6 (capped). Pricing the threat load — not just the host — is
+// what keeps the embers a clear pays honest: a veil-heavy city now out-rewards a
+// fair one with the same host size.
+const DIFFICULTY_CEIL = 1.6;             // the most a clear's score can be multiplied
+const THREAT_WEIGHT = {                  // per-unit challenge each menace dial adds
+  elite: 0.6, healer: 0.5, obelisk: 0.5, spitter: 0.4, veil: 0.35, darter: 0.3,
+  font: -0.3,                            // a lightwell eases the descent
+};
 function difficultyMult(level: LevelDef): number {
-  const km = level.keeperCount / 6;       // 1.0 at old-city, ~1.83 at vesper
+  const km = level.keeperCount / 6;       // host size: 1.0 at old-city
   const sm = level.sizeScale ?? 1;        // bigger ground = more hunting
-  return +(0.6 + 0.4 * km * sm).toFixed(2);
+  const host = 0.4 * km * sm;
+  const w = THREAT_WEIGHT;
+  const threat = w.elite * (level.eliteCount ?? 0) + w.healer * (level.healerCount ?? 0)
+    + w.obelisk * (level.obeliskCount ?? 0) + w.spitter * (level.spitterCount ?? 0)
+    + w.veil * (level.veilCount ?? 0) + w.darter * (level.darterCount ?? 0)
+    + w.font * (level.fontCount ?? 0);
+  return +Math.min(DIFFICULTY_CEIL, 0.6 + host + 0.03 * Math.max(0, threat)).toFixed(2);
 }
 
 interface ScoreBreakdown {

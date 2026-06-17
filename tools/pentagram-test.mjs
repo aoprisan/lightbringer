@@ -280,6 +280,24 @@ ssc.hits = 2; // took blows
 ok(pg.scoreRun(ssc).untouched === 0, "a blow forfeits the untouched bonus");
 ok(pg.difficultyMult(pg.levelById("vesper")) > pg.difficultyMult(pg.levelById("old-city")),
   "a harder city multiplies a clear's score more");
+// 14b. Difficulty prices in the threat load, not just host size: the veil-heavy
+//      Drowned Quarter now out-rewards the fair tutorial, every menace dial
+//      strictly raises the multiplier, fonts never drop a city below its host
+//      floor, and no city beats the ceiling (the Bastion is the hardest).
+ok(pg.difficultyMult(pg.levelById("drowned")) > pg.difficultyMult(pg.levelById("old-city")),
+  "the veil-heavy Drowned Quarter now out-rewards the tutorial");
+const baseLvl = { keeperCount: 6, sizeScale: 1 };
+ok(pg.difficultyMult({ ...baseLvl, eliteCount: 3 }) > pg.difficultyMult(baseLvl),
+  "elites raise a city's difficulty multiplier");
+ok(pg.difficultyMult({ ...baseLvl, veilCount: 4 }) > pg.difficultyMult(baseLvl),
+  "veil pools raise a city's difficulty multiplier");
+ok(pg.difficultyMult({ ...baseLvl, fontCount: 5 }) === pg.difficultyMult(baseLvl),
+  "lightwells never drop a city below its host baseline");
+ok(pg.LEVELS.every((l) => pg.difficultyMult(l) <= 1.6),
+  "no city exceeds the difficulty ceiling");
+ok(pg.LEVELS.every((l) => l.id === "bastion"
+    || pg.difficultyMult(l) <= pg.difficultyMult(pg.levelById("bastion"))),
+  "The Pale Bastion is the hardest descent");
 
 // 15. Pentagram types: the equipped sigil leans the effective stats, and its
 //     signature power fires. Unlocks/equips persist in the legacy (no key bump).
