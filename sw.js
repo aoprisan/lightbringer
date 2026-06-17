@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v84";
+const CACHE = "lightbringer-v85";
 
 const ASSETS = [
   "./",
@@ -19,7 +19,7 @@ const ASSETS = [
   "./necro.html",
   "./necro.js",
   "./necro.webmanifest",
-  // Necro sprites (art/prompts/necro/*). Universal village fabric: four house
+  // Necro sprites (gemini-prompts/necro/*). Universal village fabric: four house
   // states, well, altar, grave + spent, the necromancer, both knight faces, the
   // skeleton minion, and the tiled barricade/causeway terrain. ground.png is
   // shared with the parent and already listed below.
@@ -83,7 +83,7 @@ const ASSETS = [
   "./art/fresco-twoflames.jpg",
   "./art/texture-vellum.jpg",
   "./art/texture-ink.jpg",
-  // Gameplay sprites (see ART_PLAN.md), optimized from art/prompts/*.png.
+  // Gameplay sprites (see ART_PLAN.md; prompts in gemini-prompts/base/).
   // addAll() rejects the whole install if any listed asset 404s, so every
   // file here must exist in art/ — bump CACHE whenever this list changes.
   "./art/ground.png",

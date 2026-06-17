@@ -161,7 +161,7 @@ Small, localized, and reversible — all in the render pass + the name list.
 
 ## The art to generate (Gemini "Nano Banana" scripts)
 
-Three new prompt files under `art/prompts/necro/`, each an **image-edit of the
+Three new prompt files under `gemini-prompts/necro/`, each an **image-edit of the
 existing base sprite** so the frames stay registered. 8 frames total.
 
 | script | base (frame 0, exists) | new frames |

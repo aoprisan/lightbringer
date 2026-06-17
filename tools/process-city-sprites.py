@@ -7,8 +7,8 @@ PNG with a transparent background. The shipped base set (art/*.png) is instead
 city re-skins match that spec so a city's board reads consistently with the
 shared Keeper / lantern / scar sprites (which are always the base art).
 
-Per city it reads the eight CITY_SPRITES from art-prompts/<city>/<name>.png and
-writes art/<city>/<name>.png, doing, for each:
+Per city it reads the eight CITY_SPRITES from art-prompts-output/<city>/<name>.png
+and writes art/<city>/<name>.png, doing, for each:
   - flatten any alpha onto the base navy (#0f111e),
   - resize 2048 -> 512 (Lanczos),
   - quantize to a 256-color palette with dithering (matches the base weight).
@@ -73,10 +73,10 @@ def process_one(src, dst):
 
 
 def process_city(city):
-    src_dir = os.path.join(ROOT, "art-prompts", city)
+    src_dir = os.path.join(ROOT, "art-prompts-output", city)
     dst_dir = os.path.join(ROOT, "art", city)
     if not os.path.isdir(src_dir):
-        print(f"{city}: no art-prompts/{city}/ — skipping")
+        print(f"{city}: no art-prompts-output/{city}/ — skipping")
         return
     os.makedirs(dst_dir, exist_ok=True)
     print(f"{city}:")

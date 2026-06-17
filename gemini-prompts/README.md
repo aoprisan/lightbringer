@@ -1,9 +1,26 @@
-# Art prompts — one file per prompt (copy-paste ready)
+# Gemini prompts — one file per prompt (copy-paste ready)
 
-Each `.txt` file here is a single, self-contained prompt for **Gemini 2.5 Flash
-Image ("Nano Banana")**. The house style is already baked into every file, so
-you can open one on your phone and copy-paste the whole thing — no assembling
-pieces. The full guide with integration notes lives in `../ART_PROMPTS.md`.
+Every `.txt` file in this folder (and its subfolders) is a single, self-contained
+prompt for **Gemini 2.5 Flash Image ("Nano Banana")**. This is the **one home**
+for all of the project's Gemini image-generation prompts. The house style is
+already baked into every file, so you can open one on your phone and copy-paste
+the whole thing — no assembling pieces. The two narrative guides with integration
+notes live at `../ART_PROMPTS.md` (the Burning Vigil / icon set, this folder's
+top level) and `../ART_PLAN.md` (the original-game base sprites, `base/`).
+
+## Folder layout
+
+| Path | What it holds |
+| --- | --- |
+| `gemini-prompts/*.txt` | The Burning Vigil + shared set: icons, frescoes, city cards, per-city sprite-set prompts, Vigil scenery, walkway/fence, Necromancer icons (the table below) |
+| `gemini-prompts/base/` | The original Light-Bringer's base sprite prompts (ground, the four dwelling states, conduit/press/shrine, the Keepers, lantern, scar, flame, weather) — see `../ART_PLAN.md` |
+| `gemini-prompts/necro/` | The Necromancer's March undead sprites + village art (and the walk-cycle image-edit scripts) |
+| `gemini-prompts/{ashfold,drowned,glassworks,vesper}/` | The eight re-skinnable sprites per city (the split form of the `09*` prompts) |
+
+Raw, unoptimized PNGs that Gemini emits go in **`../art-prompts-output/`** (kept
+out of this folder so prompts and outputs stay cleanly separated); the per-city
+PNGs are dropped in `../art-prompts-output/<city>/` and optimized into
+`art/<city>/` by `tools/process-city-sprites.py`.
 
 | File | What it makes |
 | --- | --- |
