@@ -188,6 +188,8 @@ interface PgState {
   spreadQueue: { node: ArenaNode; at: number }[]; // dwellings awaiting a conduit relay's delayed kindle (live, not persisted)
   fences: Segment[];     // low walls the hero/shades must weave around
   pathways: Segment[];   // open lanes the hero runs swift along
+  plazas: { x: number; y: number; name: string; r: number }[]; // district hearts (open clearings), for render
+
   hero: Hero;
   shades: Shade[];
   penta: Penta;
@@ -542,6 +544,16 @@ interface LevelDef {
                        // subset. The union across LEVELS must cover every index
                        // (see the reliquary), so the collection wants every city.
                        // Undefined/exhausted falls back to the global pool.
+  // ---- District plan (the city's quarters) ----
+  // The arena clusters its nodes into a handful of named districts of varying
+  // density, each with an open plaza at its heart (a shrine landmark, no
+  // buildings), so the map reads as quarters of a city rather than a uniform
+  // scatter. All optional — omitted, a city uses DEFAULT_DISTRICTS and radii
+  // derived from minDist/arena size, so every existing city clusters sensibly
+  // without hand-authoring.
+  districts?: { name: string; fx: number; fy: number; weight?: number }[]; // anchors as fractions of w/h
+  plazaRadius?: number;   // open radius around each anchor (default minDist*1.8)
+  districtRadius?: number; // falloff radius for clustering (default min(w,h)*0.22)
 }
 
 const LEVELS: LevelDef[] = [
@@ -635,28 +647,104 @@ function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
 }
 
+// ---------- Districts (the city's quarters) ----------
+// Five anchors as fractions of the arena, deliberately ringed OFF the centre so
+// the arena heart (where the hero spawns) stays a neutral crossroads, not a
+// district. The weights give the quarters contrasting density — a packed market
+// quarter beside a sparse one — so the map reads as a city, not a uniform field.
+// A city may override these (and the radii) via its LevelDef; omitted, every
+// city falls back to this set.
+const DEFAULT_DISTRICTS: { name: string; fx: number; fy: number; weight: number }[] = [
+  { name: "Northgate", fx: 0.27, fy: 0.26, weight: 1.0 },
+  { name: "Eastward",  fx: 0.73, fy: 0.26, weight: 0.6 },
+  { name: "Westmarch", fx: 0.27, fy: 0.74, weight: 1.4 },
+  { name: "Highreach", fx: 0.73, fy: 0.74, weight: 0.5 },
+  { name: "Southgate", fx: 0.50, fy: 0.84, weight: 0.9 },
+];
+
+interface ResolvedDistrict {
+  name: string;
+  x: number; y: number; // anchor, scaled to this arena
+  weight: number;       // normalized (sums to 1 across districts)
+  plazaR: number;       // open plaza radius around the anchor
+  falloffR: number;     // clustering falloff radius
+}
+
+// Scale a city's district anchors to its arena and resolve the plaza/falloff
+// radii (per-city overrides, else derived from minDist/arena size). Pure — the
+// same inputs always yield the same quarters, the way fences/pathways rebuild.
+function resolveDistricts(level: LevelDef, w = W * (level.sizeScale ?? 1), h = H * (level.sizeScale ?? 1)): ResolvedDistrict[] {
+  const defs = level.districts ?? DEFAULT_DISTRICTS;
+  const plazaR = level.plazaRadius ?? level.minDist * 1.8;
+  const falloffR = level.districtRadius ?? Math.min(w, h) * 0.22;
+  const total = defs.reduce((s, d) => s + (d.weight ?? 1), 0) || 1;
+  return defs.map((d) => ({
+    name: d.name,
+    x: clamp(d.fx * w, 60, w - 60),
+    y: clamp(d.fy * h, 60, h - 60),
+    weight: (d.weight ?? 1) / total,
+    plazaR, falloffR,
+  }));
+}
+
 // ---------- Arena generation ----------
-// The same Poisson-disc-ish placement + kind assignment as app.ts's
-// generateCity, trimmed to return plain {x,y,kind} nodes (no edges/adjacency —
-// combat never spreads light along streets). Each city reads the same as it does
-// in the parent game; the keeper nodes become the shade spawn-points.
+// Like app.ts's generateCity, but the scatter is no longer uniform: nodes
+// CLUSTER into the city's districts (resolveDistricts) so the map reads as
+// quarters. Each district has an open plaza at its heart (no buildings) with a
+// shrine landmark, and its weight sets how densely it packs. A minDist floor is
+// still enforced; after a run of biased rejections we fall back to uniform
+// sampling to top the city up so density (and the host) never starve. Returns
+// plain {x,y,kind} nodes (no edges/adjacency — combat never spreads light along
+// streets); the keeper nodes become the shade spawn-points.
 
 function generateCity(
   level: LevelDef,
   w = W * (level.sizeScale ?? 1),
   h = H * (level.sizeScale ?? 1),
 ): ArenaNode[] {
+  const districts = resolveDistricts(level, w, h);
   const nodes: ArenaNode[] = [];
-  let guard = 0;
-  while (nodes.length < level.nodeCount && guard++ < 20000) {
-    const x = 60 + Math.random() * (w - 120);
-    const y = 60 + Math.random() * (h - 120);
-    if (nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2)) {
-      nodes.push({ x, y, kind: "dwelling" });
+
+  // Each plaza's heart is an open clearing; the first few carry a shrine landmark
+  // (counted within shrineCount, never additive — see the tail-slice below).
+  const shrineLandmarks = Math.min(districts.length, level.shrineCount);
+  districts.forEach((d, i) => {
+    if (i < shrineLandmarks) nodes.push({ x: d.x, y: d.y, kind: "shrine" });
+  });
+
+  const inPlaza = (x: number, y: number) =>
+    districts.some((d) => (d.x - x) ** 2 + (d.y - y) ** 2 < d.plazaR ** 2);
+  const spaced = (x: number, y: number) =>
+    nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2);
+  // Center-biased sample within a district's falloff (pow > 1 favours the heart).
+  const sampleDistrict = () => {
+    let pick = Math.random(), d = districts[0];
+    for (const cand of districts) { pick -= cand.weight; d = cand; if (pick <= 0) break; }
+    const a = Math.random() * Math.PI * 2;
+    const r = d.falloffR * Math.pow(Math.random(), 1.3);
+    return { x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r };
+  };
+
+  let guard = 0, rejectRun = 0, uniform = false;
+  while (nodes.length < level.nodeCount && guard++ < 30000) {
+    const p = uniform
+      ? { x: 60 + Math.random() * (w - 120), y: 60 + Math.random() * (h - 120) }
+      : sampleDistrict();
+    const inBounds = p.x >= 60 && p.x <= w - 60 && p.y >= 60 && p.y <= h - 60;
+    if (!inBounds || inPlaza(p.x, p.y) || !spaced(p.x, p.y)) {
+      // A long run of misses means the clusters are packed; spill into uniform
+      // fill so the city reaches its node count and the host stays whole.
+      if (!uniform && ++rejectRun > 400) uniform = true;
+      continue;
     }
+    rejectRun = 0;
+    nodes.push({ x: p.x, y: p.y, kind: "dwelling" });
   }
 
-  const shuffled = [...nodes].sort(() => Math.random() - 0.5);
+  // Kind assignment over the DWELLINGS only (plaza shrines are already placed).
+  // Counts are unchanged from the uniform-scatter days, so each city dresses the
+  // same — only the geography clusters.
+  const shuffled = nodes.filter((n) => n.kind === "dwelling").sort(() => Math.random() - 0.5);
   const nConduit = Math.floor(nodes.length * level.conduitFrac);
   let cut = 0;
   shuffled.slice(0, nConduit).forEach((n) => (n.kind = "conduit"));
@@ -669,7 +757,10 @@ function generateCity(
   shuffled.slice(cut, cut + (level.fontCount ?? 0)).forEach((n) => (n.kind = "font"));
   cut += level.fontCount ?? 0;
   shuffled.slice(cut, cut + (level.obeliskCount ?? 0)).forEach((n) => (n.kind = "obelisk"));
-  shuffled.slice(-level.shrineCount).forEach((n) => (n.kind = "shrine"));
+  // Any shrines beyond the plaza landmarks scatter as before (guard the -0 slice,
+  // which would otherwise grab the whole pool).
+  const extraShrines = level.shrineCount - shrineLandmarks;
+  if (extraShrines > 0) shuffled.slice(-extraShrines).forEach((n) => (n.kind = "shrine"));
 
   const keepers: ArenaNode[] = [];
   for (const n of shuffled) {
@@ -799,6 +890,7 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
   const w = Math.round(W * (level.sizeScale ?? 1));
   const h = Math.round(H * (level.sizeScale ?? 1));
   const scenery = generateCity(level, w, h);
+  const plazas = resolveDistricts(level, w, h).map((d) => ({ x: d.x, y: d.y, name: d.name, r: d.plazaR }));
   // Fences hug close neighbours (short walls); pathways span quarters (long lanes).
   const fences = weaveSegments(scenery, level.fenceCount, level.minDist * 0.9, level.minDist * 2.0);
   const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5);
@@ -865,7 +957,7 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     conduitLinks, spreadQueue: [],
-    fences, pathways,
+    fences, pathways, plazas,
     hero, shades,
     penta: { charge: 0, angle: 0 },
     type,
@@ -2389,6 +2481,19 @@ function render(s: PgState, layer: SVGGElement): void {
     x: 0, y: 0, width: s.w, height: s.h,
     fill: hasGround ? "url(#groundPat)" : "#0a0c16", opacity: hasGround ? 0.5 : 1,
   }));
+
+  // District plazas — the open clearing at each quarter's heart, a faint paler
+  // disc on the ground so the city reads as quarters. Drawn lowest, beneath all
+  // built world; cheap (one disc per district).
+  for (const p of s.plazas) {
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: p.r, fill: "#181c2c", opacity: 0.4,
+    }));
+    layer.appendChild(el("circle", {
+      cx: p.x, cy: p.y, r: p.r, fill: "none",
+      stroke: "#2b3350", "stroke-width": 1.5, opacity: 0.35,
+    }));
+  }
 
   // Once the warden has risen, the duel replaces the field (drawn over the ground).
   if (s.boss) { renderBossScene(s, layer); return; }
@@ -4070,7 +4175,7 @@ const testGlobal = globalThis as unknown as {
 };
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
-    generateCity, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
+    generateCity, resolveDistricts, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
     stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
