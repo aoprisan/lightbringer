@@ -4,138 +4,424 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The Light-Bringer is an action game shipped as an installable, offline-capable **PWA**. The primary game is **The Burning Vigil** (`pentagram.ts` / `pentagram.html`) — an Archero-style action-combat descent (see its full section below). The original *contemplative* inversion game (`app.ts` / `index.html`) is no longer the identity of the project; it is kept around as a code-frozen legacy that still ships. The codebase is plain HTML/CSS + hand-written TypeScript modules rendering layered SVG. `tsc` compiles `app.ts` → `app.js` and `pentagram.ts` → `pentagram.js`, and those are what GitHub Pages serves.
+The Light-Bringer is a set of action games shipped as installable, offline-capable **PWAs** in one
+repository, all set in the same world (a city taught that *light burns*). There are **three** games:
 
-Today the shipped runtime has zero third-party dependencies (the only dependency is `typescript` itself, a devDependency). Treat "zero dependencies" and "fully offline" as **guidelines, not hard rules** — they're worth preserving where cheap, but they are no longer constraints that veto a feature. In particular, **multiplayer is an intended future direction** (trading, async/PvP duels, shared profiles), and landing it will mean accepting a backend and/or runtime dependencies. Weigh new dependencies on their merits rather than rejecting them on principle.
+- **The Burning Vigil** (`pentagram.ts` / `pentagram.html`) — the **primary** game: an Archero-style
+  action-combat descent. You stand still to inscribe a burning pentagram that scorches the city's risen
+  watch; clear the finite host to cleanse the city. See its full section below.
+- **The Necromancer's March** (`necro.ts` / `necro.html`) — a **sibling spinoff** that *inverts* the
+  premise: you are the necromancer, raising a horde from a village's graves and overrunning the knights who
+  defend it. See its full section below.
+- **The Light-Bringer** (`app.ts` / `index.html`) — the original *contemplative* turn-based inversion game.
+  It is **code-frozen**: it still ships and must keep building, but make **no code changes** to it.
 
-> **The Burning Vigil (`pentagram.ts` / `pentagram.html`) is the primary game; the original game (`app.ts` / `index.html`) is now CODE-FROZEN.** All new gameplay work happens in `pentagram.ts`. The original game (the old contemplative night — that mood is now just its own flavor, not the project's identity) still **ships** — keep it building (it must compile clean and stay in `sw.js`/the deploy) — but make **no code changes** to `app.ts` / `index.html`: it is feature-frozen, not retired. Both still ship, share art, and are cross-linked from each other's title screens. When a feature could live in both, it goes in `pentagram.ts` only.
+The codebase is plain HTML/CSS + hand-written TypeScript modules rendering layered SVG. `tsc` compiles
+`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, and `necro.ts` → `necro.js`; those `.js` files are
+what GitHub Pages serves. All three games **cross-link** from each other's title/header.
+
+Today the shipped runtime has zero third-party dependencies (the only dependency is `typescript` itself, a
+devDependency). Treat "zero dependencies" and "fully offline" as **guidelines, not hard rules** — worth
+preserving where cheap, but no longer constraints that veto a feature. In particular, **multiplayer is an
+intended future direction** (trading, async/PvP duels, shared profiles), and landing it will mean accepting
+a backend and/or runtime dependencies. Weigh new dependencies on their merits.
+
+> **The Burning Vigil (`pentagram.ts`) is the primary game; The Necromancer's March (`necro.ts`) is its
+> active sibling spinoff; the original (`app.ts` / `index.html`) is CODE-FROZEN.** New gameplay work happens
+> in `pentagram.ts` or `necro.ts`. The original still **ships** — keep it building (it must compile clean
+> and stay in `sw.js`/the deploy) — but make **no code changes** to `app.ts` / `index.html`: it is
+> feature-frozen, not retired. All three share art and are cross-linked from each other's title screens.
 
 ## Commands
 
 ```sh
 npm install                      # one-time: install the TypeScript compiler
 
-npm run build                    # compile app.ts -> app.js (outputs to repo root)
+npm run build                    # compile app.ts/pentagram.ts/necro.ts -> .js (outputs to repo root)
 npm run typecheck                # type-check only, no emit (tsc --noEmit)
-npm test                         # build, then run the headless smoke test
+npm test                         # build, then run all three headless tests
 npm start                        # build, then serve over HTTP on :8000
 
 # Run locally by hand — must be over HTTP, not file://, because the service
-# worker needs a real origin. Build first so app.js exists.
+# worker needs a real origin. Build first so the .js files exist.
 npm run build && python3 -m http.server 8000   # then open http://localhost:8000/
 
-node tools/smoke-test.mjs        # headless simulation test (runs against the compiled app.js)
+node tools/smoke-test.mjs        # original Light-Bringer sim test (against app.js)
+node tools/pentagram-test.mjs    # The Burning Vigil combat test (against pentagram.js)
+node tools/necro-test.mjs        # The Necromancer's March march test (against necro.js)
 node tools/gen-icons.mjs         # regenerate icons/*.png from code
 ```
 
-`app.js` is a **build artifact** — it is git-ignored and regenerated by `tsc`. Never edit `app.js` directly; edit `app.ts`. The smoke test imports the compiled `app.js`, so always `npm run build` (or `npm test`, which does it for you) before running it.
+`npm test` runs `tsc && node tools/smoke-test.mjs && node tools/pentagram-test.mjs && node
+tools/necro-test.mjs` — compile, then all three suites in sequence.
 
-There is no single-test runner; `smoke-test.mjs` is one file of ~7 assertion groups run top to bottom. To narrow your work, edit/comment assertions locally — don't add a framework. The `tools/*.mjs` scripts remain plain Node ESM (not part of the TS build).
+The `.js` files (`app.js`, `pentagram.js`, `necro.js`) are **build artifacts** — git-ignored, regenerated by
+`tsc`. Never edit them directly; edit the `.ts`. Each test imports its compiled `.js`, so always
+`npm run build` (or `npm test`, which does it) before running a test by hand.
+
+There is no single-test runner; each `tools/*-test.mjs` is one file of assertion groups run top to bottom.
+To narrow your work, edit/comment assertions locally — don't add a framework. The `tools/*.mjs` scripts are
+plain Node ESM, not part of the TS build.
+
+`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all three
+files compiling clean (`npm run typecheck`). Its `include` is `["app.ts", "pentagram.ts", "necro.ts"]`;
+`lightbringer.ts` is excluded (reference-only prototype).
 
 ## Architecture
 
-### `app.ts` is the entire shipped game
+### The pure-sim / read-only-render split (all three games)
 
-Everything lives in `app.ts` (compiled to `app.js`): types, tuning constants, city generation, simulation, SVG rendering, persistence, and the game shell. It is structured in clearly-commented sections (Types → Tuning → Districts → City generation → Simulation → Persistence → Rendering → Game shell). Read it top-to-bottom before changing behavior — the constants block near the top is the design surface (flame economy, tick rate, Keeper radius, idle cap, etc.). Game balance changes should almost always be constant changes, not logic changes.
+Every game keeps the same discipline: the **simulation** functions take a plain state object and never touch
+the DOM; **rendering** is a separate pass that reads the state and rebuilds the SVG. Sim mutates state,
+render reads it. This is what lets each `*-test.mjs` exercise the game headlessly.
 
-`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep it compiling clean (`npm run typecheck`).
+Each game has a **test seam** at the bottom of its module: when a test flag is set on `globalThis`, the
+module exports its internals on a global object *instead of* calling `start()`. The harness sets the flag,
+stubs a minimal `localStorage`/`document`, then imports the compiled `.js`:
 
-### The simulation is pure and headless-testable
+| Game | Test flag | Exports object |
+| --- | --- | --- |
+| `app.ts` | `globalThis.__LB_TEST__` | `globalThis.__lb` |
+| `pentagram.ts` | `globalThis.__PG_TEST__` | `globalThis.__pg` |
+| `necro.ts` | `globalThis.__NECRO_TEST__` | `globalThis.__necro` |
 
-The core sim functions (`generateCity`, `freshGame`, `simulateTicks`, `stepSpread`, `stepAwakened`, `stepKeepers`, `kindle`, `awaken`, `snuff`, `litStats`, `applyDawn`, `saveGame`, `loadGame`, …) take a plain `g` GameState object and never touch the DOM. Rendering (`render`) is a separate pass that reads `g` and rebuilds the SVG wholesale each frame. **Keep this split:** sim mutates state, render reads it. This is what lets `smoke-test.mjs` exercise the game with no browser.
+If you add a sim function a test needs, export it through that object.
 
-The test seam is at the bottom of `app.ts`: when `globalThis.__LB_TEST__` is set, the module exports its internals on `globalThis.__lb` *instead of* calling `start()`. `smoke-test.mjs` sets that flag, stubs a minimal `localStorage`, then imports the compiled `../app.js`. If you add a sim function that tests need, export it through that `__lb` object. (`app.ts` has no `import`/`export` statements, so `tsc` emits a plain script that loads identically as a classic `<script>` and as a dynamic `import()` — keep it that way.)
+**Module vs global script — an important difference.** `app.ts` has **no** `import`/`export` statements, so
+`tsc` emits a plain classic script (loaded as `<script src>` and as a dynamic `import()` identically) — keep
+it that way. `pentagram.ts` and `necro.ts` **are TS modules** (each ends with `export {};`) loaded via
+`<script type="module">`. This is required: all three are in `tsconfig.json`'s `include`, and two scriptless
+files would collide on every top-level name (`W`, `el`, `render`, `start`, …). Module scope keeps the two
+spinoffs isolated from `app.ts` and from each other. Don't remove the `export {};` or convert them.
 
-### The city is turn-based: it breathes only when the player acts
+### `app.ts` — the original game (CODE-FROZEN)
 
-`stepCity(g)` is the single unit of simulation time — one "breath": `tick += 1`, then `stepSpread` → `stepAwakened` → `stepKeepers`. There is **no wall-clock loop**; the shell's `breathe()` runs exactly one `stepCity` per player action (a successful kindle/awaken) or per deliberate **Wait** (the footer button), then saves and repaints. A tap that lights nothing costs no breath. `TICK_MS` is no longer a live tick rate — it survives only as the conversion factor for the "while you were away" idle catch-up, which loops `stepCity` via `simulateTicks` (bounded by `IDLE_CAP_TICKS`). Keep `stepCity` the one place a breath is defined, so the live shell and the idle catch-up can never drift apart.
+Everything for the original lives in `app.ts`: types, tuning constants, city generation, simulation, SVG
+rendering, persistence, and the game shell, in clearly-commented sections (Types → Tuning → Districts → City
+generation → Simulation → Rendering → Game shell). The constants block near the top is the design surface.
+The core sim functions (`generateCity`, `freshGame`, `simulateTicks`, `stepSpread`, `stepAwakened`,
+`stepKeepers`, `kindle`, `awaken`, `snuff`, `litStats`, `applyDawn`, `saveGame`, `loadGame`, …) are pure.
+**Do not change this file** — it's documented here only so you understand the shared lineage and invariants
+the spinoffs inherit.
 
-### Key invariants in the simulation
+#### The city is turn-based: it breathes only when the player acts
 
-- **Snuffing is irreversible and compounding.** A snuffed node never returns to neutral dark — its `veil` thickens, damps nearby relighting, and once `veil` crosses `VEIL_REINFORCE_AT` it breeds a *new Keeper* (`reinforceVeil`). This asymmetry is the whole strategic point; don't "fix" it into something reversible.
-- **Only light connected to an awakened soul survives dawn.** `applyDawn` does a flood-fill from awakened nodes; unconnected `lit` nodes fade to dark. Awakened dwellings are the persistence layer.
-- **Awakened souls are the idle layer.** `stepAwakened` makes them kindle on their own, including during the "while you were away" catch-up that runs `simulateTicks` on load (bounded by `IDLE_CAP_TICKS`).
-- **Hearths are aged souls that feed the carrier.** A node tracks `nights` — the dawns it has held as `awakened` (incremented in `applyDawn`, reset in `snuff`). Once `nights >= HEARTH_NIGHTS` it is a *hearth* (`isHearth`); it still behaves as any awakened soul for spread/keepers/dawn, but `dawn()` adds `hearths * HEARTH_REFUND` flame to the coming night. **This does not slow the burn** — `maxFlame` still falls by one each dawn, so the run still ends; hearths only make the remaining nights burn brighter. This is what makes protecting old souls (placement + decoys) pay off. `nights` is real long-term progression, so it **is** persisted (hence the v4 save bump).
-- **Decoys are the carrier's counterplay — transient and scar-free.** `placeDecoy` lays a false light (`node.decoy`, a breath countdown) on dark ground. In `stepKeepers` a decoy outranks *every* real target: a Keeper breaks for the nearest decoy in its ring before any awakened soul, walks out, and on a snuff tick "searches" it — clearing the decoy with **no `veil`, no snuff, no scar** (sets `g.decoySpent`). That wasted round trip is the tempo the player buys. Decoys fade on their own (`stepDecoys`, `DECOY_TICKS`) and are caught for real if light reaches them (`kindle`/`awaken` clear `decoy`). They are **deliberately not persisted** — not in the save shape, so no version bump — because they are a live-play tactic; a reload simply drops them.
-- **Awakened souls are beacons, not bunkers.** `stepKeepers` targets any awakened soul in reach *before* brighter lit ground — banking a flame buys persistence and autonomous spread but paints a target. Snuffing one sets `g.lostSoul` (a toast) and scars the veil hardest. So the kindle-vs-awaken choice is a placement decision: awaken *outside* a Keeper's radius. That radius is drawn (`keeperRadius`, used by both `stepKeepers` and `render`), so it's a visible threat to play around — keep those two callers in sync.
+`stepCity(g)` is the single unit of simulation time — one "breath": `tick += 1`, then `stepSpread` →
+`stepAwakened` → `stepKeepers`. There is no wall-clock loop; the shell's `breathe()` runs exactly one
+`stepCity` per player action or per deliberate **Wait**, then saves and repaints. `TICK_MS` survives only as
+the conversion factor for the "while you were away" idle catch-up (`simulateTicks`, bounded by
+`IDLE_CAP_TICKS`). (This is the original game's model; the two action spinoffs are real-time per-frame
+instead — see below.)
 
-### Cities are levels — `generateCity` is parameterized, the rules are not
+#### Key invariants in the original simulation
 
-The one procedural map is now one of several hand-tuned **cities** (`LEVELS: LevelDef[]`). A `LevelDef` is a pure bundle of *generation + economy* overrides — node count, density (`minDist`), conduit fraction, press/shrine/keeper counts, keeper spacing, base keeper radius, start flame, weather temperament (`sky`), and the five quarter names. `generateCity(level)` and `freshGame(level)` read it; **no rule changes per city** (spread, Keepers, dawn, hearths, the carrier's burn are identical), so each city is a different *puzzle in the same language*, not a new game. `LEVELS[0]` ("The Old City") is the original generation kept exactly; the rest lean the same dials in distinct directions (e.g. Ashfold: dense + conductive + windy; The Drowned Quarter: sparse + rain-drowned + patient). Vesper Row is gated behind a legacy `bestNight` (`unlockNight`).
+- **Snuffing is irreversible and compounding.** A snuffed node's `veil` thickens, damps relighting, and once
+  `veil` crosses `VEIL_REINFORCE_AT` it breeds a new Keeper (`reinforceVeil`). This asymmetry is the whole
+  strategic point — both spinoffs inherit a version of it (Vigil's scar, Necro's reconsecration).
+- **Only light connected to an awakened soul survives dawn.** `applyDawn` flood-fills from awakened nodes.
+- **Awakened souls are the idle layer** (`stepAwakened`), including during the idle catch-up.
+- **Hearths are aged souls that feed the carrier** (`nights >= HEARTH_NIGHTS`; `dawn()` refunds flame).
+- **Decoys are transient, scar-free counterplay** (`placeDecoy`/`stepDecoys`, not persisted).
+- **Awakened souls are beacons, not bunkers** — `stepKeepers` targets them before brighter lit ground.
 
-Each run carries its city on `g.level` (a resolved `LevelDef`, never null). The five quarters now live on `g.level.districts` — `districtOf`/`makeNode` take the districts as an argument, and `districtStats`, the dawn ledger, the veil-thickens toast, and the rules panel all read `g.level.districts`. The module-level `DISTRICTS` is just The Old City's quarter set (and the load fallback). When tuning a city, change its `LevelDef` constants — that block is the design surface, same ethos as the global tuning constants.
+#### Cities are levels — `generateCity` is parameterized, the rules are not
 
-The carrier picks a city on a fresh start (the intro card's `cityPickerHtml` picker, in both the classic night and the Lamplighter Run); picking rerolls the not-yet-begun map in place (reassigns `g`). A returning carrier keeps the city their save already carries. Optional establishing art per city is `g.level.art` (`art/city-*.jpg`), shown on the card and failing silently when absent — so it is **not** in `sw.js` `ASSETS`.
+The procedural map is one of several hand-tuned **cities** (`LEVELS: LevelDef[]`). A `LevelDef` is a pure
+bundle of *generation + economy* overrides; `generateCity(level)`/`freshGame(level)` read it, and **no rule
+changes per city**, so each city is a different puzzle in the same language. `LEVELS[0]` ("The Old City") is
+the original generation kept exactly. The five quarters live on `g.level.districts`. Each run carries its
+resolved `LevelDef` on `g.level`. (The Burning Vigil reuses a copy of this `LEVELS`/`generateCity` machinery
+— see its section.)
 
-Cities may also re-skin the **built world**: `spriteFor(g, name)` resolves each render sprite to its city variant (`art/<cityId>/<name>.png`, loaded on demand by `loadCitySprites` when a run's city is set/picked) and silently falls back to the shared base `art/<name>.png`. Only the eight `CITY_SPRITES` (ground, the four dwelling states, conduit, press, shrine) are ever re-skinned; the Keepers, player-lantern, veil-scar, and flame-spark are universal forces and always draw the base sprite. Prompts for the per-city sets are `art-prompts/09*`. Shipping a set is drop-in for online play; for offline, add the files to `sw.js` `ASSETS` and bump `CACHE`.
+##### Terrain — canals & walls (`level.barriers`)
 
-#### Terrain — canals & walls (`level.barriers`)
+A `LevelDef` may carry `barriers: Barrier[]` — hand-authored line segments. A **canal** (`wall` falsy) only
+*damps* conductivity (`CANAL_CROSS_DAMP`); a **wall** (`wall: true`) damps harder (`WALL_CROSS_DAMP`) **and**
+blocks traversal (`wallBetween` in `applyDawn`/`runPress`, and the avatar's body via `pushOut`), but not the
+Keepers (a universal force). Conductivity damp is baked in `finalizeCity`; wall-blocking is computed live.
+Barriers are derived from the saved city id and never themselves saved.
 
-A city's `LevelDef` may carry `barriers: Barrier[]` — hand-authored line segments (in `W×H` map space) the carrier did not place. A **canal** (`wall` falsy) only *damps* the conductivity of any edge that crosses it (`CANAL_CROSS_DAMP`) — passable, slow water. A **wall** (`wall: true`) damps far harder (`WALL_CROSS_DAMP`) **and** blocks traversal outright: `wallBetween(g,a,b)` (a live `segIntersect` against the run's `wall` barriers) is consulted in `applyDawn`'s flood-fill and in `runPress`'s cascade, so a wall genuinely splits the dawn-connectivity graph — you must seed an awakened soul on *each* side or that quarter fades. Walls also block the **avatar's body** in action mode (`pushOut`, applied in `actionFrame`), but **not the Keepers** — like the veil-scar and flame-spark, the watch is a *universal force* and walks through walls (this is deliberate: it avoids a sense-through-wall-but-can't-path exploit). All edges are always **kept** (only their carry-rate drops), so the graph never disconnects and the flood-fill never errors. Conductivity damp is *baked* into edges in `finalizeCity(nodes, barriers)`; wall traversal-blocking is computed *live* (cheap — only at dawn and on press kindles). Barriers are pure geometry derived from the saved city id, so they rebuild on load like edges/districts and are **never themselves saved**. The Old City is deliberately barrier-free (kept exactly); other cities lean it (Drowned: canals; Glassworks/Vesper: walls). Tune via each city's `barriers` array — same design-surface ethos as the other dials. Barriers are procedural SVG (no new art assets).
+##### Perks — the carrier's craft (embers, one per run)
 
-#### Perks — the carrier's craft (embers, one per run)
+`PERKS: Perk[]` is the catalog; each run the carrier may equip **one** perk (`g.perk`), resolved by
+`perkMods(g)` into a modifier object read at a handful of sites. Perks bend the carrier's dials, never a
+city's rules. **Embers** are the currency (`recordRun` banks a capped amount once per run); balance, owned
+perk ids and equipped id live in the **legacy** key with no save bump. The equipped perk is re-derived from
+the legacy on load, so the save format stays v5. *(This is the pattern the Vigil's sigil shop and Necro's
+raising-rite shop both mirror.)*
 
-A meta-layer orthogonal to the cities, mirroring the spinoff's sigil shop. `PERKS: Perk[]` is the catalog; each run the carrier may equip **one** perk (`g.perk`, `""` = bare flame), resolved by `perkMods(g)` into a small modifier object read at a handful of sites (`freshGame` start flame, `keeperRadius`, `stepSpread`, `placeDecoy`/`decoyTicks`, the dawn refund, and the awaken/decoy costs via `awakenCost`/`decoyCost`). Perks bend the **carrier's** dials, never a city's rules — so the "no rule changes per city" invariant is intact; a couple of perks are deliberate **tradeoffs** (e.g. `long-shadow`, `dim-watch`) to keep power-creep in check. **Embers** are the currency: `recordRun` banks a capped, density-based amount (`EMBER_CAP`) once per run; the balance, owned perk ids, and the equipped id live in the **legacy** key (`embers`/`perksOwned`/`perkEquipped`), which gains fields with **no key bump** (defaulted on load). The intro pickers (`perkPickerHtml`/`wirePerkPicker`, in both shells) buy and equip; equipping rerolls the not-yet-begun run via `freshGame`. The equipped perk is **re-derived from the legacy on load** (the resume overlay has no picker, so it is effectively run-locked) — so the **save format does not change** (stays v5).
+### Persistence
 
-### Persistence (save format v5)
+| Game | Save key (per-run) | Legacy key (lifetime) |
+| --- | --- | --- |
+| `app.ts` | `lightbringer.save.v5` (`SAVE_KEY`) | `lightbringer.legacy.v1` (`LEGACY_KEY`) |
+| `pentagram.ts` | *no mid-combat save* | `pentagram.legacy.v1` (`PG_LEGACY_KEY`) |
+| `necro.ts` | *no mid-march save* | `necromancer.legacy.v1` (`NECRO_LEGACY_KEY`) |
 
-`saveGame`/`loadGame` use `localStorage` key `lightbringer.save.v5`. The save stores the city id (`level`) plus only per-node scalars (position, kind, state, brightness, revealed, heat, veil, patrol position, and `nights`) as compact arrays — **edges and adjacency are NOT saved**; `finalizeCity` rebuilds them deterministically from node positions/kinds on load, and the resolved `level` (an unknown id falls back to The Old City) supplies the quarters `makeNode` recomputes each node's district from. So edge/adjacency/district generation must stay a pure function of node geometry + the city's districts. Transient per-node fields like `decoy` are deliberately **not** saved. If you change the save shape, bump the version (`v`, `SAVE_KEY`, and the guard in `loadGame`) so old saves are rejected rather than mis-parsed.
+`app.ts`'s `saveGame`/`loadGame` store the city id plus per-node scalars as compact arrays — **edges and
+adjacency are NOT saved**; `finalizeCity` rebuilds them deterministically from node geometry + the city's
+districts on load. Transient per-node fields (`decoy`) are not saved. If you change the save shape, bump the
+version (`v`, `SAVE_KEY`, and the guard in `loadGame`).
 
-The cross-run **legacy** (`loadLegacy`/`recordRun`, key `lightbringer.legacy.v1`) is kept in its **own** key, deliberately apart from the save: it survives "Begin again" (which only clears `SAVE_KEY`), carries between the classic and Lamplighter shells, and so **never forces a save-version bump**. It is a lifetime tally (runs ended, furthest night, brightest morning, most hearths) folded in exactly once per run — at the two end transitions, `dawn()` (flame spent) and `actionGameOver()` — and read (not written) on the intro/end overlays via `legacyHtml`. Keep it write-once-per-end: don't record it on the reload-into-end branches, or runs double-count.
+The cross-run **legacy** keys are deliberately separate from the save: they survive "Begin again", and each
+gains fields **defaulted on load with no key bump**. They are write-once-per-run-end (fold in exactly once at
+each genuine end transition). The two action games have **no mid-run save at all** (runs are short), so their
+only persistence is the legacy.
 
 ### Service worker cache versioning
 
-`sw.js` is cache-first app-shell caching with an explicit `ASSETS` list and a `CACHE` version string. **When you add/rename a shipped asset, add it to `ASSETS` AND bump `CACHE`** (e.g. `lightbringer-v2` → `v3`), or returning users will be served stale files from the old cache forever. Recompiling `app.ts` changes the bytes of the shipped `app.js` too, so bump `CACHE` when a code change ships.
+`sw.js` is the offline app-shell cache for **all three games**, with an explicit `ASSETS` list and a `CACHE`
+version string (currently `lightbringer-v83`). It is **network-first for the shells** (`isShell`: `/`,
+`index.html`, `app.js`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`) so the freshest code
+always wins online, and **cache-first** for the heavy, slow-changing art/icons (what makes the game playable
+offline). `addAll()` rejects the whole install if any listed asset 404s, so every file in `ASSETS` must
+exist.
+
+**When you add/rename a shipped asset, add it to `ASSETS` AND bump `CACHE`** (e.g. `v83` → `v84`).
+Recompiling any `.ts` changes the bytes of the shipped `.js`, so **bump `CACHE` when a code change ships**.
+The Necromancer's March art **has now shipped** (the four house states, well/altar/grave(+spent),
+barricade/causeway, necromancer, both knight faces, the skeleton + three per-rite kinds, the priest, four
+village establishing jpgs, and the Necro PWA icons/logo are all in `ASSETS`); render still falls back to
+vector primitives when any are absent.
 
 ### Reference-only prototypes — do not ship
 
-`lightbringer.ts` and `the-light-bringer.html` are the original single-file TypeScript prototype, kept for reference only. They are **not** part of the deployed game, are excluded from `tsconfig.json`'s compile, and are not wired into anything. The shipped logic in `app.ts` has diverged (presses, districts, frescoes, veil reinforcement, persistence, idle catch-up). Don't edit these to change game behavior, and don't assume they're in sync with `app.ts`.
+`lightbringer.ts` and `the-light-bringer.html` are the original single-file TypeScript prototype, kept for
+reference only. They are **not** deployed, excluded from `tsconfig.json`, and not wired into anything. The
+shipped logic has diverged; don't edit them and don't assume they're in sync.
 
-### The Burning Vigil — the action-combat spinoff (`pentagram.ts` / `pentagram.html`)
+---
 
-`pentagram.ts` (→ `pentagram.js`) + `pentagram.html` are a **sibling spinoff** titled **The Burning Vigil** (the *display* name — the files stay `pentagram.*` so `tsconfig.json`, `sw.js`, and the deploy workflow don't churn; only the page title, manifest, `<h1>`, the picker overlay title, and the title-screen `#spinoff-link` carry the name). It is reachable from the title screen's link and shipped alongside the main game. It is an Archero-style action descent set in the *same world*: it reuses the parent's cities (`LEVELS`/`generateCity`, copied and trimmed — the city's keeper nodes become enemy spawn-points) and the *same art* (ground/dwelling/conduit/press/shrine sprites for scenery, `player-lantern` for the hero, the two `keeper-*` sprites for the "shades"). The **only procedural art is the pentagram itself** (`pentagramPath`, layered SVG). The weapon is *stand-still auto-inscribe*: standing still ramps `penta.charge` and the sigil pulses AoE damage to shades in `PENTA_RADIUS`; moving dodges and lets it fade. A city holds a **finite** host (`keeperCount * SHADE_PER_KEEPER`) — clear them all to win; lose your HP to fall.
+## The Burning Vigil — the primary game (`pentagram.ts` / `pentagram.html`)
 
-Several terrain mechanics dress the descent on top of the kill-the-host core:
-- **Solid structures.** Presses and shrines (`OBSTACLE_KINDS`, radii in `OBSTACLE_RADIUS`) block movement; `s.solids` is the filtered slice and `pushOut` does circle-vs-circle push-out for both the hero (in `stepCombat`, after movement and after knockback) and the shades (in `stepShades`). Dwellings/conduits stay passable. This is a pure function of node geometry — nothing new is generated.
-- **Fences (linear walls).** `weaveSegments` strings `level.fenceCount` short line segments between neighbouring posts (gap band `[minDist*0.9, minDist*2.0]`, keeper-posts skipped so spawns stay clear) into `s.fences` at build. The *same* `pushOut` that handles solids also does circle-vs-segment push-out against fences (capsule = segment + `FENCE_HALF`), so both hero and shades weave them — they are cover the player uses to break a swarm's contact. Fences block **bodies, not the pentagram's flame**, which burns straight through. Still pure geometry, just segments instead of circles.
-- **Pathways (speed lanes & processionals).** `weaveSegments` also lays `level.pathwayCount` longer segments (gap band `[minDist*3, minDist*5]`) into `s.pathways`. In `stepCombat` the hero's travel speed is multiplied by `PATHWAY_BOOST` while within `PATHWAY_HALF` of any lane (proximity via `closestOnSegment`), rewarding the cleared streets for kiting; shades ignore them. They never block — purely a tempo layer. A lane is also a **processional**: walking one keeps the sigil inscribing at `PATHWAY_INSCRIBE_MUL` of the still-rate (the charge branch's `onPath` case, below the still/`onFont` case and above the plain fade), so a moving hero on a lane builds charge slower than standing but doesn't go cold — a third option between standing exposed and running cold, without unseating "stand still on clean ground" as the fastest fill. A veil pool still unravels the sigil on a lane as anywhere (the `veiled` branch is checked first).
-- **Lit dwellings (a secondary objective, not a win gate).** A dark dwelling caught in the charged ring kindles on a pentagram pulse via the single `kindleDwelling(s,n,heal)` path (`stepPentagram` iterates `s.scenery` alongside the shades): it sets `node.lit`/`litAt`, bumps `s.litCount`, and mends the hero `DWELLING_HEAL` HP (clamped). The HUD (`litReadout`) shows `litCount / dwellingsTotal` (plus `✦n` awakened); the win/lose overlays report it; lifetime `dwellingsLit` folds into the legacy. Winning is still **clear every shade**. The relit city is now a live layer the watch fights back over (all live-play state, never persisted, the decoys/fences ethos):
-  - **Awakened dwellings (the city fights with you).** A lit dwelling held `DWELLING_AWAKEN_MS` matures (`stepDwellings`, `node.awoke`) into an ally emitter: on each pentagram pulse it also burns shades within `AWAKENED_RADIUS` for `AWAKENED_DMG` (a second, stationary sigil — autonomous, charge-independent damage, but only fires while the hero's own sigil is inscribed since the pulse loop gates on `charge>0`). Lifetime `dwellingsAwakened` folds into the legacy (defaulted on load, **no key bump**).
-  - **Snuffed dwellings (the watch fights back).** A shade brushing a lit dwelling (within `SHADE_RADIUS+SNUFF_REACH`, in `stepShades`) snuffs it via `snuffDwelling`: dark again, `litCount--`, `s.snuffed++`, and it scars the ground — `node.veil` (an `s.elapsed` deadline, `SNUFF_VEIL_MS`) that **bars relighting that node** until it fades (guard in `kindleDwelling`), drawn as a dark scar (`SCAR_RADIUS`). Faithful to the parent's asymmetry, the scar damps **relighting, not the carrier's own sigil** (that's what veil pools do) — so it never traps a hero standing on it. `nearScar` is the scar predicate (visual/tests).
-- **Conduits — the fuse.** Conduits were inert décor; now `buildArena` precomputes `s.conduitLinks` (each conduit → its nearest `CONDUIT_MAX_LINKS` dwellings within `CONDUIT_REACH`, fuses needing ≥2 ends — pure geometry, like fences/pathways, rebuilt at build, never persisted). When `kindleDwelling` lights a fused dwelling it enqueues `s.spreadQueue` relays to the conduit's other dark ends; `stepSpread` (run each `stepCombat`) kindles them after `CONDUIT_DELAY`, and each relay re-enqueues — so a conduit line is a fuse you light one end of. Render draws the links faintly (brighter when live).
-- **Presses — the one-shot cascade.** A press stays a body-blocking solid, but `stepPress` (run each `stepCombat`) fires it once when the hero stands within `PRESS_TRIGGER_REACH` at a **full** inscription: a `PRESS_BURST_R` burst that burns every unshielded shade (`PRESS_BURST_DMG`) and lights every dwelling in reach, then `node.spent` (drawn dimmed). A smart-bomb earned by holding still next to a blocker while the swarm closes.
-- **Shrines — consecrated ground.** A shrine's `SHRINE_AURA` is a snuff-proof bubble: dwellings inside it can't be snuffed (`inShrineAura` skip in `stepShades`), and a hero standing in it inscribes even on veiled/scarred ground (`!inShrineAura` in the `veiled` check) — a place to make a stand. Pure geometry off the shrine nodes; drawn as a faint dashed ring.
-- **Frescoes (the carrier's first-footing).** The same painted fragments as the parent, but the trigger is the hero's *body* reaching a place, not light spreading: in `stepCombat`, a scenery node first brought within `FRESCO_REACH` of the hero is marked `node.seen` and rolls `maybeFresco` (own `FRESCOES`/`FRESCO_ART` pool — modules don't share `app.ts`'s — presses/shrines always carry, plainer ground at 0.06). Pure sim, mirroring `app.ts`: it only queues `s.pendingFresco`. The shell (`pgFrame`) surfaces it **without halting the descent** (an action fight must never be modal-paused mid-swarm): `revealFresco` shows a painted one as a small, quiet, auto-fading card (the `#fresco` figure, `pointer-events: none` so the joystick still works underneath) and a plain-text one as a `showToast` — exactly the parent's split. Painted art is reused from the parent's jpgs (already in `sw.js` ASSETS). One at a time, each shown once *this descent* (`s.shownFrescoes`), finite pool. The per-descent `s.shownFrescoes`/`s.pendingFresco` are **live-play state, not persisted** — but at run-end they are folded into the **persistent reliquary** (below).
-  - **The reliquary (collectable frescoes, part of the profile).** Frescoes are a lifetime collection: `PgLegacy.frescoesFound` (a deduped sorted index list, in the same `pentagram.legacy.v1` key — gains the field with **no key bump**, defaulted on load like `dwellingsLit`). `recordFrescoes(shown)` folds a descent's `s.shownFrescoes` into it at **each genuine run-end only** (beside `recordClear` in `onWin`, `recordDeath` in `onLost`) — the write-once-per-end ethos; the union is idempotent. **Frescoes are drawn per city:** each `LevelDef` carries a signature subset `frescoes?: number[]`, and `maybeFresco` draws from the current city's subset (falling back to the global pool when it's undefined or spent this descent). The subsets **partition all 17 indices across the five cities** (asserted in the test), so completing the reliquary means descending every city — and the first time a city's whole subset is collected, `recordFrescoes` banks a one-time `FRESCO_SET_BONUS` of embers (into the same sigil economy). The reliquary is its **own overlay view** (`showReliquary`), reached from the picker's secondary button (labelled with live `found/17` progress) and returning to it via "Back to the cities" — not buried in the picker card. It renders the gallery via the pure `frescoGalleryHtml(found)` — thumbnails grouped by city, an `illuminated` badge per completed set, whitewash placeholders (pure CSS, no broken image) for the uncollected. Tapping an uncovered tile opens a **single-fresco detail view** (`showFresco`) — the painted image full-size, its line, and which city it came from. **Share as PNG:** both views carry a share button — `shareReliquary(found)` composites the whole collection (a titled `N/17` grid, collected tiles painted, the rest whitewashed) and `shareFresco(i)` renders one fresco card (painted square + caption + a "THE BURNING VIGIL · RELIQUARY" mark). Both draw to an offscreen `<canvas>` and hand it to `shareCanvas`, which prefers the native share sheet (`navigator.canShare`/`share` with a `File`, for mobile PWAs) and falls back to a plain download. It's all render-layer code — no new deps and **no new assets** (the cards are drawn from the already-cached fresco jpgs), so it needs no `sw.js` ASSETS change. When tuning, the subsets on each `LevelDef` and `FRESCO_SET_BONUS` are the design surface; keep the subset union covering every index or a fresco becomes uncollectable.
+`pentagram.ts` (→ `pentagram.js`) + `pentagram.html` are the **primary** game, an Archero-style action
+descent set in the same world. It reuses the parent's cities (a copied/trimmed `LEVELS`/`generateCity` — the
+keeper nodes become enemy spawn-points) and the same art (scenery sprites for the built world,
+`player-lantern` for the hero, the `keeper-*` sprites for the "shades"). The **only procedural art is the
+pentagram itself** (`pentagramPath`, layered SVG).
 
-#### The title screen & sharing the game
+**Combat is real-time per-frame**, not a turn-based breath: `stepCombat(s, dt, move)` integrates the hero,
+shades, and pentagram pulses every RAF frame (dt-clamped). The weapon is *stand-still auto-inscribe*:
+standing still ramps `penta.charge` (`PENTA_CHARGE_MS`) and the full sigil pulses AoE damage to shades in
+`PENTA_RADIUS`; moving dodges and lets it fade. A city holds a **finite** host (`keeperCount *
+SHADE_PER_KEEPER`) — **clear them all to win; lose your HP to fall.**
 
-`start()` opens on a **title screen** (`showStart`), not straight into the city picker: the app icon as a logo, a **random fresco** for art (preferring ones the carrier has uncovered, so it teases the reliquary), and a primary "Enter the Vigil" → `showPicker`. Two body buttons share the game itself: **"Share game link"** (`shareGameLink` — the native `navigator.share` with `{title,text,url}`, falling back to clipboard, then a toast of the URL) and **"Show QR code"** (`showQR`). The shared address is `gameUrl()` = `location.origin + location.pathname` (no query/hash).
+### Sigils — the weapon shop (`PENTA_TYPES`, embers)
 
-The QR is generated **offline, with zero dependencies** — `qrEncode(text)` is a tiny self-contained encoder (byte mode, ECC level L, single-block versions 1–5, ~106-byte ceiling — ample for the URL; returns `null` if longer and the view then shows the link only). It's standard QR: GF(256) Reed–Solomon, finder/timing/alignment geometry, BCH-15 format info, all eight data masks scored by penalty. It currently hits **no external QR service** — a deliberate choice that keeps the QR generating with no network, in keeping with the offline/zero-dep *guideline* (not because an external service is forbidden; if multiplayer later brings a backend, revisit whether this still needs to be fully local). `drawQR` paints the matrix (dark on parchment, 4-module quiet zone) to a `<canvas>`; "Share QR image" reuses `shareCanvas`. The encoder is pure/module-scope and **test-driven** (`tools/pentagram-test.mjs`): finder/timing/dark-module geometry, Reed–Solomon roots vanishing (valid ECC), the over-long→`null` guard, and a full place+mask **round-trip** reading the data back out of the finished matrix. No new art assets (the logo is the cached `icons/icon-512.png`).
+The hero equips **one** sigil per descent (`s.type`, a `PentaType` resolved from the legacy at build via
+`pentaTypeById`). `PENTA_TYPES` is the catalog of four, bought with **embers** and mirroring the parent's
+perk shop:
 
-Fences and pathways are woven at build (`buildArena`) and held on `s.fences`/`s.pathways` — like decoys in the parent, they are **live-play terrain, not persisted** (there is no mid-combat save anyway). Tune their per-city counts via `fenceCount`/`pathwayCount` on each `LevelDef`; the gap bands and `FENCE_HALF`/`PATHWAY_HALF`/`PATHWAY_BOOST` are the global design surface.
+- **The Vigil** (`vigil`, free) — the balanced baseline.
+- **The Pyre** (`pyre`, 120) — wider, slower, harder-hitting; power `chain` (a kill arcs to nearby shades).
+- **The Quick Ember** (`ember`, 160) — tight, fast pulses; power `scorch` (leaves burning ground patches).
+- **The Wrath** (`wrath`, 240) — power `nova` (a full inscription erupts, knocking shades back).
 
-#### The Veilwarden — the per-city final boss (the duel)
+Each `PentaType` carries `radiusMul`/`chargeMul`/`pulseMul`/`dmgMul` + a `PentaPower`
+(`"none"|"chain"|"scorch"|"nova"`) + ring/star hues. Embers are banked by `recordClear`/`recordDeath`; the
+owned/equipped ids live in `PgLegacy` (`unlocked`/`equipped`, defaulted on load — **no save format**, the
+descent is unsaved). The intro picker buys and equips; equipping rerolls the not-yet-begun descent.
 
-Clearing the host doesn't end the descent: the city's master Keeper rises and the run flips from real-time action to a **turn-based seal-tracing duel** (`s.phase` `"fight"` → `"boss"`, raised in `startBoss`). A procedurally-seeded **Goetic seal** (`makeSeal` — a node-and-edge star polygon, deterministic from the city id so it rebuilds identically) glows over the warden; the carrier **binds it strand by strand** by finger-tracing each line node-to-node. `traceScore` (pure geometry: accuracy × coverage) rates a stroke; a strand of quality ≥ `SEAL_EDGE_DONE` binds. **Bind every strand to win.** The duel is pure-sim/test-driven like the rest of the module (`submitTrace`/`keyBind`/`cycleSel` mutate state, `renderBossScene` reads it), and the harness proves every city's seal is non-degenerate.
+### The host is not homogeneous — shade variants
 
-Four dials make it a *fight*, not a checklist of penmanship — all bend the warden's tuning, the same "balance = constants" ethos:
-- **Difficulty is the seal's size, not a cosmetic number.** `makeSeal` takes the city's `difficultyMult` and adds ring nodes (`SEAL_DIFF_NODES`) and rim density — so a harder city is a genuinely longer seal (more strands to bind), where before `difficultyMult` only inflated a `maxHp` that had no gameplay effect.
-- **The bite quickens** (`BOSS_BITE_RAMP`): the warden snuffs (`BOSS_BITE_DMG`) on a cadence that *shortens* as the seal binds (`bossBiteInterval`, shared by `stepBoss` and the render telegraph), so the endgame is a real race.
-- **Counterplay — drifting veils** (`makeBossVeils`, `b.veils`): dark pools orbit the seal (drifted/bounced in `stepBoss`); a stroke dragged through one is **unravelled** — its quality bled by `BOSS_VEIL_UNRAVEL` (`strokeVeiled` in `submitTrace`, status `"veiled"`). This carries the action phase's veil-unravel idea into the duel, so you wait for a clean lane. Count scales with difficulty. Like decoys, **not persisted**.
-- **Honest readout + keyboard fallback.** The HUD/overlays show **strands bound `n/m`** (the warden's "health" *is* that fraction). For desktop (no pointer-drag), `cycleSel`/`keyBind` let arrows pick a strand (`b.sel`, highlighted in render) and Enter bind it by rote — a cruder rite that costs `BOSS_KEY_COST` flame, so a clean mouse trace stays the optimal path.
+Per-city dials seed variant shades among the common host (each is a tuning block near the top, the design
+surface):
+- **Elite / champion** (`ELITE_HP_MUL`, `ELITE_CONTACT_DMG`) — tougher, may rise **veil-shielded** (only a
+  full-charge pulse breaks the shield), seeded by `eliteCount`.
+- **Spitter** (`SPITTER_*`) — holds standoff and lobs bolts; punishes standing still. `spitterCount`.
+- **Darter** (`DARTER_HP`, `DARTER_SPEED_MUL`) — fast, frail melee that closes before the sigil ramps.
+  `darterCount`.
+- **Healer / mender** (`HEALER_*`) — holds standoff and mends wounded shades in range; kill it first.
+  `healerCount`.
 
-The duel state lives on `s.boss` (transient — there is no mid-combat save); the seal, veils, and `sel` are all rebuilt fresh each time the warden rises.
+### Terrain & live-play layers
 
-Key differences from `app.ts`:
-- **It is a TS module** (note the trailing `export {};`), not a global script like `app.ts`. This is required: both files are in `tsconfig.json`'s `include`, and two scriptless files would collide on every top-level name (`W`, `el`, `render`, `start`, …). Module scope keeps `pentagram.ts` isolated. The page loads it with `<script type="module">`; don't remove the `export {};` or convert it to a global script.
-- **Combat is real-time per-frame**, not the turn-based "breath": `stepCombat(s, dt, move)` integrates the hero, shades, and pentagram pulses every RAF frame (dt-clamped), analogous to `app.ts`'s `actionFrame` but with no fixed-step city breath.
-- It keeps the parent's **pure-sim / read-only-render split** and **test seam**: `globalThis.__PG_TEST__` exposes internals on `globalThis.__pg`; `tools/pentagram-test.mjs` drives it headlessly (run by `npm test` after the parent smoke test).
-- Its **legacy** lives in its own key `pentagram.legacy.v1` (cities cleansed + best clear time + lifetime dwellings relit), completely separate from the parent's save/legacy — no save-version coupling. Adding fields stays backward-compatible (defaulted on load), so it needs no key bump. There is no mid-combat save (descents are short).
+Mostly pure functions of node geometry, woven at build (`buildArena`) and held on `s.*` — **live-play state,
+not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune per-city counts via the
+`LevelDef` dials.
+- **Solid structures** (`OBSTACLE_KINDS` = press, shrine, **obelisk**; radii in `OBSTACLE_RADIUS`) block
+  movement via `pushOut` (hero and shades). Dwellings/conduits/fonts stay passable.
+- **Fonts** (`"font"` node, `FONT_AURA`) — lightwells: the hero inscribes **even while moving** within the
+  aura. A place to keep the sigil alive on the run.
+- **Obelisks** (`"obelisk"` node, `OBELISK_AURA`/`OBELISK_REACH`) — solid ward-stones that **shield nearby
+  shades** until cracked (hold a full inscription beside one to erupt and spend it; `n.spent`).
+- **Fences** (`weaveSegments`, `FENCE_HALF`) — short walls that block **bodies, not the pentagram's flame**
+  (capsule push-out). **Pathways** (`PATHWAY_HALF`, `PATHWAY_BOOST`) — longer lanes that speed the hero only;
+  a lane is also a **processional** — walking it keeps the sigil inscribing at `PATHWAY_INSCRIBE_MUL` of the
+  still-rate (the `onPath` charge branch, below still/`onFont`, above the plain fade), a third option between
+  standing exposed and running cold without unseating "stand still on clean ground" as the fastest fill.
+- **Lit dwellings** (a secondary objective, not a win gate). A dark dwelling caught in the charged ring
+  kindles via `kindleDwelling` (sets `lit`/`litAt`, bumps `litCount`, mends the hero `DWELLING_HEAL`). The
+  HUD (`litReadout`) shows `litCount / total` (+ `✦n` awakened). Winning is still clearing every shade.
+  - **Awakened dwellings** (`stepDwellings`, `node.awoke` after `DWELLING_AWAKEN_MS`) become ally emitters,
+    burning shades within `AWAKENED_RADIUS` for `AWAKENED_DMG` on each pulse.
+  - **Snuffed dwellings** — a shade brushing a lit dwelling snuffs it (`snuffDwelling`): dark again,
+    `litCount--`, and a `node.veil` scar (`SNUFF_VEIL_MS`) bars relighting that node (drawn as a scar; damps
+    relighting, not the hero's own sigil). `nearScar` is the predicate.
+- **Conduits — the fuse.** `buildArena` precomputes `s.conduitLinks`; `kindleDwelling` enqueues
+  `s.spreadQueue` relays, and `stepSpread` kindles the far ends after `CONDUIT_DELAY`.
+- **Presses — the one-shot cascade.** `stepPress` fires once when the hero stands within
+  `PRESS_TRIGGER_REACH` at a full inscription: a `PRESS_BURST_R` burst, then `node.spent`.
+- **Shrines — consecrated ground.** `SHRINE_AURA` (`inShrineAura`): dwellings inside can't be snuffed and the
+  hero inscribes even on veiled/scarred ground.
+- **Veil pools** (`stepCombat` drift): drifting dark patches that **unravel** the sigil (`VEIL_DRAIN_MUL`
+  drains charge faster). `veilCount`.
+- **Ember motes** (`MOTE_DROP_CHANCE`): slain shades may drop motes (`MOTE_TTL_MS`); gathering one triggers a
+  damage **surge** (`MOTE_SURGE_MS`, `MOTE_SURGE_DMG`).
+- **Frescoes & the reliquary** — the hero's *first-footing* (`FRESCO_REACH`, `node.seen`) reveals painted
+  fragments (`maybeFresco`; the shell's `revealFresco` shows them non-modally so the swarm is never paused).
+  Frescoes are a lifetime collection: `PgLegacy.frescoesFound`, folded in at each run-end by
+  `recordFrescoes`; each `LevelDef` carries a signature subset `frescoes?: number[]` that **partition all
+  indices across the cities** (asserted in the test), and completing a city's subset banks `FRESCO_SET_BONUS`
+  embers. The reliquary is its own overlay (`showReliquary` → `frescoGalleryHtml`, per-city thumbnails;
+  `showFresco` detail view) with **PNG sharing** (`shareReliquary`/`shareFresco` → `shareCanvas`, native
+  share sheet or download). Render-layer only, drawn from already-cached fresco jpgs — no new assets.
 
-Shipping rules still apply: `pentagram.html`/`pentagram.js` are in `sw.js` `ASSETS` and counted as shell (network-first); bump `CACHE` when their bytes change (recompiling `pentagram.ts` does).
+### Cities (seven) and per-city dials
+
+`LEVELS` now holds **seven** cities (the parent's five plus two): **The Old City**, **Ashfold**, **The
+Drowned Quarter**, **The Glassworks**, **Vesper Row**, **The Ember Foundry**, **The Pale Bastion**. Each
+`LevelDef` adds Vigil-specific dials on top of the parent's generation overrides:
+`fenceCount`/`pathwayCount`, `fontCount`/`obeliskCount`, `veilCount`, and the variant counts
+(`eliteCount`/`spitterCount`/`darterCount`/`healerCount`), plus `sizeScale` (arena size = `W/H × sizeScale`,
+which leans difficulty — `difficultyMult` is normalized so The Old City sits near 1.0 and the hardest near
+1.5) and the `frescoes` subset. The Old City is kept deliberately fair (no veils/elites). Cities may re-skin
+the built world via `spriteFor`/`loadCitySprites` (`art/<cityId>/<name>.png`, silent fallback to the base).
+
+### The Veilwarden duel — currently DISABLED (code intact)
+
+> **Important:** the per-city seal-tracing boss duel is **disabled**. Clearing the host **wins outright** —
+> there is a `NOTE` at the disable site in `pentagram.ts` (near the `startBoss(s)` call) saying the call is
+> commented out and the duel can be re-enabled by restoring it.
+
+The full duel code is still present and test-covered, so it can be turned back on: clearing the host would
+flip `s.phase` `"fight"` → `"boss"` (`startBoss`), raising the city's master Keeper over a procedural Goetic
+**seal** (`makeSeal`, deterministic from the city id) that the carrier **binds strand by strand** by tracing
+(`traceScore` rates a stroke, `submitTrace` binds, `SEAL_EDGE_DONE` threshold). Difficulty is the seal's
+size; the bite quickens (`BOSS_BITE_RAMP`); drifting veils (`makeBossVeils`) unravel sloppy strokes;
+keyboard fallback (`cycleSel`/`keyBind`, `BOSS_KEY_COST`). When touching boss behavior, remember it does not
+currently run — don't describe it to users as a live feature.
+
+### Title screen & sharing
+
+`start()` opens on a **title screen** (`showStart`) — the app icon as logo, a random fresco (preferring
+uncovered ones), and "Enter the Vigil" → `showPicker`. Two buttons share the game itself: **Share game link**
+(`shareGameLink`, native share → clipboard → toast) and **Show QR code** (`showQR`). The QR is generated
+**offline, zero-dep** (`qrEncode` — a self-contained byte-mode/ECC-L encoder, versions 1–5; returns `null`
+over its ceiling and the view shows the link only); `drawQR` paints it and "Share QR image" reuses
+`shareCanvas`. The encoder is test-driven in `tools/pentagram-test.mjs` (geometry, RS roots, over-long
+guard, a place+mask round-trip).
+
+Shipping rules: `pentagram.html`/`pentagram.js`/`pentagram.webmanifest` are in `sw.js` `ASSETS` (shell,
+network-first); bump `CACHE` when their bytes change.
+
+---
+
+## The Necromancer's March — the inversion spinoff (`necro.ts` / `necro.html`)
+
+`necro.ts` (→ `necro.js`) + `necro.html` are a sibling spinoff that **mechanically inverts** The Burning
+Vigil: instead of carrying light, you are the **necromancer** who carries death. It is real-time "commander"
+play — you move the necromancer (joystick/WASD) and **stand still over a grave to inscribe a raising
+pentagram**; once charged it **raises 1–3 skeletons** (paid in *souls*). Minions follow and auto-target the
+nearest knight; **razing houses heals the horde**. **Defeat every knight to overrun the village; lose your
+own HP to fall.** Like the Vigil it is a TS module (`export {};`, `<script type="module">`), real-time
+per-frame, with the pure-sim/read-only-render split and its own test seam.
+
+The inversion is mechanical, point for point:
+
+| The Burning Vigil (light) | The Necromancer's March (death) |
+| --- | --- |
+| Relight dark dwellings | Raze standing houses (`desecrateHouse`) |
+| Lighting a dwelling **heals** the hero | Razing a house **heals** the horde (`DESEC_HEAL`, `HEAL_CAP`) |
+| Lit dwelling **awakens** into an ally emitter | Razed house **rises** into a bone-**totem** (`HOUSE_RISE_MS`, `TOTEM_*`) |
+| Shades **snuff** lights and scar the ground | Knights **reconsecrate** houses and scar the ground (`reconsecrateHouse`, `RECONSECRATE_MS`, `nearScar`) |
+| You **are** the weapon (stand-still sigil) | You **command** the weapon (the raised horde) |
+
+### The raising mechanic & the souls economy
+
+The pentagram is the gate on every raise: standing still (`HERO_STILL_MAXSPEED`) ramps `hero.charge`
+(`PENTA_CHARGE_MS`, ×`rite.chargeMul`); the dead only rise at charge ≥ `PENTA_RAISE_AT`. `stepRaise` then
+spends souls and spawns minions from a reachable grave.
+
+**Souls** are a deliberate **anti-fountain** economy: a march starts with `SOUL_START` (9); a raise costs
+`RAISE_COST` (×`rite.soulMul`); souls come from felling a knight (`SOUL_PER_KILL`), razing a house
+(`SOUL_PER_RAZE`, the snowball), and a slow **seep** (`SOUL_REGEN_MS`) that **only trickles while below
+`SOUL_REGEN_TO`** — so you can always raise again, but you can never farm souls by standing idle. Graves hold
+`GRAVE_RAISES` (5) raises before `graveSpent`, with `GRAVE_COOLDOWN_MS` between pulses; the horde is capped at
+`MINION_CAP` (40). Slain knights drop soul **wisps** the hero gathers (`stepWisps`).
+
+### Raising-rites (the skeleton "shop") & relics
+
+The hero equips **one** rite per march (`RAISE_TYPES`, resolved by `raiseTypeById`; each minion locks its
+`variant`/stats/hue/sprite at raise time):
+- **The Common Grave** (`grave`, free) — balanced.
+- **The Barrow-Wall** (`barrow`, 120) — 2× HP, slow, hard-hitting (wall of the dead).
+- **The Quick Cairn** (`cairn`, 160) — frail, fast, **+2 count** (swarming wights), fast inscribe.
+- **The Gallows Rite** (`gallows`, 240) — tough, fast revenants (capstone).
+
+**Relics** are the unlock currency (`recordOverrun`/`recordFall` bank them: `score ÷ RELIC_SCORE_DIV` on a
+win, `RELIC_PER_KILL` per kill even on a loss). `unlockRite`/`equipRite` buy and equip from the picker; ids
+live in `NecroLegacy` (`unlocked`/`equipped`, defaulted on load).
+
+### Knight variants (the defenders) & the priest
+
+`stepKnights` runs the watch. **Common** (60 HP) and **Captain** (`×2.4` HP, harder swing, leads a post)
+guard until roused, then chase the nearest threat (necromancer or minion) and swing on cooldown
+(`KNIGHT_*`/`CAPTAIN_*`). The **Priest** (`×1.4` HP) **never melees**: it channels mana
+(`PRIEST_CHARGE_MS`), locks the nearest skeleton in range (`PRIEST_SMITE_RANGE`), and after a windup beam
+**kills it outright** — with **two counterplays**: crowd it with skeletons (each within `PRIEST_SWARM_RADIUS`
+slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own body** on the beam
+(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Priest/captain counts are per-`LevelDef` dials.
+
+### Houses & terrain
+
+- **Houses** (the dwelling inversion): `stepDesecrate` razes a standing, non-scarred house a minion reaches
+  (`DESEC_REACH`) → `desecrateHouse` (heals the horde, +soul, `desecCount++`); held `HOUSE_RISE_MS` it
+  `stepHouses` into a **bone-totem** pulsing knights in `TOTEM_RADIUS` for `TOTEM_DMG`. A knight in reach
+  **reconsecrates** it (scar bars re-razing for `RECONSECRATE_MS`; `nearScar`/`SCAR_RADIUS`).
+- **Solids** (`OBSTACLE_KINDS` = well, altar) block bodies via `pushOut`. **Barricades** (`weaveSegments`,
+  `BARRICADE_HALF`) are walls that block bodies, not bursts. **Causeways** (`CAUSEWAY_HALF`,
+  `CAUSEWAY_BOOST`) speed the necromancer only. **Graves** are the raise sites. **Altars** fire a one-shot
+  burst (`stepAltar`) damaging knights and razing houses in reach. Geometry helpers: `closestOnSegment`,
+  `pushOut`, `weaveSegments` — all pure, rebuilt at `buildArena`, never persisted.
+
+### Sim loop, scoring, villages
+
+`stepMarch(s, dt, move)` is the per-frame entry; it runs `stepRaise` → `stepWisps` → `stepMinions` →
+`stepKnights` → `stepDesecrate` → `stepHouses` → `stepAltar`, then checks terminal states (`hero.hp ≤ 0` →
+`"lost"`; all knights dead → `"won"`). Helpers: `nearestKnight`/`nearestMinion`, `aliveKnights`/
+`aliveMinions`/`clearedPct`, `killKnight`, `scoreRun` (base + speed + houses + survival + untouched ×
+`difficultyMult`), `houseReadout` (HUD). Render is a separate `render(s, layer)` pass the shell calls after
+`stepMarch`.
+
+Villages (`LEVELS`, via `generateNecroVillage`/`levelById`/`buildArena`): **Hollowmere** (fair first
+march), **The Tithe Barrows** (graves plentiful, 2 captains/1 priest), **Saint Auber's Rest** (walled,
+hardest — 4 captains/3 priests), **Gallows Fen** (sparse houses, thick graves, 2 captains/2 priests). Dials:
+`nodeCount`, `houseFrac`, `postCount`, `barricadeCount`/`causewayCount`, `captainCount`/`priestCount`,
+`sizeScale`.
+
+### What Necro does NOT have (deferred)
+
+Unlike the Vigil, Necro currently has **no boss/duel**, **no frescoes/reliquary collection**, and **no QR
+encoder**. It does have a title screen (`showStart`), a village picker with the rite shop (`showPicker`), and
+a share-link button (`shareGameLink`). These are reasonable parity ports to add later.
+
+### Persistence & art
+
+No mid-march save. The legacy is `necromancer.legacy.v1` (`NecroLegacy`: `runs`, `overruns`, `best` per
+village, `housesRazed`, `totemsRaised`, `relics`, `unlocked`, `equipped`), via
+`loadNecroLegacy`/`saveNecroLegacy`/`emptyNecroLegacy` and the write-once-per-end `recordOverrun`/
+`recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath`, the render
+fallbacks), so the game is fully playable with zero PNGs — though its PNG art **has now shipped** and is in
+`sw.js`. Sprite resolution mirrors the Vigil (`spriteFor`/`loadSprites`/`loadCitySprites`). Test seam:
+`globalThis.__NECRO_TEST__` → `globalThis.__necro`, driven headlessly by `tools/necro-test.mjs`.
+
+Shipping rules: `necro.html`/`necro.js`/`necro.webmanifest` are in `sw.js` `ASSETS` as shell
+(network-first); bump `CACHE` when their bytes change.
 
 ## Deploy
 
-`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling `app.ts` → `app.js`), prunes `node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual `workflow_dispatch`). One-time setup is Settings → Pages → Source: "GitHub Actions". The site IS the repository root — there is no `dist/`.
+`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all three `.ts` → `.js`), prunes
+`node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual
+`workflow_dispatch`). One-time setup: Settings → Pages → Source: "GitHub Actions". The site **is** the
+repository root — there is no `dist/`.
