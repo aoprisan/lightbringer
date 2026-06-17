@@ -533,7 +533,15 @@ interface LevelDef {
   keeperCount: number; // keeper-posts — each raises SHADE_PER_KEEPER shades
   keeperSpacing: number;
   fenceCount: number;  // low walls woven between neighbouring posts (cover)
-  pathwayCount: number; // open lanes the hero runs swift along
+  pathwayCount: number; // open lanes the hero runs swift along (woven at random)
+  // ---- Authored terrain (optional) ----
+  // Hand-laid line segments in arena FRACTIONS (x1/y1/x2/y2 each 0..1 of w/h),
+  // resolved at buildArena and MERGED with the woven pathways/fences. `avenues`
+  // are pathway lanes (boost + processional); `walls` are body-blocking walls
+  // (like fences — they stop bodies, not the flame). Lets a city trace the exact
+  // streets and ramparts of its map art instead of leaving them to the weave.
+  avenues?: Segment[];
+  walls?: Segment[];
   veilCount?: number;  // drifting dark pools that unravel the sigil (default 0)
   eliteCount?: number; // keeper-posts whose champion rises veil-shielded (default 0)
   spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
@@ -566,20 +574,44 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.16, pressCount: 4, shrineCount: 4,
     fontCount: 1, // a single lightwell teaches the burn-on-the-run early — still fair
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 8, pathwayCount: 6, sizeScale: 0.9, // kept fair: no veils/elites
+    fenceCount: 8, pathwayCount: 0, sizeScale: 0.9, // kept fair: no veils/elites
     frescoes: [0, 6, 8, 15], // the foundational creed
     // The Old City map (art/city-old.jpg) reads as a symmetric four-quarter
     // town: a central bonfire — the hero's spawn — at the crossing of the radial
     // streets, four densely-built quarters around it, and a single well at the
-    // heart of each quarter. We mirror that exactly: four symmetric quadrant
-    // anchors of equal density (one well-shrine landmark each, matching the four
-    // wellheads on the map) ringed off the centre, so the arena heart stays the
-    // open crossroads where you stand to inscribe.
+    // heart of each quarter, all ringed by a gated rampart. We mirror that
+    // exactly. Four symmetric quadrant anchors of equal density (one well-shrine
+    // landmark each, matching the four wellheads) ringed off the centre, so the
+    // arena heart stays the open crossroads where you stand to inscribe.
     districts: [
       { name: "The Northern Ward", fx: 0.26, fy: 0.27, weight: 1.0 },
       { name: "The Watch Quarter", fx: 0.74, fy: 0.27, weight: 1.0 },
       { name: "The Hearthing",     fx: 0.26, fy: 0.73, weight: 1.0 },
       { name: "The Ember Rows",    fx: 0.74, fy: 0.73, weight: 1.0 },
+    ],
+    // The streets, traced from the map: a cross of avenues from each mid-edge
+    // gate through the central crossroads, and four diagonals from the corners
+    // meeting at the heart — the radial star the city is built around. (Woven
+    // pathways are off — pathwayCount 0 — so these are the only lanes.)
+    avenues: [
+      { x1: 0.50, y1: 0.04, x2: 0.50, y2: 0.96 }, // gate-to-gate, vertical
+      { x1: 0.04, y1: 0.50, x2: 0.96, y2: 0.50 }, // gate-to-gate, horizontal
+      { x1: 0.06, y1: 0.06, x2: 0.50, y2: 0.50 }, // corner diagonals into the heart
+      { x1: 0.94, y1: 0.06, x2: 0.50, y2: 0.50 },
+      { x1: 0.06, y1: 0.94, x2: 0.50, y2: 0.50 },
+      { x1: 0.94, y1: 0.94, x2: 0.50, y2: 0.50 },
+    ],
+    // The rampart: a perimeter wall with a gate gap at each mid-edge where an
+    // avenue passes through (gaps centred on x/y 0.5). Blocks bodies, not flame.
+    walls: [
+      { x1: 0.03, y1: 0.03, x2: 0.445, y2: 0.03 }, // north wall (gate gap to its right)
+      { x1: 0.555, y1: 0.03, x2: 0.97, y2: 0.03 },
+      { x1: 0.03, y1: 0.97, x2: 0.445, y2: 0.97 }, // south wall
+      { x1: 0.555, y1: 0.97, x2: 0.97, y2: 0.97 },
+      { x1: 0.03, y1: 0.03, x2: 0.03, y2: 0.445 }, // west wall
+      { x1: 0.03, y1: 0.555, x2: 0.03, y2: 0.97 },
+      { x1: 0.97, y1: 0.03, x2: 0.97, y2: 0.445 }, // east wall
+      { x1: 0.97, y1: 0.555, x2: 0.97, y2: 0.97 },
     ],
   },
   {
@@ -829,6 +861,13 @@ function weaveSegments(
   return segs;
 }
 
+// Resolve a city's authored segments (fractions of w/h) to arena coordinates.
+// Pure — the same fractions always yield the same lanes/walls, the way the woven
+// segments rebuild from the placed nodes. Undefined yields no segments.
+function resolveSegs(segs: Segment[] | undefined, w: number, h: number): Segment[] {
+  return (segs ?? []).map((s) => ({ x1: s.x1 * w, y1: s.y1 * h, x2: s.x2 * w, y2: s.y2 * h }));
+}
+
 // Scatter `count` drifting veil pools across the arena, each given a random
 // heading. The hero's heart-of-the-city spawn is kept clear so a descent never
 // begins mired in the dark. Pure: it only reads the world size.
@@ -905,8 +944,12 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
   const scenery = generateCity(level, w, h);
   const plazas = resolveDistricts(level, w, h).map((d) => ({ x: d.x, y: d.y, name: d.name, r: d.plazaR }));
   // Fences hug close neighbours (short walls); pathways span quarters (long lanes).
-  const fences = weaveSegments(scenery, level.fenceCount, level.minDist * 0.9, level.minDist * 2.0);
-  const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5);
+  // Authored walls/avenues (the city's map-traced ramparts and streets) merge in
+  // on top of the woven ones.
+  const fences = weaveSegments(scenery, level.fenceCount, level.minDist * 0.9, level.minDist * 2.0)
+    .concat(resolveSegs(level.walls, w, h));
+  const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5)
+    .concat(resolveSegs(level.avenues, w, h));
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
   };
