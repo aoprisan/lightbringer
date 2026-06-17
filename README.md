@@ -135,7 +135,8 @@ a bounded "while you were away" catch-up.
 | `sw.js` | Service worker — offline app-shell cache (all three games) |
 | `pentagram.webmanifest`, `necro.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / the original) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
-| `art/prompts/necro/` | Self-contained Gemini prompts for the undead sprite + village art |
+| `gemini-prompts/` | All self-contained Gemini ("Nano Banana") image-generation prompts (icons, frescoes, city cards, scenery + `base/` original-game sprites, `necro/` undead + village art, and the per-city sprite folders) |
+| `art-prompts-output/` | Raw multi-megabyte PNGs emitted by Gemini, before optimizing into `art/` (e.g. `tools/process-city-sprites.py`) |
 | `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
 | `tools/necro-test.mjs` | Headless march test for The Necromancer's March (`npm test`) |
 | `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |

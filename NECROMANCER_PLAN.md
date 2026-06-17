@@ -39,7 +39,7 @@ its own legacy key, and the sprite system's procedural fallbacks.
 - `necro.html` — page shell (clone of `pentagram.html`)
 - `necro.webmanifest` — PWA manifest (clone of `pentagram.webmanifest`)
 - `tools/necro-test.mjs` — headless harness (clone of `tools/pentagram-test.mjs`)
-- `art/prompts/necro/*.txt` — new undead sprite prompts
+- `gemini-prompts/necro/*.txt` — new undead sprite prompts
 
 ### Changed files (wiring only)
 - `tsconfig.json` — add `"necro.ts"` to `include`
@@ -208,7 +208,7 @@ else `start()`. Trailing `export {};`.
 
 ## New art prompts + sprite names
 
-Author under `art/prompts/necro/` (per-asset convention; outputs to `art/<name>.png`),
+Author under `gemini-prompts/necro/` (per-asset convention; outputs to `art/<name>.png`),
 same template/style block as existing prompts but **necrotic green / bone-white / cold
 violet** instead of candle-gold. `SPRITE_NAMES` + matching prompts:
 
