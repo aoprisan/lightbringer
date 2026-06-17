@@ -8,10 +8,12 @@ each still reads as its kind.
 OUTPUT FOLDER: art/drowned/    (the loader tries this city folder, then falls back
 to the base art/<name>.png). Files to produce, same names as the base set:
   ground.png  dwelling-dark.png  dwelling-lit.png  dwelling-awakened.png
-  dwelling-snuffed.png  conduit.png  press.png  shrine.png
+  dwelling-snuffed.png  conduit.png  press.png  shrine.png  obelisk.png
 
 SHARED, DO NOT re-skin (universal forces): keeper-node, keeper-patrol,
-player-lantern, veil-scar, flame-spark. The Drowned Quarter reuses the base ones.
+player-lantern, veil-scar, flame-spark, obelisk-spent (the cracked face is
+universal — only the STANDING obelisk.png is re-skinned below). The Drowned
+Quarter reuses the base ones.
 
 RULES (read once):
 - No transparency. Generate every sprite isolated on a flat solid #0B0E1A.
@@ -52,3 +54,8 @@ A half-drowned medieval print-shop, slightly larger than a dwelling: workshop do
 --- drowned/shrine.png ---
 Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, slate blue, charcoal; warm gold #F5C66B for any light. Soft edges, no outlines. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
 A half-submerged open-air street shrine: a weathered stone niche with a carved figure worn featureless and marked by a waterline stain, melted candle stubs on a tier just above the flood, votive chains trailing down into the black water, water-logged dead flowers. Dark, but the wet stone and chains catch a faint cold gleam, doubled in the still reflection. Intimate, devotional, drowned.
+
+--- drowned/obelisk.png (a WARD-OBELISK, standing — the Drowned Quarter now seeds one) ---
+Style: hand-painted dark-fantasy game asset, medieval city at night, ink-and-gilt feel. Palette: deep indigo #0B0E1A, sodden slate, algae-dark stone; COLD steel-blue ward-light #9fc4e8 only — no warm gold, this is the watch's stone. Soft edges, no outlines, no photorealism. View: three-quarter top-down ~60°. Single centered subject, flat solid #0B0E1A background, 1024×1024, no text, no watermark, no border.
+A tall narrow standing ward-stone rising from black flood-water: a pale chalk-white obelisk, taller than wide, streaked with a green-black waterline and a beard of algae at its foot, its faces carved with cold geometric Keeper-sigils glowing faint steel-blue. A low dome of cold blue ward-light radiates from its base across the still water, doubled in the dark reflection. Severe, intact, watchful, humming with cold power — the dark's armour standing in the flood. 1024×1024.
+(The cracked/spent face is the universal art/obelisk-spent.png — do not re-skin it here.)

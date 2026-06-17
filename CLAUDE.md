@@ -246,7 +246,10 @@ not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune
 - **Obelisks** (`"obelisk"` node, `OBELISK_AURA`/`OBELISK_REACH`) — solid ward-stones that **shield nearby
   shades** until cracked (hold a full inscription beside one to erupt and spend it; `n.spent`).
 - **Fences** (`weaveSegments`, `FENCE_HALF`) — short walls that block **bodies, not the pentagram's flame**
-  (capsule push-out). **Pathways** (`PATHWAY_HALF`, `PATHWAY_BOOST`) — longer lanes that speed the hero only.
+  (capsule push-out). **Pathways** (`PATHWAY_HALF`, `PATHWAY_BOOST`) — longer lanes that speed the hero only;
+  a lane is also a **processional** — walking it keeps the sigil inscribing at `PATHWAY_INSCRIBE_MUL` of the
+  still-rate (the `onPath` charge branch, below still/`onFont`, above the plain fade), a third option between
+  standing exposed and running cold without unseating "stand still on clean ground" as the fastest fill.
 - **Lit dwellings** (a secondary objective, not a win gate). A dark dwelling caught in the charged ring
   kindles via `kindleDwelling` (sets `lit`/`litAt`, bumps `litCount`, mends the hero `DWELLING_HEAL`). The
   HUD (`litReadout`) shows `litCount / total` (+ `✦n` awakened). Winning is still clearing every shade.
