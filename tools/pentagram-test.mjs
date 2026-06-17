@@ -1019,6 +1019,7 @@ ok(sco.constellations === 0, "an incomplete fuse grants no constellation");
 const cHpBefore = sco.hero.hp;
 pg.kindleDwelling(sco, clink.dwellings[clink.dwellings.length - 1], 0);
 ok(sco.constellations === 1, "lighting the whole fuse completes a constellation");
+ok(sco.bursts.length === 1, "a completed constellation spawns a kindle-flash FX");
 ok(clink.dwellings.every((d) => d.awoke), "a completed constellation awakens its dwellings at once");
 ok(sco.hero.hp > cHpBefore, `a completed constellation rallies the carrier (${cHpBefore} -> ${sco.hero.hp})`);
 ok(pg.litReadout(sco).includes("✸"), "the HUD shows the constellation tally");

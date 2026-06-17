@@ -69,6 +69,7 @@ interface Mote { x: number; y: number; until: number }
 // shade; a Nova is the Wrath's expanding eruption ring on a full inscription.
 interface Arc { x1: number; y1: number; x2: number; y2: number; until: number }
 interface Nova { x: number; y: number; r: number; until: number }
+interface Burst { x: number; y: number; until: number } // constellation-kindle flash (cosmetic)
 
 // The battlefield is dressed from a city's nodes. Combat only needs each one's
 // place and kind (which sprite, and whether it's a shade spawn-point). A dark
@@ -204,6 +205,7 @@ interface PgState {
   surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
+  bursts: Burst[];       // fading constellation-kindle flashes — purely cosmetic
   novaFired: boolean;    // has the Wrath's nova fired for this charge-up
   pulseAcc: number; // ms accumulated toward the next damage pulse
   elapsed: number;  // ms since the descent began (clear time)
@@ -427,6 +429,7 @@ const SCORCH_MAX = 6;            // …cap on simultaneous patches
 const NOVA_PUSH = 150;           // Wrath: knockback dealt by a full-charge nova
 const ARC_MS = 180;              // Pyre: how long a chain spark stays drawn
 const NOVA_FX_MS = 320;          // Wrath: how long the eruption ring expands/fades
+const CONSTELLATION_FX_MS = 720; // how long a constellation-kindle flash expands/fades
 const SHADE_HIT_MS = 150;        // how long a shade flashes white from a fresh blow
 
 // The Veilwarden duel (per-city boss). When the host falls, the city's master
@@ -862,7 +865,7 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     fxDmg: PENTA_DMG * type.dmgMul,
     curse,
     scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils), motes: [], bolts: [], surgeUntil: 0,
-    arcs: [], novas: [], novaFired: false,
+    arcs: [], novas: [], bursts: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0, snuffed: 0, constellations: 0,
@@ -1055,6 +1058,11 @@ function completeConstellations(s: PgState, n: ArenaNode): void {
     for (const d of link.dwellings) d.awoke = true;
     const ceil = Math.max(s.hero.hp, s.hero.maxHp * HEAL_CAP);
     s.hero.hp = Math.min(ceil, s.hero.hp + CONSTELLATION_HEAL);
+    // A cosmetic flash at the pattern's centre (art/constellation-burst.png, or a
+    // procedural ring when the PNG is absent).
+    let cx = 0, cy = 0;
+    for (const d of link.dwellings) { cx += d.x; cy += d.y; }
+    s.bursts.push({ x: cx / link.dwellings.length, y: cy / link.dwellings.length, until: s.elapsed + CONSTELLATION_FX_MS });
   }
 }
 
@@ -1611,6 +1619,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // Retire spent cosmetic FX (cheap; only when any are live).
   if (s.arcs.length) s.arcs = s.arcs.filter((a) => a.until > s.elapsed);
   if (s.novas.length) s.novas = s.novas.filter((n) => n.until > s.elapsed);
+  if (s.bursts.length) s.bursts = s.bursts.filter((b) => b.until > s.elapsed);
 
   // Contact: a shade on the hero, outside i-frames, bites and is shoved off.
   if (h.hurt <= 0) {
@@ -2011,6 +2020,9 @@ const SPRITE_NAMES = [
   // procedural lines when the PNG is absent.
   "pathway", "fence",
   "keeper-node", "keeper-patrol", "player-lantern",
+  // The constellation-kindle flash (universal FX; render falls back to a procedural
+  // ring when absent).
+  "constellation-burst",
 ] as const;
 
 // Which sprites a city may re-skin (art/<cityId>/<name>.png) — the built world.
@@ -2018,6 +2030,9 @@ const SPRITE_NAMES = [
 const CITY_SPRITES = new Set<string>([
   "ground", "dwelling-dark", "dwelling-lit", "dwelling-awakened", "dwelling-snuffed",
   "conduit", "press", "shrine", "font", "obelisk",
+  // A city may give its drifting veil pools a cursed face (art/<cityId>/veil.png);
+  // render falls back to the procedural #veil pattern when absent.
+  "veil",
 ]);
 
 const sprites = new Set<string>();
@@ -2366,8 +2381,11 @@ function render(s: PgState, layer: SVGGElement): void {
 
   // Veil pools — drifting patches of the old dark on the floor. A still hero
   // standing in one cannot inscribe; the sigil unravels. Drawn low, on the ground.
+  // A city may re-skin them (art/<cityId>/veil.png); else the procedural pattern.
+  const veilKey = spriteFor(s.level, "veil");
   for (const v of s.veils) {
-    layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
+    if (veilKey) layer.appendChild(spriteImage(veilKey, v.x, v.y, v.r * 2.3, 0.9));
+    else layer.appendChild(el("circle", { cx: v.x, cy: v.y, r: v.r, fill: "url(#veil)" }));
     layer.appendChild(el("circle", {
       cx: v.x, cy: v.y, r: v.r, fill: "none",
       stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
@@ -2423,6 +2441,25 @@ function render(s: PgState, layer: SVGGElement): void {
       fill: "none", stroke: s.type.ring, "stroke-width": 3 + 5 * life,
       opacity: 0.6 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
     }));
+  }
+
+  // Constellation kindles — a brief gold flash where a conduit fuse's dwellings all
+  // lit at once. art/constellation-burst.png if shipped, else a procedural ring.
+  for (const b of s.bursts) {
+    const life = Math.max(0, (b.until - s.elapsed) / CONSTELLATION_FX_MS);
+    if (life <= 0) continue;
+    if (sprites.has("constellation-burst")) {
+      layer.appendChild(spriteImage("constellation-burst", b.x, b.y, 110 * (1.3 - life * 0.5), life));
+    } else {
+      layer.appendChild(el("circle", {
+        cx: b.x, cy: b.y, r: 28 + (1 - life) * 52, fill: "none",
+        stroke: s.type.star, "stroke-width": 2 + 3 * life,
+        opacity: 0.7 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      layer.appendChild(el("circle", {
+        cx: b.x, cy: b.y, r: 4 + 10 * life, fill: s.type.star, opacity: 0.5 * life,
+      }));
+    }
   }
 
   // Spitters' bolts — motes of the old dark hurled at the hero. Drawn as a small
@@ -3654,7 +3691,7 @@ function start(): void {
       (ascBest >= 0 ? ` <span class="legacy-new">cleared ×${ascBest}</span>` : ``) +
       `</div><div class="asc">` +
       `<button class="asc-step" data-asc="${tier - 1}"${tier <= 0 ? " disabled" : ""}>◀</button>` +
-      `<span class="asc-tier">×${tier}</span>` +
+      `<span class="asc-tier">${tier ? `<img class="asc-seal" alt="">` : ""}×${tier}</span>` +
       `<button class="asc-step" data-asc="${tier + 1}"${tier >= ascMax ? " disabled" : ""}>▶</button>` +
       `<span class="city-line">${curseLine}</span></div></div>`;
 
@@ -3701,6 +3738,17 @@ function start(): void {
     // The establishing image fails silently when its art isn't shipped offline.
     const img = ovBody.querySelector<HTMLImageElement>(".city-art");
     if (img) img.onerror = () => { img.style.display = "none"; };
+    // The ascension seal badge: prefer a per-tier frame (art/ascension-seal-N.png),
+    // fall back to the base seal, then vanish if neither ships — the ×N text stays.
+    const seal = ovBody.querySelector<HTMLImageElement>(".asc-seal");
+    if (seal) {
+      seal.style.cssText = "width:20px;height:20px;vertical-align:middle;margin-right:5px";
+      seal.onerror = () => {
+        if (seal.src.endsWith(`ascension-seal-${tier}.png`)) seal.src = "art/ascension-seal.png";
+        else seal.remove();
+      };
+      seal.src = `art/ascension-seal-${tier}.png`;
+    }
     // Picking a city re-renders the card so its art and highlight follow the
     // selection; the descent begins from the primary button.
     overlay.querySelectorAll<HTMLButtonElement>(".city").forEach((b) => {
