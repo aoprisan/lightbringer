@@ -1129,7 +1129,7 @@ const wallSegs = sav.fences.filter((f) =>
   && (f.x1 < sav.w * 0.05 || f.x1 > sav.w * 0.95 || f.y1 < sav.h * 0.05 || f.y1 > sav.h * 0.95));
 ok(wallSegs.length >= 8, `the rampart rings the city (${wallSegs.length} wall segments)`);
 // Cities without authored terrain weave their lanes as before (no walls/avenues).
-ok(pg.levelById("drowned").avenues === undefined && pg.levelById("drowned").walls === undefined,
+ok(pg.levelById("glassworks").avenues === undefined && pg.levelById("glassworks").walls === undefined,
   "other cities author no terrain (woven only)");
 // The authored avenues stay clear of buildings — the streets read as open
 // corridors, not blocks paved over (generateCity rejects nodes on a lane).
@@ -1140,6 +1140,18 @@ const onLane = (n) => avSegs.some((a) =>
   pg.closestOnSegment(n.x, n.y, a.x1, a.y1, a.x2, a.y2).d < K.PATHWAY_HALF);
 ok(avCity.filter((n) => n.kind !== "shrine").every((n) => !onLane(n)),
   "buildings keep clear of the avenues (open streets)");
+
+// 42c. plazaKind seats a city's signature landmark at its plaza hearts — the
+//      Foundry's molten wells (fonts), the Bastion's ward-stones (obelisks) —
+//      instead of shrines, counted against that kind's own dial.
+for (const [id, kind, count] of [["foundry", "font", "fontCount"], ["bastion", "obelisk", "obeliskCount"]]) {
+  const lv = pg.levelById(id);
+  const dist = pg.resolveDistricts(lv);
+  const sc = pg.generateCity(lv);
+  const atHeart = dist.filter((d) =>
+    sc.some((n) => n.kind === kind && (d.x - n.x) ** 2 + (d.y - n.y) ** 2 < 1)).length;
+  ok(atHeart === Math.min(dist.length, lv[count]), `${id}: a ${kind} sits at each plaza heart (${atHeart})`);
+}
 
 // Every city still dresses with density to spare and its exact shrine count — the
 // clustering never starves a city or drifts the scenery counts.

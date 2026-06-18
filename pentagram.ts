@@ -562,6 +562,11 @@ interface LevelDef {
   districts?: { name: string; fx: number; fy: number; weight?: number }[]; // anchors as fractions of w/h
   plazaRadius?: number;   // open radius around each anchor (default minDist*1.8)
   districtRadius?: number; // falloff radius for clustering (default min(w,h)*0.22)
+  // What landmark sits at each plaza's heart (default "shrine"). A city whose
+  // signature structure IS its plaza centre — the Foundry's molten wells, the
+  // Bastion's ward-stones — sets "font"/"obelisk"; the landmark is then counted
+  // against that kind's dial (fontCount/obeliskCount) instead of shrineCount.
+  plazaKind?: "shrine" | "font" | "obelisk";
 }
 
 const LEVELS: LevelDef[] = [
@@ -665,60 +670,184 @@ const LEVELS: LevelDef[] = [
     name: "The Drowned Quarter",
     epigraph: "The water took the low streets. Few shades here — but they wake patient and far.",
     art: "art/city-drowned.jpg",
-    nodeCount: 104, minDist: 86,
+    // The Drowned Quarter map: dense island-wards on dark water, linked by slender
+    // bridges. Tight clusters (the islands) with wide EMPTY water between — the
+    // node count is kept within the islands' capacity so the scatter never spills
+    // off them. Six islands ring the open-water centre (each carries a shrine,
+    // shrineCount 6); the avenues are the bridges.
+    nodeCount: 120, minDist: 40, plazaRadius: 82, districtRadius: 158,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     obeliskCount: 1, // a lone ward-stone on the sparse, patient map — a deliberate detour
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 11, pathwayCount: 3, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
+    fenceCount: 3, pathwayCount: 0, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
     frescoes: [1, 3, 10], // mercy, the veil, the patient morning
+    districts: [
+      { name: "Tidewall",          fx: 0.42, fy: 0.15, weight: 1.0 },
+      { name: "The Weir",          fx: 0.16, fy: 0.37, weight: 1.0 },
+      { name: "Greylethe",         fx: 0.20, fy: 0.68, weight: 1.0 },
+      { name: "Mussel Row",        fx: 0.82, fy: 0.37, weight: 1.0 },
+      { name: "The Sunk Nave",     fx: 0.80, fy: 0.68, weight: 1.0 },
+      { name: "The Drowned Steps", fx: 0.50, fy: 0.86, weight: 1.0 },
+    ],
+    avenues: [ // the bridges: a ring island-to-island, plus two crossing the heart
+      { x1: 0.42, y1: 0.15, x2: 0.16, y2: 0.37 },
+      { x1: 0.42, y1: 0.15, x2: 0.82, y2: 0.37 },
+      { x1: 0.16, y1: 0.37, x2: 0.20, y2: 0.68 },
+      { x1: 0.82, y1: 0.37, x2: 0.80, y2: 0.68 },
+      { x1: 0.20, y1: 0.68, x2: 0.50, y2: 0.86 },
+      { x1: 0.80, y1: 0.68, x2: 0.50, y2: 0.86 },
+      { x1: 0.16, y1: 0.37, x2: 0.80, y2: 0.68 }, // crossings (the hero spawns on them)
+      { x1: 0.82, y1: 0.37, x2: 0.20, y2: 0.68 },
+    ],
   },
   {
     id: "glassworks",
     name: "The Glassworks",
     epigraph: "Everything here is bright and breaks. The watch is thick and tightly packed.",
     art: "art/city-glassworks.jpg",
-    nodeCount: 134, minDist: 66,
+    // The Glassworks map: a thick, tightly-packed maze — no broad courts, just
+    // small spire-openings and two ward-obelisks. Eight small dense knots blanket
+    // the map (the fill spills uniform between them, so it packs wall-to-wall),
+    // each a modest spire-court (shrineCount 8). The winding woven streets and
+    // the maze of fences stay — it's a labyrinth, not a clean web.
+    nodeCount: 260, minDist: 40, plazaRadius: 70, districtRadius: 90,
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     fontCount: 1, obeliskCount: 2, // ward-stones harden the packed watch; one well to keep the flame moving
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 13, pathwayCount: 5, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
+    fenceCount: 12, pathwayCount: 6, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
     frescoes: [7, 13, 14], // seeing clearly, scratching the whitewash
+    districts: [
+      { name: "The Kilns",        fx: 0.22, fy: 0.20, weight: 1.0 },
+      { name: "Prism Row",        fx: 0.50, fy: 0.18, weight: 1.0 },
+      { name: "The Annealing",    fx: 0.78, fy: 0.20, weight: 1.0 },
+      { name: "Cullet Yard",      fx: 0.15, fy: 0.50, weight: 1.0 },
+      { name: "The Lantern Houses", fx: 0.85, fy: 0.50, weight: 1.0 },
+      { name: "The Frit Works",   fx: 0.22, fy: 0.80, weight: 1.0 },
+      { name: "Slagward",         fx: 0.50, fy: 0.82, weight: 1.0 },
+      { name: "The Glaziery",     fx: 0.78, fy: 0.80, weight: 1.0 },
+    ],
   },
   {
     id: "vesper",
     name: "Vesper Row",
     epigraph: "The watch is thickest where the faithful sleep. The hardest descent.",
     art: "art/city-vesper.jpg",
-    nodeCount: 124, minDist: 70,
+    // Vesper Row map: the faithful's quarter — a dense web of cloister courts on
+    // radial processionals, obelisk spires standing among them, and a single
+    // votive fire (the one font). Seven courts ring the heart (four carry a
+    // shrine, shrineCount 4; the rest bare), the obelisks/font scatter.
+    nodeCount: 250, minDist: 44, plazaRadius: 100, districtRadius: 130,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     fontCount: 1, obeliskCount: 2, // the faithful keep the watch warded; one well is the only mercy
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 9, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
+    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
     frescoes: [2, 5, 12, 16], // the faithful's quarter
+    districts: [
+      { name: "The Cloisters",  fx: 0.25, fy: 0.16, weight: 1.0 },
+      { name: "Matins",         fx: 0.72, fy: 0.15, weight: 1.0 },
+      { name: "The Long Watch", fx: 0.14, fy: 0.46, weight: 1.0 },
+      { name: "Compline",       fx: 0.85, fy: 0.46, weight: 1.0 },
+      { name: "The Pale",       fx: 0.25, fy: 0.80, weight: 1.0 },
+      { name: "Vigil Court",    fx: 0.52, fy: 0.82, weight: 1.0 },
+      { name: "Sext",           fx: 0.78, fy: 0.80, weight: 1.0 },
+    ],
+    avenues: [ // processionals: a ring of cloisters plus radial crossings of the heart
+      { x1: 0.25, y1: 0.16, x2: 0.72, y2: 0.15 },
+      { x1: 0.25, y1: 0.16, x2: 0.14, y2: 0.46 },
+      { x1: 0.72, y1: 0.15, x2: 0.85, y2: 0.46 },
+      { x1: 0.14, y1: 0.46, x2: 0.25, y2: 0.80 },
+      { x1: 0.85, y1: 0.46, x2: 0.78, y2: 0.80 },
+      { x1: 0.25, y1: 0.80, x2: 0.52, y2: 0.82 },
+      { x1: 0.52, y1: 0.82, x2: 0.78, y2: 0.80 },
+      { x1: 0.25, y1: 0.16, x2: 0.78, y2: 0.80 }, // crossings through the heart
+      { x1: 0.72, y1: 0.15, x2: 0.25, y2: 0.80 },
+      { x1: 0.14, y1: 0.46, x2: 0.85, y2: 0.46 },
+    ],
   },
   {
     id: "foundry",
     name: "The Ember Foundry",
     epigraph: "Molten light wells up from the deep moulds. Burn on the run — and don't stand to be mended.",
     art: "art/city-foundry.jpg",
-    nodeCount: 128, minDist: 66,
+    // The Ember Foundry map: a grid of dark courts, each with a molten well
+    // glowing at its heart, lava veins running the streets between. Its signature
+    // fonts ARE those wells — plazaKind "font" seats one at each of seven courts
+    // (fontCount 7); shrines (shrineCount 3) scatter in the blocks between.
+    nodeCount: 240, minDist: 44, plazaRadius: 104, districtRadius: 132,
+    plazaKind: "font",
     conduitFrac: 0.20, pressCount: 5, shrineCount: 3,
     fontCount: 7, // its signature: lightwells you inscribe beside while moving
     keeperCount: 8, keeperSpacing: 300,
-    fenceCount: 7, pathwayCount: 10, veilCount: 2, darterCount: 4, healerCount: 3, sizeScale: 1.0,
+    fenceCount: 5, pathwayCount: 0, veilCount: 2, darterCount: 4, healerCount: 3, sizeScale: 1.0,
     frescoes: [17, 18, 19], // the wells, the wellspring, the mould
+    districts: [
+      { name: "The Upper Moulds", fx: 0.22, fy: 0.16, weight: 1.0 },
+      { name: "Crucible Row",     fx: 0.55, fy: 0.15, weight: 1.0 },
+      { name: "The Bloomery",     fx: 0.82, fy: 0.22, weight: 1.0 },
+      { name: "Slag Court",       fx: 0.16, fy: 0.50, weight: 1.0 },
+      { name: "The Tap-House",    fx: 0.85, fy: 0.52, weight: 1.0 },
+      { name: "The Deep Pour",    fx: 0.30, fy: 0.83, weight: 1.0 },
+      { name: "Cinder Court",     fx: 0.68, fy: 0.83, weight: 1.0 },
+    ],
+    avenues: [ // the lava veins between the moulds, plus a crossing of the heart
+      { x1: 0.22, y1: 0.16, x2: 0.55, y2: 0.15 },
+      { x1: 0.55, y1: 0.15, x2: 0.82, y2: 0.22 },
+      { x1: 0.22, y1: 0.16, x2: 0.16, y2: 0.50 },
+      { x1: 0.82, y1: 0.22, x2: 0.85, y2: 0.52 },
+      { x1: 0.16, y1: 0.50, x2: 0.30, y2: 0.83 },
+      { x1: 0.85, y1: 0.52, x2: 0.68, y2: 0.83 },
+      { x1: 0.30, y1: 0.83, x2: 0.68, y2: 0.83 },
+      { x1: 0.22, y1: 0.16, x2: 0.68, y2: 0.83 }, // crossings through the heart
+      { x1: 0.82, y1: 0.22, x2: 0.30, y2: 0.83 },
+      { x1: 0.16, y1: 0.50, x2: 0.85, y2: 0.52 },
+    ],
   },
   {
     id: "bastion",
     name: "The Pale Bastion",
     epigraph: "Ward-stones keep the watch immortal and acolytes keep it whole. Crack the stone, kill the kindness.",
     art: "art/city-bastion.jpg",
-    nodeCount: 132, minDist: 70,
+    // The Pale Bastion map: a walled fortress, five ward-obelisks each glowing at
+    // the heart of its own court (a quincunx), white streets radiating between,
+    // dense blocks, and a heavy gated rampart around the whole. Its signature
+    // obelisks ARE the court hearts — plazaKind "obelisk" seats one at each of the
+    // five courts (obeliskCount 5); shrines (shrineCount 5) scatter between.
+    nodeCount: 270, minDist: 44, plazaRadius: 110, districtRadius: 135,
+    plazaKind: "obelisk",
     conduitFrac: 0.10, pressCount: 3, shrineCount: 5,
     obeliskCount: 5, // its signature: ward-obelisks that shield the watch until cracked
     keeperCount: 11, keeperSpacing: 255,
-    fenceCount: 12, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 2, healerCount: 4, sizeScale: 1.15,
+    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 2, healerCount: 4, sizeScale: 1.15,
     frescoes: [20, 21, 22], // the ward, the acolyte, the cracking
+    districts: [ // the quincunx; the centre court sits just off the heart (hero spawn)
+      { name: "The North Ravelin", fx: 0.28, fy: 0.24, weight: 1.0 },
+      { name: "The East Ravelin",  fx: 0.72, fy: 0.24, weight: 1.0 },
+      { name: "The Keep",          fx: 0.50, fy: 0.42, weight: 1.0 },
+      { name: "The South Ravelin", fx: 0.28, fy: 0.74, weight: 1.0 },
+      { name: "The West Ravelin",  fx: 0.72, fy: 0.74, weight: 1.0 },
+    ],
+    avenues: [ // streets from the keep to each ravelin, and a ring between them
+      { x1: 0.50, y1: 0.42, x2: 0.28, y2: 0.24 },
+      { x1: 0.50, y1: 0.42, x2: 0.72, y2: 0.24 },
+      { x1: 0.50, y1: 0.42, x2: 0.28, y2: 0.74 },
+      { x1: 0.50, y1: 0.42, x2: 0.72, y2: 0.74 },
+      { x1: 0.28, y1: 0.24, x2: 0.72, y2: 0.24 },
+      { x1: 0.72, y1: 0.24, x2: 0.72, y2: 0.74 },
+      { x1: 0.72, y1: 0.74, x2: 0.28, y2: 0.74 },
+      { x1: 0.28, y1: 0.74, x2: 0.28, y2: 0.24 },
+    ],
+    // The rampart: a gated perimeter (gap at each mid-edge where a wall meets the
+    // bounds), blocking bodies, not flame. Margins inside the 60px node band.
+    walls: [
+      { x1: 0.025, y1: 0.025, x2: 0.44, y2: 0.025 }, // north
+      { x1: 0.56, y1: 0.025, x2: 0.975, y2: 0.025 },
+      { x1: 0.025, y1: 0.975, x2: 0.44, y2: 0.975 }, // south
+      { x1: 0.56, y1: 0.975, x2: 0.975, y2: 0.975 },
+      { x1: 0.025, y1: 0.025, x2: 0.025, y2: 0.44 }, // west
+      { x1: 0.025, y1: 0.56, x2: 0.025, y2: 0.975 },
+      { x1: 0.975, y1: 0.025, x2: 0.975, y2: 0.44 }, // east
+      { x1: 0.975, y1: 0.56, x2: 0.975, y2: 0.975 },
+    ],
   },
 ];
 
@@ -784,11 +913,14 @@ function generateCity(
   const districts = resolveDistricts(level, w, h);
   const nodes: ArenaNode[] = [];
 
-  // Each plaza's heart is an open clearing; the first few carry a shrine landmark
-  // (counted within shrineCount, never additive — see the tail-slice below).
-  const shrineLandmarks = Math.min(districts.length, level.shrineCount);
+  // Each plaza's heart is an open clearing; the first few carry a landmark of the
+  // city's plazaKind (shrine by default, else its signature well/ward-stone),
+  // counted within that kind's dial — never additive (see the pool slices below).
+  const plazaKind = level.plazaKind ?? "shrine";
+  const kindBudget = { shrine: level.shrineCount, font: level.fontCount ?? 0, obelisk: level.obeliskCount ?? 0 };
+  const landmarkCount = Math.min(districts.length, kindBudget[plazaKind]);
   districts.forEach((d, i) => {
-    if (i < shrineLandmarks) nodes.push({ x: d.x, y: d.y, kind: "shrine" });
+    if (i < landmarkCount) nodes.push({ x: d.x, y: d.y, kind: plazaKind });
   });
 
   const inPlaza = (x: number, y: number) =>
@@ -839,13 +971,17 @@ function generateCity(
   cut += level.pressCount;
   // Lightwells and ward-obelisks — the new cities' signature structures. Carved
   // from the same shuffled pool as presses (same ethos), defaulting to none so the
-  // five original cities are untouched.
-  shuffled.slice(cut, cut + (level.fontCount ?? 0)).forEach((n) => (n.kind = "font"));
-  cut += level.fontCount ?? 0;
-  shuffled.slice(cut, cut + (level.obeliskCount ?? 0)).forEach((n) => (n.kind = "obelisk"));
+  // five original cities are untouched. Any of this kind already placed as a plaza
+  // landmark is subtracted, so the per-kind dial counts the landmarks + the pool.
+  const placedAtPlaza = (k: string) => (plazaKind === k ? landmarkCount : 0);
+  const fontPool = (level.fontCount ?? 0) - placedAtPlaza("font");
+  shuffled.slice(cut, cut + fontPool).forEach((n) => (n.kind = "font"));
+  cut += fontPool;
+  const obeliskPool = (level.obeliskCount ?? 0) - placedAtPlaza("obelisk");
+  shuffled.slice(cut, cut + obeliskPool).forEach((n) => (n.kind = "obelisk"));
   // Any shrines beyond the plaza landmarks scatter as before (guard the -0 slice,
   // which would otherwise grab the whole pool).
-  const extraShrines = level.shrineCount - shrineLandmarks;
+  const extraShrines = level.shrineCount - placedAtPlaza("shrine");
   if (extraShrines > 0) shuffled.slice(-extraShrines).forEach((n) => (n.kind = "shrine"));
 
   const keepers: ArenaNode[] = [];
