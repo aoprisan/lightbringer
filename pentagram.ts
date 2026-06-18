@@ -2501,7 +2501,7 @@ const SCENERY_SPRITE: Record<NodeKind, string> = {
   shrine: "shrine", keeper: "keeper-node", font: "font", obelisk: "obelisk",
 };
 const SCENERY_SIZE: Record<NodeKind, number> = {
-  dwelling: 64, conduit: 56, press: 78, shrine: 70, keeper: 0, font: 68, obelisk: 76,
+  dwelling: 112, conduit: 72, press: 104, shrine: 104, keeper: 0, font: 92, obelisk: 108,
 };
 
 // Resolve a node's sprite name from its live state: a dwelling shows its dark/
