@@ -5,8 +5,8 @@ node_modules/
 /pentagram.js
 /necro.js
 
-# Dev-only map preview (tools/preview-oldcity.mjs) — a local artifact, never shipped.
-/oldcity-preview.png
+# Dev-only map previews (tools/preview-city.mjs) — local artifacts, never shipped.
+/*-preview.png
 
 # macOS junk
 .DS_Store

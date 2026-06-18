@@ -1,6 +1,7 @@
-// Dev-only: rasterize the Old City arena buildArena() actually produces, as a
+// Dev-only: rasterize the arena buildArena() actually produces for a city, as a
 // top-down schematic, so we can eyeball it against the map art. Dependency-free
 // PNG (same encoder shape as gen-icons.mjs). Not part of the build or tests.
+//   node tools/preview-city.mjs [cityId]   (default old-city)
 import zlib from "node:zlib";
 import { writeFileSync } from "node:fs";
 
@@ -15,7 +16,10 @@ await import("../pentagram.js");
 const pg = globalThis.__pg;
 const K = pg.K;
 
-const s = pg.buildArena(pg.levelById("old-city"));
+const cityId = process.argv[2] || "old-city";
+const level = pg.levelById(cityId);
+if (!level) { console.error(`unknown city: ${cityId}`); process.exit(1); }
+const s = pg.buildArena(level);
 const SCALE = 0.5;
 const W = Math.round(s.w * SCALE), H = Math.round(s.h * SCALE);
 const buf = Buffer.alloc(W * H * 4);
@@ -59,7 +63,7 @@ for (const n of s.scenery) {
     fillRect(Math.round(n.x * SCALE), Math.round(n.y * SCALE), 5, 5, [0x5a, 0x63, 0x72]);
 }
 
-// Fences + authored walls — dark lines (walls = the rampart, near the edges).
+// Fences + authored walls — dark lines (walls = a rampart, near the edges).
 for (const f of s.fences)
   thickLine(f.x1 * SCALE, f.y1 * SCALE, f.x2 * SCALE, f.y2 * SCALE, Math.max(2, K.FENCE_HALF * SCALE), [0x20, 0x1a, 0x2a]);
 
@@ -68,6 +72,7 @@ for (const n of s.scenery) {
   const x = Math.round(n.x * SCALE), y = Math.round(n.y * SCALE);
   if (n.kind === "shrine") { disc(x, y, 9, [0x2a, 0x6f, 0x74]); disc(x, y, 4, [0xcf, 0xe8, 0xe6]); } // wells
   else if (n.kind === "font") disc(x, y, 8, [0x3a, 0x7a, 0xd0]);
+  else if (n.kind === "obelisk") disc(x, y, 7, [0x6a, 0x4a, 0x8a]);
   else if (n.kind === "press") disc(x, y, 7, [0x8a, 0x5a, 0x2a]);
   else if (n.kind === "keeper") disc(x, y, 6, [0xc0, 0x33, 0x33]); // enemy spawns
 }
@@ -90,5 +95,6 @@ const stride = W * 4;
 const raw = Buffer.alloc((stride + 1) * H);
 for (let y = 0; y < H; y++) buf.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
 const png = Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
-writeFileSync(new URL("../oldcity-preview.png", import.meta.url), png);
-console.log(`wrote oldcity-preview.png (${W}x${H}); pathways=${s.pathways.length} fences=${s.fences.length} dwellings=${s.scenery.filter(n=>n.kind==='dwelling').length} shrines=${s.scenery.filter(n=>n.kind==='shrine').length} keepers=${s.scenery.filter(n=>n.kind==='keeper').length}`);
+const outName = `${cityId}-preview.png`;
+writeFileSync(new URL("../" + outName, import.meta.url), png);
+console.log(`wrote ${outName} (${W}x${H}); pathways=${s.pathways.length} fences=${s.fences.length} dwellings=${s.scenery.filter(n=>n.kind==='dwelling').length} shrines=${s.scenery.filter(n=>n.kind==='shrine').length} keepers=${s.scenery.filter(n=>n.kind==='keeper').length}`);
