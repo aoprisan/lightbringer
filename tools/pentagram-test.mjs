@@ -1129,7 +1129,7 @@ const wallSegs = sav.fences.filter((f) =>
   && (f.x1 < sav.w * 0.05 || f.x1 > sav.w * 0.95 || f.y1 < sav.h * 0.05 || f.y1 > sav.h * 0.95));
 ok(wallSegs.length >= 8, `the rampart rings the city (${wallSegs.length} wall segments)`);
 // Cities without authored terrain weave their lanes as before (no walls/avenues).
-ok(pg.levelById("ashfold").avenues === undefined && pg.levelById("ashfold").walls === undefined,
+ok(pg.levelById("drowned").avenues === undefined && pg.levelById("drowned").walls === undefined,
   "other cities author no terrain (woven only)");
 // The authored avenues stay clear of buildings — the streets read as open
 // corridors, not blocks paved over (generateCity rejects nodes on a lane).

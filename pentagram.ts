@@ -622,12 +622,43 @@ const LEVELS: LevelDef[] = [
     name: "Ashfold",
     epigraph: "Dry tinder that remembers fire. The watch is many and quick to rise.",
     art: "art/city-ashfold.jpg",
-    nodeCount: 130, minDist: 64,
+    // Dense, tightly-packed blocks like its map (passable dwellings — visual, not
+    // a combat change; the host/menace dials are untouched). Its conduit-rich
+    // weave (the fuse of dry tinder) carries the fire block to block.
+    nodeCount: 290, minDist: 44, plazaRadius: 112, districtRadius: 360,
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     fontCount: 2, // dry-tinder city of motion — lightwells reward the constant kite
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 6, pathwayCount: 9, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
+    fenceCount: 4, pathwayCount: 0, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
     frescoes: [4, 9, 11], // fire and the spoken word
+    // The Ashfold map (art/city-ashfold.jpg) reads as a WEB, not a star: a ring
+    // of circular plazas ("running lanes" linking them) around a scorched centre.
+    // Seven open courts ringed off the heart (three carry a shrine well, the rest
+    // are bare clearings, as on the map) leave the centre a neutral crossing where
+    // the hero spawns. Lanes are authored (woven pathways off) to trace the web.
+    districts: [
+      { name: "The Cinder Yards", fx: 0.20, fy: 0.19, weight: 1.0 },
+      { name: "Embergate",        fx: 0.63, fy: 0.18, weight: 1.0 },
+      { name: "The Tanneries",    fx: 0.13, fy: 0.50, weight: 0.9 },
+      { name: "Smokefell",        fx: 0.87, fy: 0.52, weight: 0.9 },
+      { name: "Lower Ash",        fx: 0.21, fy: 0.79, weight: 1.0 },
+      { name: "Cinderway",        fx: 0.52, fy: 0.83, weight: 1.0 },
+      { name: "The Black Quay",   fx: 0.81, fy: 0.82, weight: 0.9 },
+    ],
+    // The "running lanes": a web linking neighbouring courts, plus three lanes
+    // crossing the scorched heart (the X and the cross-street of the map).
+    avenues: [
+      { x1: 0.20, y1: 0.19, x2: 0.63, y2: 0.18 }, // the ring of courts
+      { x1: 0.20, y1: 0.19, x2: 0.13, y2: 0.50 },
+      { x1: 0.63, y1: 0.18, x2: 0.87, y2: 0.52 },
+      { x1: 0.13, y1: 0.50, x2: 0.21, y2: 0.79 },
+      { x1: 0.87, y1: 0.52, x2: 0.81, y2: 0.82 },
+      { x1: 0.21, y1: 0.79, x2: 0.52, y2: 0.83 },
+      { x1: 0.52, y1: 0.83, x2: 0.81, y2: 0.82 },
+      { x1: 0.20, y1: 0.19, x2: 0.81, y2: 0.82 }, // crossings through the heart
+      { x1: 0.63, y1: 0.18, x2: 0.21, y2: 0.79 },
+      { x1: 0.13, y1: 0.50, x2: 0.87, y2: 0.52 },
+    ],
   },
   {
     id: "drowned",
