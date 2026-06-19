@@ -522,6 +522,13 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
+  // The descent's story. The seven cities are one journey — the carrier of the
+  // stolen flame giving the city back its mornings a quarter at a time. Each
+  // `story` is a chapter that names where you have come from and where the trail
+  // leads next, so cleansing one city literally opens the road to the following
+  // one (see `cityUnlocked` — the cities unlock in LEVELS order). Shown in the
+  // picker for the selected city and recalled at each cleansing.
+  story: string;
   art?: string;        // optional establishing image (art/city-*.jpg); silent-fail
   nodeCount: number;
   minDist: number;
@@ -574,6 +581,11 @@ const LEVELS: LevelDef[] = [
     id: "old-city",
     name: "The Old City",
     epigraph: "Where you first stole the flame. The watch is even — a fair first descent.",
+    story: "It begins where you stole the flame — the old town around the last " +
+      "bonfire, the watch still thin and even. Learn the sigil in these streets: " +
+      "stand, inscribe, and burn the dark back. When the Old City is whole again, " +
+      "the shades that flee it carry word inward, and the smoke leads you on — to " +
+      "the burned district of Ashfold.",
     art: "art/city-old.jpg",
     // Dense, tightly-packed quarters (the map is wall-to-wall blocks) — dwellings
     // are passable, so this is visual richness, not a combat change; the host
@@ -626,6 +638,11 @@ const LEVELS: LevelDef[] = [
     id: "ashfold",
     name: "Ashfold",
     epigraph: "Dry tinder that remembers fire. The watch is many and quick to rise.",
+    story: "Ashfold burned long ago and never forgot the fire. Its dry timber " +
+      "takes your flame like tinder and runs with it block to block — but the " +
+      "watch here is many and quick to rise. Cleanse it, and from the Black Quay " +
+      "the only road on lies across the water, to the streets the river swallowed: " +
+      "the Drowned Quarter.",
     art: "art/city-ashfold.jpg",
     // Dense, tightly-packed blocks like its map (passable dwellings — visual, not
     // a combat change; the host/menace dials are untouched). Its conduit-rich
@@ -669,6 +686,11 @@ const LEVELS: LevelDef[] = [
     id: "drowned",
     name: "The Drowned Quarter",
     epigraph: "The water took the low streets. Few shades here — but they wake patient and far.",
+    story: "The flood took the low streets and left island-wards strung on slender " +
+      "bridges. Few shades wake here, but they wake patient and far — snipers " +
+      "across black water. Hold the bridges and clear them. Past the weir the " +
+      "night air turns to glittering haze, where every spark you cast is caught " +
+      "and broken: the Glassworks ahead.",
     art: "art/city-drowned.jpg",
     // The Drowned Quarter map: dense island-wards on dark water, linked by slender
     // bridges. Tight clusters (the islands) with wide EMPTY water between — the
@@ -704,6 +726,11 @@ const LEVELS: LevelDef[] = [
     id: "glassworks",
     name: "The Glassworks",
     epigraph: "Everything here is bright and breaks. The watch is thick and tightly packed.",
+    story: "Everything in the Glassworks is bright and breaks. The watch is packed " +
+      "thick behind ward-stones that drink your light until they crack — break the " +
+      "stone, then break the host. Beyond the cooling kilns rise the cloisters " +
+      "where the faithful kept their long watch, and where the city first learned " +
+      "its lie: Vesper Row.",
     art: "art/city-glassworks.jpg",
     // The Glassworks map: a thick, tightly-packed maze — no broad courts, just
     // small spire-openings and two ward-obelisks. Eight small dense knots blanket
@@ -731,6 +758,11 @@ const LEVELS: LevelDef[] = [
     id: "vesper",
     name: "Vesper Row",
     epigraph: "The watch is thickest where the faithful sleep. The hardest descent.",
+    story: "Here the faithful sleep, and the watch is thickest where they prayed. " +
+      "These were the ones who taught the city that light burns; their wards run " +
+      "deep and their menders keep the host whole. It is the hardest ground yet. " +
+      "Cleanse the cloisters, and beneath them you find what fed their faith — " +
+      "molten light welling up from the deep moulds of the Ember Foundry.",
     art: "art/city-vesper.jpg",
     // Vesper Row map: the faithful's quarter — a dense web of cloister courts on
     // radial processionals, obelisk spires standing among them, and a single
@@ -768,6 +800,11 @@ const LEVELS: LevelDef[] = [
     id: "foundry",
     name: "The Ember Foundry",
     epigraph: "Molten light wells up from the deep moulds. Burn on the run — and don't stand to be mended.",
+    story: "Light itself is poured here, white and molten, from wells sunk to the " +
+      "city's heart. Inscribe on the run between them; do not stand to be mended. " +
+      "The Foundry fed every lamp the city ever lit — and every ward the watch " +
+      "ever raised. Follow the source behind the white walls, to the fortress that " +
+      "holds the last of the dark: the Pale Bastion.",
     art: "art/city-foundry.jpg",
     // The Ember Foundry map: a grid of dark courts, each with a molten well
     // glowing at its heart, lava veins running the streets between. Its signature
@@ -806,6 +843,11 @@ const LEVELS: LevelDef[] = [
     id: "bastion",
     name: "The Pale Bastion",
     epigraph: "Ward-stones keep the watch immortal and acolytes keep it whole. Crack the stone, kill the kindness.",
+    story: "The Pale Bastion is where the watch made its dark immortal: five " +
+      "ward-stones to keep the host from falling, acolytes to keep it whole. This " +
+      "is the heart that taught the lie that light burns. Crack the last stone, " +
+      "kill the last kindness, and the city has nothing left to hold the morning " +
+      "out — and the long night ends.",
     art: "art/city-bastion.jpg",
     // The Pale Bastion map: a walled fortress, five ward-obelisks each glowing at
     // the heart of its own court (a quincunx), white streets radiating between,
@@ -853,6 +895,41 @@ const LEVELS: LevelDef[] = [
 
 function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
+}
+
+// ---------- The story (the descent as one journey) ----------
+// The seven cities are a single arc, told in order: the carrier of the stolen
+// flame walking the city quarter by quarter to give back its mornings. The
+// PROLOGUE frames the first descent; each LevelDef.story is a chapter linking
+// the city before to the city after; the EPILOGUE plays once every city is
+// cleansed. The cities unlock in LEVELS order (`cityUnlocked`), so the journey
+// is the progression — you cannot reach Ashfold until the Old City is whole.
+const PROLOGUE =
+  "The city was taught that light burns. When the watch fell and rose again as " +
+  "shades, they snuffed every lamp and called the dark a mercy. You stole one " +
+  "flame from the last bonfire and learned to inscribe it into the ground. One " +
+  "quarter at a time, you will give the city back its morning.";
+const EPILOGUE =
+  "Seven quarters, seven dawns. The watch that taught the city light burns is " +
+  "undone — every shade unmade, every ward-stone cracked, every lamp you lit " +
+  "still lit. The morning the dark feared so long breaks over the whole city at " +
+  "last. And it does not burn. It warms.";
+
+// Sequential progression: the first city is always open; each later one unlocks
+// only once the city before it in LEVELS has been cleansed at least once (a
+// `best` time is recorded on every clear, at any ascension tier). This is what
+// threads the cities into a story — you walk the road the way it is told.
+function cityUnlocked(level: LevelDef, l: PgLegacy): boolean {
+  const i = LEVELS.indexOf(level);
+  if (i <= 0) return true;
+  return !!l.best[LEVELS[i - 1].id];
+}
+
+// Roman-numeral chapter label for a city (its 1-based place in the journey).
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function storyChapter(level: LevelDef): string {
+  const i = LEVELS.indexOf(level);
+  return ROMAN[i] ?? String(i + 1);
 }
 
 // ---------- Districts (the city's quarters) ----------
@@ -3948,7 +4025,19 @@ function start(): void {
       + (s.snuffed ? ` The watch clawed <em>${s.snuffed}</em> back into the dark.` : "");
     const row = (label: string, val: string) =>
       `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    // The story beat for this cleansing: the whole journey done plays the
+    // epilogue; otherwise, finishing a city opens the road to the next (and says
+    // so), threading the seven descents into one tale.
+    const idx = LEVELS.indexOf(s.level);
+    const next = LEVELS[idx + 1];
+    const allDone = LEVELS.every((lv) => l.best[lv.id]);
+    const storyBeat = allDone
+      ? `<p class="city-story story-end">${EPILOGUE}</p>`
+      : next
+        ? `<p class="city-story">The road on opens: <em>${next.name}</em>. ${next.epigraph}</p>`
+        : "";
     const breakdown =
+      storyBeat +
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Host cleared", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
@@ -4006,7 +4095,10 @@ function start(): void {
     const l = loadPgLegacy();
     // The selected city — defaults to the first, and supplies the establishing
     // art shown at the top of the card (mirrors the parent's Lamplighter intro).
-    const sel = levelById(selId || "") || LEVELS[0];
+    // A still-locked city can never be the selection (its button is disabled and
+    // can't be clicked), so the Descend button below always targets open ground.
+    let sel = levelById(selId || "") || LEVELS[0];
+    if (!cityUnlocked(sel, l)) sel = LEVELS[0];
     // Ascension — tier 0 is always available; clearing a city unlocks one tier above
     // the deepest cleared. The chosen tier is clamped to that range.
     const ascBest = l.ascension[sel.id] ?? -1;
@@ -4014,19 +4106,39 @@ function start(): void {
     const tier = clamp(Math.round(asc), 0, ascMax);
     const curse = curseFor(tier);
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
+    // The story chapter for the selected city — the prologue stands in front of
+    // the very first descent (before any city has been cleansed), then each city
+    // tells its own chapter, naming the road on. This is what links the cities.
+    const firstEver = l.clears === 0 && Object.keys(l.best).length === 0;
+    const story = firstEver && sel.id === LEVELS[0].id
+      ? `<p class="story-pre">${PROLOGUE}</p><p class="city-story">${sel.story}</p>`
+      : `<p class="city-story"><span class="story-ch">Chapter ${storyChapter(sel)}</span>${sel.story}</p>`;
     let html =
-      card +
-      `<p class="lede">Choose a city to descend into. Stand still to inscribe a ` +
+      card + story +
+      `<p class="lede">Stand still to inscribe a ` +
       `pentagram that burns the shades around you; move to dodge their touch and ` +
       `weave around the solid presses, shrines and fences. Run the pathways to outpace ` +
       `the swarm, and catch a dark dwelling in the ring to light it and mend yourself. ` +
       `Clear every shade and the city is cleansed.</p><div class="cities">`;
-    for (const lv of LEVELS) {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const lv = LEVELS[i];
       const done = l.best[lv.id];
+      const open = cityUnlocked(lv, l);
+      const ch = `<span class="city-ch">${ROMAN[i] ?? i + 1}</span>`;
+      if (!open) {
+        // A locked city keeps its mystery: name veiled behind its chapter, the
+        // road there dark until the city before it is cleansed.
+        const prev = LEVELS[i - 1];
+        html +=
+          `<button class="city locked" disabled>` +
+          `<span class="city-name">${ch}A dark quarter <span class="legacy-new">locked</span></span>` +
+          `<span class="city-line">Cleanse ${prev.name} to open the road here.</span></button>`;
+        continue;
+      }
       const mark = done ? ` <span class="legacy-new">cleansed ${fmtTime(done)}</span>` : "";
       html +=
         `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
-        `<span class="city-name">${lv.name}${mark}</span>` +
+        `<span class="city-name">${ch}${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
@@ -4418,6 +4530,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     makeSeal, sealSegments, edgeSegment, nearestNode, hashSeed,
     render, scaffold,
     aliveShades, clearedPct, scoreRun, difficultyMult, curseFor, LEVELS, levelById,
+    cityUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, maybeFresco, FRESCOES, FRESCO_ART, FRESCO_REACH,
     recordFrescoes, frescoGalleryHtml, savePgLegacy,
     qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,

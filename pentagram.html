@@ -236,6 +236,28 @@
     display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.45;
     color: var(--ink-dim); font-style: italic;
   }
+  /* The story — the prologue and each city's chapter, linking the descents. */
+  #ov-body .story-pre {
+    max-width: 440px; margin: 0 auto 12px; font-size: 14px; line-height: 1.65;
+    color: var(--ink-dim);
+  }
+  #ov-body .city-story {
+    max-width: 440px; margin: 0 auto 14px; font-size: 14px; line-height: 1.65;
+    color: var(--ink);
+  }
+  #ov-body .story-ch, #ov-body .city-ch {
+    color: var(--ember); font-size: 10px; letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  #ov-body .story-ch { display: block; margin-bottom: 3px; opacity: 0.85; }
+  #ov-body .city-ch { margin-right: 8px; opacity: 0.8; }
+  #ov-body .city-story.story-end { color: var(--gold-bright); font-style: italic; }
+  /* A locked city — dimmed and unselectable until its road is opened. */
+  #ov-body .city.locked {
+    cursor: default; opacity: 0.5; border-style: dashed;
+    border-color: rgba(255,106,60,0.16); background: rgba(255,106,60,0.015);
+  }
+  #ov-body .city.locked:hover { border-color: rgba(255,106,60,0.16); background: rgba(255,106,60,0.015); }
   #ov-body .legacy {
     margin: 20px auto 0; max-width: 340px; padding-top: 16px;
     border-top: 1px solid rgba(255,106,60,0.22);
