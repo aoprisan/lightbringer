@@ -288,6 +288,37 @@ ok(l4.runs === 4 && l4.clears === 3, "a death bumps runs but not clears");
 ok(l4.dwellingsLit === 6, "a death still folds dwellings relit (4 + 2)");
 ok(pg.loadPgLegacy().best["old-city"] === 3000, "the legacy persists to storage");
 
+// 11b. Story progression: the seven cities are one journey, unlocked in order.
+//      The first city is always open; each later one opens only once the city
+//      before it has been cleansed. Every city carries a story chapter, and the
+//      prologue/epilogue frame the whole descent.
+store.delete(LEGACY_KEY);
+const fresh0 = pg.loadPgLegacy();
+ok(pg.cityUnlocked(pg.LEVELS[0], fresh0), "the first city is open from the start");
+ok(!pg.cityUnlocked(pg.LEVELS[1], fresh0), "the second city is locked until the first is cleansed");
+ok(pg.LEVELS.slice(1).every((c) => !pg.cityUnlocked(c, fresh0)), "every city past the first starts locked");
+pg.recordClear(pg.LEVELS[0], 4000); // cleanse the first city
+const after1 = pg.loadPgLegacy();
+ok(pg.cityUnlocked(pg.LEVELS[1], after1), "cleansing a city opens the road to the next");
+ok(!pg.cityUnlocked(pg.LEVELS[2], after1), "but only the very next — the city after stays locked");
+ok(pg.cityUnlocked(pg.LEVELS[1], after1) && !pg.cityUnlocked(pg.LEVELS[3], after1),
+  "the unlock advances one city at a time");
+store.delete(LEGACY_KEY);
+ok(pg.LEVELS.every((c) => typeof c.story === "string" && c.story.length > 0),
+  "every city carries a story chapter");
+ok(pg.LEVELS.every((c, i) => pg.storyChapter(c) && pg.storyChapter(pg.LEVELS[i]) === pg.storyChapter(c)),
+  "every city has a chapter label");
+ok(pg.storyChapter(pg.LEVELS[0]) === "I" && pg.storyChapter(pg.LEVELS[1]) === "II",
+  "chapters number the cities in journey order");
+ok(typeof pg.PROLOGUE === "string" && pg.PROLOGUE.length > 0
+  && typeof pg.EPILOGUE === "string" && pg.EPILOGUE.length > 0,
+  "the journey is framed by a prologue and an epilogue");
+// Each city's story should name the next city — that's what links them into a
+// road (matched case-insensitively: a name reads "the Ember Foundry" mid-line).
+ok(pg.LEVELS.slice(0, -1).every((c, i) =>
+    c.story.toLowerCase().includes(pg.LEVELS[i + 1].name.toLowerCase())),
+  "each city's story names the city it leads to");
+
 // 14. Scoring: a clear banks a score and embers; the parts behave sensibly.
 const ssc = pg.buildArena(pg.levelById("old-city"));
 const sc0 = pg.scoreRun(ssc);
