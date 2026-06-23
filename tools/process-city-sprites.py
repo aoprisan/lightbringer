@@ -38,7 +38,10 @@ except ImportError:
 # Board navy that the base sprites are flattened onto (sampled from art/*.png).
 NAVY = (15, 17, 30)
 
-# The eight re-skinnable sprites — must stay in sync with CITY_SPRITES in app.ts.
+# The re-skinnable sprites — must stay in sync with CITY_SPRITES in pentagram.ts.
+# The base eight, plus the cities' signature structures (a lightwell font and a
+# ward-obelisk); a city only ships the ones it actually seeds, and missing
+# sources are skipped, so listing them here is safe for every city.
 SPRITES = [
     "ground",
     "dwelling-dark",
@@ -48,10 +51,12 @@ SPRITES = [
     "conduit",
     "press",
     "shrine",
+    "font",
+    "obelisk",
 ]
 
 # Cities that get a re-skin (The Old City keeps the base set, so it is absent).
-CITIES = ["ashfold", "drowned", "glassworks", "vesper"]
+CITIES = ["ashfold", "drowned", "glassworks", "vesper", "foundry", "bastion"]
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

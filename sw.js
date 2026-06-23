@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v89";
+const CACHE = "lightbringer-v90";
 
 const ASSETS = [
   "./",
@@ -111,7 +111,7 @@ const ASSETS = [
   "./art/rain-overlay.png",
   "./art/wind-overlay.png",
   // Per-city sprite re-skins (spriteFor falls back to the base set when absent).
-  // Ashfold: ground + four dwelling states + conduit + press + shrine.
+  // Ashfold: ground + four dwelling states + conduit + press + shrine + lightwell font.
   "./art/ashfold/ground.png",
   "./art/ashfold/dwelling-dark.png",
   "./art/ashfold/dwelling-lit.png",
@@ -120,7 +120,8 @@ const ASSETS = [
   "./art/ashfold/conduit.png",
   "./art/ashfold/press.png",
   "./art/ashfold/shrine.png",
-  // Glassworks: ground + four dwelling states + conduit + press + shrine.
+  "./art/ashfold/font.png",
+  // Glassworks: ground + four dwelling states + conduit + press + shrine + lightwell font + ward-obelisk.
   "./art/glassworks/ground.png",
   "./art/glassworks/dwelling-dark.png",
   "./art/glassworks/dwelling-lit.png",
@@ -129,7 +130,9 @@ const ASSETS = [
   "./art/glassworks/conduit.png",
   "./art/glassworks/press.png",
   "./art/glassworks/shrine.png",
-  // The Drowned Quarter: ground + four dwelling states + conduit + press + shrine.
+  "./art/glassworks/font.png",
+  "./art/glassworks/obelisk.png",
+  // The Drowned Quarter: ground + four dwelling states + conduit + press + shrine + ward-obelisk.
   "./art/drowned/ground.png",
   "./art/drowned/dwelling-dark.png",
   "./art/drowned/dwelling-lit.png",
@@ -138,7 +141,8 @@ const ASSETS = [
   "./art/drowned/conduit.png",
   "./art/drowned/press.png",
   "./art/drowned/shrine.png",
-  // Vesper Row: ground + four dwelling states + conduit + press + shrine.
+  "./art/drowned/obelisk.png",
+  // Vesper Row: ground + four dwelling states + conduit + press + shrine + lightwell font.
   "./art/vesper/ground.png",
   "./art/vesper/dwelling-dark.png",
   "./art/vesper/dwelling-lit.png",
@@ -147,6 +151,7 @@ const ASSETS = [
   "./art/vesper/conduit.png",
   "./art/vesper/press.png",
   "./art/vesper/shrine.png",
+  "./art/vesper/font.png",
 ];
 
 self.addEventListener("install", (event) => {
