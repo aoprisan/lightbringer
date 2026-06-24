@@ -104,6 +104,14 @@ interface Knight {
   shootCd?: number;             // a crossbowman's ms until it can loose its next bolt
   banner?: boolean;             // a standard-bearer: rallies the watch around it (an aura, see stepKnights)
   rallied?: boolean;            // transient (per-frame): within a living banner's rally this frame — never persisted
+  mender?: boolean;             // a chaplain-mender: doesn't melee — holds a standoff and heals the most-wounded knight
+  mending?: boolean;            // transient (per-frame): channelling a heal this frame (for the render beam)
+  mendX?: number; mendY?: number; // transient: the knight it is mending (beam endpoint), set when mending
+  paladin?: boolean;            // a paladin: a melee wall with flat per-hit armour (see hurtKnight)
+  marshal?: boolean;            // a marshal: melees, but periodically charges in a straight-line dash (see stepKnights)
+  chargeCd?: number;            // a marshal's ms until it can charge again
+  chargeMs?: number;            // a marshal's ms remaining in the current charge dash (>0 ⇒ charging)
+  chargeDx?: number; chargeDy?: number; // a marshal's locked charge heading
 }
 
 // FX, drawn then faded — never persisted. A Raise is the bone-burst ring on a
@@ -323,6 +331,37 @@ const BANNER_HASTE = 0.75;          // a rallied knight's swing cooldown is scal
 const BANNER_DMG_MUL = 1.25;        // a rallied knight's swing deals this much of its damage
 const BANNER_HEAL = 4;              // hp/sec a rallied knight mends, up to its maxHp (a slow attrition edge)
 
+// Menders — the chantry's field-chaplains (a direct port of the Vigil's healer).
+// A mender never melees: it holds a standoff and channels a STRONG single-target
+// heal into the most-wounded knight in range, undoing the horde's chip damage.
+// Distinct from a standard-bearer (a small passive aura that melees): the mender is
+// a backline that does nothing but mend — so kill it first. Frail.
+const MENDER_HP_MUL = 1.2;          // a mender's hp over a common knight (a soft backline)
+const MENDER_RANGE = 240;           // it mends the most-wounded knight within this
+const MENDER_STANDOFF = 170;        // it kites away from a threat closer than this
+const MENDER_HEAL = 16;             // hp/sec it channels into its mark (strong, single-target)
+
+// Paladins — the watch's wall. A paladin melees like a common knight, but its plate
+// shaves a FLAT amount off every blow it takes (to a floor, so it still dies): chip
+// damage barely scratches it, forcing the horde to focus-fire or overwhelm. Distinct
+// from a captain (just a bigger hp pool). Armour is applied in hurtKnight.
+const PALADIN_HP_MUL = 1.8;         // a paladin's hp over a common knight
+const PALADIN_ARMOR = 6;            // flat damage shaved off each blow a paladin takes
+const PALADIN_MIN_DMG = 1;          // ...but every blow still lands at least this (it is mortal)
+
+// Marshals — the watch's cavalry. A marshal melees between charges, but periodically
+// locks a heading and DASHES in a straight line at high speed; the impact deals heavy
+// damage and a long knockback to whatever it strikes (necromancer or skeleton), then
+// it recovers. Fast, high-pressure, and punishes a clumped horde — keep moving and
+// don't bunch up. Distinct from every other knight (a new movement mechanic).
+const MARSHAL_HP_MUL = 1.5;         // a marshal's hp over a common knight
+const MARSHAL_CHARGE_CD = 2600;     // ms between charges
+const MARSHAL_CHARGE_MS = 420;      // how long a charge dash lasts
+const MARSHAL_CHARGE_SPEED = 520;   // dash speed, units/s (far above KNIGHT_SPEED)
+const MARSHAL_CHARGE_RANGE = 340;   // it begins a charge at a target within this (and off cooldown)
+const MARSHAL_IMPACT_DMG = 20;      // damage a charge impact deals
+const MARSHAL_KNOCKBACK = 120;      // how far an impact flings what it strikes
+
 // Obstacles — the village's solid structures (wells, altars) block bodies; the
 // hero, minions and knights weave around them. Houses and graves are passable
 // (you raze the former, raise at the latter). Radii are roughly the footprint.
@@ -405,6 +444,9 @@ interface LevelDef {
   priestCount?: number;   // posts that muster a mana-channeling priest (default 0)
   crossbowCount?: number; // posts whose third knight is a ranged crossbowman (default 0)
   bannerCount?: number;   // posts that muster an extra rally-aura standard-bearer (default 0)
+  menderCount?: number;   // posts that muster an extra backline mender/chaplain (default 0)
+  paladinCount?: number;  // posts that muster an extra armoured paladin wall (default 0)
+  marshalCount?: number;  // posts that muster an extra charging marshal/cavalry (default 0)
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -428,7 +470,7 @@ const LEVELS: LevelDef[] = [
     houseFrac: 0.22, wellCount: 3, altarCount: 4, graveCount: 9,
     postCount: 7, postSpacing: 320,
     barricadeCount: 6, causewayCount: 9, captainCount: 2, priestCount: 1,
-    crossbowCount: 2, sizeScale: 1.0,
+    crossbowCount: 2, menderCount: 1, sizeScale: 1.0,
   },
   {
     id: "saint-aubers",
@@ -439,7 +481,7 @@ const LEVELS: LevelDef[] = [
     houseFrac: 0.16, wellCount: 5, altarCount: 3, graveCount: 5,
     postCount: 9, postSpacing: 270,
     barricadeCount: 12, causewayCount: 4, captainCount: 4, priestCount: 3,
-    crossbowCount: 4, bannerCount: 2, sizeScale: 1.1,
+    crossbowCount: 4, bannerCount: 2, menderCount: 2, paladinCount: 2, sizeScale: 1.1,
   },
   {
     id: "gallows-fen",
@@ -450,7 +492,7 @@ const LEVELS: LevelDef[] = [
     houseFrac: 0.30, wellCount: 2, altarCount: 5, graveCount: 8,
     postCount: 6, postSpacing: 400,
     barricadeCount: 10, causewayCount: 3, captainCount: 2, priestCount: 2,
-    crossbowCount: 3, bannerCount: 1, sizeScale: 1.15,
+    crossbowCount: 3, bannerCount: 1, paladinCount: 1, marshalCount: 2, sizeScale: 1.15,
   },
 ];
 
@@ -642,8 +684,11 @@ function buildArena(level: LevelDef): NecroState {
   const priestCount = Math.min(level.priestCount ?? 0, posts.length);
   const crossbowCount = Math.min(level.crossbowCount ?? 0, posts.length);
   const bannerCount = Math.min(level.bannerCount ?? 0, posts.length);
+  const menderCount = Math.min(level.menderCount ?? 0, posts.length);
+  const paladinCount = Math.min(level.paladinCount ?? 0, posts.length);
+  const marshalCount = Math.min(level.marshalCount ?? 0, posts.length);
   // Muster one knight near a post — a small helper so the post's fixed three and
-  // its (optional) extra standard-bearer all spawn the same way.
+  // its (optional) extra defenders all spawn the same way.
   const muster = (post: { x: number; y: number }, k: Partial<Knight> & { hp: number }): void => {
     const a = Math.random() * Math.PI * 2;
     const r = 18 + Math.random() * 44;
@@ -655,8 +700,9 @@ function buildArena(level: LevelDef): NecroState {
       wanderAngle: Math.random() * Math.PI * 2,
       wanderTimer: Math.random() * KNIGHT_WANDER_RETARGET_MS,
       homeX: post.x, homeY: post.y,
-      attackCd: 0, hit: 0, mana: 0, shootCd: 0,
+      attackCd: 0, hit: 0, mana: 0, shootCd: 0, chargeCd: 0, chargeMs: 0,
       captain: k.captain, priest: k.priest, crossbow: k.crossbow, banner: k.banner,
+      mender: k.mender, paladin: k.paladin, marshal: k.marshal,
     });
   };
   posts.forEach((post, pi) => {
@@ -674,9 +720,12 @@ function buildArena(level: LevelDef): NecroState {
         : KNIGHT_HP;
       muster(post, { hp, captain, priest, crossbow });
     }
-    // A standard-bearer is an EXTRA body the first `bannerCount` posts raise — added,
-    // not slotted, so the post's fixed three are untouched.
+    // The support/specialist defenders are EXTRA bodies the first N posts raise —
+    // added, not slotted, so the post's fixed three are untouched.
     if (pi < bannerCount) muster(post, { hp: KNIGHT_HP * BANNER_HP_MUL, banner: true });
+    if (pi < menderCount) muster(post, { hp: KNIGHT_HP * MENDER_HP_MUL, mender: true });
+    if (pi < paladinCount) muster(post, { hp: KNIGHT_HP * PALADIN_HP_MUL, paladin: true });
+    if (pi < marshalCount) muster(post, { hp: KNIGHT_HP * MARSHAL_HP_MUL, marshal: true });
   });
   // The equipped raising-rite is re-derived from the legacy on every build (the
   // picker has the only chooser; a march is rite-locked once it begins).
@@ -768,6 +817,18 @@ function killKnight(s: NecroState, e: Knight): void {
   }
 }
 
+// Wound a knight from any source (minion swing, totem pulse, altar burst). The
+// single damage path: a paladin's plate shaves a flat amount off each blow (to a
+// floor, so it is still mortal), every other knight takes the blow whole. Flashes
+// it and fells it (killKnight) at zero. Keeps paladin armour true everywhere.
+function hurtKnight(s: NecroState, e: Knight, dmg: number): void {
+  if (e.dead) return;
+  const d = e.paladin ? Math.max(PALADIN_MIN_DMG, dmg - PALADIN_ARMOR) : dmg;
+  e.hp -= d;
+  e.hit = s.elapsed + HIT_FLASH_MS;
+  if (e.hp <= 0) killKnight(s, e);
+}
+
 // Raise the dead: only while the raising-pentagram is inscribed (charge ≥ PENTA_RAISE_AT,
 // i.e. the necromancer has held still — see stepMarch). Then for each grave he stands
 // beside, off cooldown, with raises left and souls to spend and room in the horde,
@@ -857,10 +918,8 @@ function stepMinions(s: NecroState, dt: number): void {
       // Swing if in reach, off cooldown.
       const reach = MINION_RADIUS + KNIGHT_RADIUS + MINION_ATTACK_REACH;
       if (dist <= reach && m.attackCd <= 0) {
-        target.hp -= MINION_DMG * def.dmgMul;
-        target.hit = s.elapsed + HIT_FLASH_MS;
+        hurtKnight(s, target, MINION_DMG * def.dmgMul);
         m.attackCd = MINION_ATTACK_CD;
-        if (target.hp <= 0) killKnight(s, target);
       }
       dx /= dist; dy /= dist;
       // Separation among fellow minions so the horde packs rather than overlaps.
@@ -1007,6 +1066,78 @@ function stepKnights(s: NecroState, dt: number): void {
             dmg: BOLT_DMG, until: s.elapsed + BOLT_TTL_MS,
           });
           e.shootCd = CROSSBOW_SHOOT_CD;
+        }
+      } else if (e.mender) {
+        // A mender never melees. It holds a standoff and channels a strong heal into
+        // the most-wounded knight in range, undoing the horde's chip damage — so kill
+        // it first. Frail backline; kites away from a threat that closes on it.
+        e.mending = false;
+        let wi = -1, worst = 1;
+        for (let i = 0; i < s.knights.length; i++) {
+          const o = s.knights[i];
+          if (o.dead || o === e || o.hp >= o.maxHp) continue;
+          if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 > MENDER_RANGE ** 2) continue;
+          const frac = o.hp / o.maxHp;
+          if (frac < worst) { worst = frac; wi = i; }
+        }
+        if (wi >= 0) {
+          const o = s.knights[wi];
+          o.hp = Math.min(o.maxHp, o.hp + (MENDER_HEAL * dt) / 1000);
+          e.mending = true; e.mendX = o.x; e.mendY = o.y;
+        }
+        dx /= dist; dy /= dist;
+        if (dist < MENDER_STANDOFF) { dx = -dx; dy = -dy; speed = KNIGHT_SPEED; } // kite from a near threat
+        else { speed = 0; }                                                        // else hold near the wounded
+      } else if (e.marshal) {
+        // A marshal charges: off cooldown and with a target in range it locks a
+        // heading and DASHES; the impact deals heavy damage and a long knockback to
+        // whatever it strikes (necromancer or skeleton), then it recovers. Between
+        // charges it melees like a common knight. Punishes a clumped horde.
+        e.chargeCd = Math.max(0, (e.chargeCd ?? 0) - dt);
+        if ((e.chargeMs ?? 0) > 0) {
+          // Mid-dash along the locked heading.
+          e.chargeMs = Math.max(0, (e.chargeMs ?? 0) - dt);
+          dx = e.chargeDx ?? 0; dy = e.chargeDy ?? 0; speed = MARSHAL_CHARGE_SPEED;
+          const kd = Math.hypot(dx, dy) || 1;
+          let struck = false;
+          // Impact: the necromancer first, then any skeleton in the dash's path.
+          if (h.hurt <= 0 && (h.x - e.x) ** 2 + (h.y - e.y) ** 2 <= (KNIGHT_RADIUS + HERO_RADIUS + 4) ** 2) {
+            h.hp -= MARSHAL_IMPACT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS;
+            const p = pushOut(s, h.x + (dx / kd) * MARSHAL_KNOCKBACK, h.y + (dy / kd) * MARSHAL_KNOCKBACK, HERO_RADIUS);
+            h.x = p.x; h.y = p.y; struck = true;
+          }
+          if (!struck) {
+            for (const m of s.minions) {
+              if (m.dead) continue;
+              if ((m.x - e.x) ** 2 + (m.y - e.y) ** 2 <= (KNIGHT_RADIUS + MINION_RADIUS + 4) ** 2) {
+                m.hp -= MARSHAL_IMPACT_DMG; m.hit = s.elapsed + HIT_FLASH_MS;
+                m.x += (dx / kd) * MARSHAL_KNOCKBACK; m.y += (dy / kd) * MARSHAL_KNOCKBACK;
+                if (m.hp <= 0) m.dead = true;
+                struck = true; break;
+              }
+            }
+          }
+          if (struck || (e.chargeMs ?? 0) <= 0) { e.chargeMs = 0; e.chargeCd = MARSHAL_CHARGE_CD; } // recover
+        } else {
+          dx /= dist; dy /= dist;
+          if ((e.chargeCd ?? 0) <= 0 && dist <= MARSHAL_CHARGE_RANGE) {
+            e.chargeMs = MARSHAL_CHARGE_MS; e.chargeDx = dx; e.chargeDy = dy; speed = MARSHAL_CHARGE_SPEED; // begin a charge
+          } else {
+            // Between charges: a common-knight swing when adjacent.
+            if (e.attackCd <= 0) {
+              const reach = (targetMinion ? MINION_RADIUS : HERO_RADIUS) + KNIGHT_RADIUS + KNIGHT_ATTACK_REACH;
+              if (dist <= reach) {
+                if (targetMinion) {
+                  targetMinion.hp -= KNIGHT_DMG; targetMinion.hit = s.elapsed + HIT_FLASH_MS;
+                  if (targetMinion.hp <= 0) targetMinion.dead = true;
+                } else if (h.hurt <= 0) {
+                  h.hp -= KNIGHT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS;
+                }
+                e.attackCd = KNIGHT_ATTACK_CD;
+              }
+            }
+            speed = KNIGHT_SPEED;
+          }
         }
       } else {
         // Swing if in reach, off cooldown. A rallied knight (within a standard-
@@ -1177,11 +1308,7 @@ function stepHouses(s: NecroState, dt: number): void {
     if (!n.risen) continue;
     for (const e of s.knights) {
       if (e.dead) continue;
-      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= tr2) {
-        e.hp -= tdmg;
-        e.hit = s.elapsed + HIT_FLASH_MS;
-        if (e.hp <= 0) killKnight(s, e);
-      }
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= tr2) hurtKnight(s, e, tdmg);
     }
   }
 }
@@ -1213,11 +1340,7 @@ function stepAltar(s: NecroState): void {
     const br2 = ALTAR_BURST_R ** 2;
     for (const e of s.knights) {
       if (e.dead) continue;
-      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= br2) {
-        e.hp -= ALTAR_BURST_DMG;
-        e.hit = s.elapsed + HIT_FLASH_MS;
-        if (e.hp <= 0) killKnight(s, e);
-      }
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= br2) hurtKnight(s, e, ALTAR_BURST_DMG);
     }
     for (const d of s.scenery) {
       if (d.kind !== "house" || d.desecrated) continue;
@@ -1674,17 +1797,18 @@ function render(s: NecroState, layer: SVGGElement): void {
     if (e.dead) continue;
     const op = e.state === "engage" ? 1 : 0.6;
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = (e.captain ? 58 : e.banner ? 54 : e.priest ? 50 : 44) * (1 + flash * 0.18);
+    const sz = (e.captain || e.paladin ? 58 : e.banner || e.marshal ? 54 : e.priest || e.mender ? 50 : 44) * (1 + flash * 0.18);
     // A priest draws its own sprite when shipped, else falls back to the knight art.
     const useKey = e.priest && priestKey ? priestKey : (e.state === "engage" ? knightKey : guardKey);
     if (useKey) {
       layer.appendChild(spriteImage(useKey, e.x, e.y, sz, op));
     } else {
-      const q = KNIGHT_RADIUS * (e.captain ? 2 : 1.5);
+      const q = KNIGHT_RADIUS * (e.captain || e.paladin ? 2 : 1.5);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
-        fill: e.priest ? "#201d2a" : e.crossbow ? "#22251c" : "#2a2620",
-        stroke: e.priest ? "#ffe8a0" : e.crossbow ? "#9fb0c0" : e.banner ? "#e0c060" : "#cfd2c0",
+        fill: e.priest ? "#201d2a" : e.crossbow ? "#22251c" : e.mender ? "#1a261e" : "#2a2620",
+        stroke: e.priest ? "#ffe8a0" : e.crossbow ? "#9fb0c0" : e.banner ? "#e0c060"
+          : e.mender ? "#9dffb6" : e.paladin ? "#dfe8f0" : e.marshal ? "#d8b070" : "#cfd2c0",
         "stroke-width": 2, opacity: op,
       }));
     }
@@ -1731,6 +1855,49 @@ function render(s: NecroState, layer: SVGGElement): void {
         d: `M ${e.x} ${e.y - KNIGHT_RADIUS - 22} L ${e.x + 12} ${e.y - KNIGHT_RADIUS - 18} L ${e.x} ${e.y - KNIGHT_RADIUS - 14} Z`,
         fill: "#e0c060", opacity: 0.9 * op,
       }));
+    }
+    // A mender reads pale-green, with a mend-beam to the knight it is healing — the
+    // read to fell the chaplain (or its mark) and stop the heal.
+    if (e.mender) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
+        stroke: "#9dffb6", "stroke-width": 1.6, opacity: 0.5 * op,
+      }));
+      if (e.mending && e.mendX != null && e.mendY != null) {
+        const beamFx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+        layer.appendChild(el("line", {
+          x1: e.x, y1: e.y, x2: e.mendX, y2: e.mendY,
+          stroke: "#aeffce", "stroke-width": 2, "stroke-linecap": "round", opacity: 0.6 * op, ...beamFx,
+        }));
+      }
+    }
+    // A paladin reads as a wall: a thick steel-bright double ring (its plate).
+    if (e.paladin) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 5, fill: "none",
+        stroke: "#dfe8f0", "stroke-width": 3, opacity: 0.6 * op,
+      }));
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 9, fill: "none",
+        stroke: "#aebccc", "stroke-width": 1.2, opacity: 0.4 * op,
+      }));
+    }
+    // A marshal reads by a forward lance-tick, and flares a motion streak mid-charge.
+    if (e.marshal) {
+      const charging = (e.chargeMs ?? 0) > 0;
+      const hx = e.chargeDx ?? (e.vx ? e.vx / (Math.hypot(e.vx, e.vy) || 1) : 0);
+      const hy = e.chargeDy ?? (e.vy ? e.vy / (Math.hypot(e.vx, e.vy) || 1) : 0);
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
+        stroke: "#d8b070", "stroke-width": charging ? 2.6 : 1.4, opacity: (charging ? 0.85 : 0.45) * op,
+      }));
+      if (charging) {
+        const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#glow)" };
+        layer.appendChild(el("line", {
+          x1: e.x - hx * 22, y1: e.y - hy * 22, x2: e.x + hx * 18, y2: e.y + hy * 18,
+          stroke: "#ffe3a8", "stroke-width": 3, "stroke-linecap": "round", opacity: 0.8 * op, ...fx,
+        }));
+      }
     }
     // A priest reads by its holy charge: an aura that fills toward a smite and
     // flares bright gold when fully charged — the telegraph to rush it or feint.
@@ -2172,14 +2339,16 @@ function start(): void {
       if (m.dead) continue;
       mmEl.appendChild(el("circle", { cx: m.x * scale, cy: m.y * scale, r: 1.0, fill: "#e8efd8", opacity: 0.85 }));
     }
-    // The watch that remains — the map's whole point (captains steel, priests gold,
-    // crossbowmen slate, bearers amber — so you can pick which threat to rush).
+    // The watch that remains — the map's whole point (captains/paladins steel,
+    // priests gold, crossbowmen slate, bearers amber, menders green, marshals tan —
+    // so you can pick which threat to rush).
     for (const e of s.knights) {
       if (e.dead) continue;
       mmEl.appendChild(el("circle", {
         cx: e.x * scale, cy: e.y * scale,
-        r: e.captain ? 1.9 : e.banner ? 1.7 : e.priest ? 1.6 : e.crossbow ? 1.5 : 1.3,
-        fill: e.priest ? "#ffe8a0" : e.banner ? "#e0c060" : e.crossbow ? "#9fb0c0" : "#cfd2c0",
+        r: e.captain || e.paladin ? 1.9 : e.banner || e.marshal ? 1.7 : e.priest || e.mender ? 1.6 : e.crossbow ? 1.5 : 1.3,
+        fill: e.priest ? "#ffe8a0" : e.banner ? "#e0c060" : e.crossbow ? "#9fb0c0"
+          : e.mender ? "#9dffb6" : e.paladin ? "#dfe8f0" : e.marshal ? "#d8b070" : "#cfd2c0",
         opacity: 0.95,
       }));
     }
@@ -2493,7 +2662,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
   testGlobal.__necro = {
     generateNecroVillage, buildArena, freshNecro, stepMarch,
     stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps,
-    killKnight, desecrateHouse, reconsecrateHouse, nearScar,
+    killKnight, hurtKnight, desecrateHouse, reconsecrateHouse, nearScar,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
@@ -2518,6 +2687,10 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       CROSSBOW_HP_MUL, CROSSBOW_RANGE, CROSSBOW_STANDOFF, CROSSBOW_SHOOT_CD,
       BOLT_SPEED, BOLT_DMG, BOLT_TTL_MS,
       BANNER_HP_MUL, BANNER_RADIUS, BANNER_HASTE, BANNER_DMG_MUL, BANNER_HEAL,
+      MENDER_HP_MUL, MENDER_RANGE, MENDER_STANDOFF, MENDER_HEAL,
+      PALADIN_HP_MUL, PALADIN_ARMOR, PALADIN_MIN_DMG,
+      MARSHAL_HP_MUL, MARSHAL_CHARGE_CD, MARSHAL_CHARGE_MS, MARSHAL_CHARGE_SPEED,
+      MARSHAL_CHARGE_RANGE, MARSHAL_IMPACT_DMG, MARSHAL_KNOCKBACK,
       OBSTACLE_RADIUS, BARRICADE_HALF, CAUSEWAY_HALF, CAUSEWAY_BOOST,
       DESEC_REACH, DESEC_HEAL, HEAL_CAP, HOUSE_RISE_MS, TOTEM_RADIUS, TOTEM_DMG,
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,

@@ -371,20 +371,35 @@ guard until roused, then chase the nearest threat (necromancer or minion) and sw
 (`PRIEST_CHARGE_MS`), locks the nearest skeleton in range (`PRIEST_SMITE_RANGE`), and after a windup beam
 **kills it outright** — with **two counterplays**: crowd it with skeletons (each within `PRIEST_SWARM_RADIUS`
 slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own body** on the beam
-(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Two more defenders deepen the watch:
+(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Five more defenders deepen the watch:
 - **Crossbowman** (`CROSSBOW_*`) — the watch's **ranged** arm (mirror of the Vigil's spitter, and Necro's
   **only projectile**). It **never melees**: it holds a standoff (`CROSSBOW_STANDOFF`/`CROSSBOW_RANGE`,
   kiting near threats, closing far ones) and looses **dodgeable bolts** (`stepBolts`, a `Bolt` on `s.bolts`)
   on `CROSSBOW_SHOOT_CD`. A bolt is stopped by a **barricade** (`barricadeBetween`/`segsCross`) — which also
   makes it **hold fire** when one blocks line of sight — so the counters are cover, body-blocking with the
   horde, and movement (it punishes standing still to inscribe). `crossbowCount`.
-- **Standard-Bearer** (`BANNER_*`) — the watch's **support** (the defenders' answer to the Vigil's mender).
-  It melees like a common knight but its banner emits a **rally aura** (`BANNER_RADIUS`): knights within it
-  swing faster (`BANNER_HASTE`), hit harder (`BANNER_DMG_MUL`), and slowly mend (`BANNER_HEAL`) — a transient
-  per-frame `rallied` flag recomputed in `stepKnights`. **Kill the bearer and the buff collapses.** Mustered
-  as one **extra** body per post (never taking a fixed slot). `bannerCount`.
+- **Standard-Bearer** (`BANNER_*`) — the watch's **support**. It melees like a common knight but its banner
+  emits a **rally aura** (`BANNER_RADIUS`): knights within it swing faster (`BANNER_HASTE`), hit harder
+  (`BANNER_DMG_MUL`), and slowly mend (`BANNER_HEAL`) — a transient per-frame `rallied` flag recomputed in
+  `stepKnights`. **Kill the bearer and the buff collapses.** `bannerCount`.
+- **Mender / Chaplain** (`MENDER_*`) — a backline **healer** (direct port of the Vigil's mender). It **never
+  melees**: it holds a standoff (`MENDER_STANDOFF`) and channels a **strong single-target heal**
+  (`MENDER_HEAL`) into the most-wounded knight within `MENDER_RANGE` (drawn as a mend-beam). Kill it (or its
+  mark) first. `menderCount`.
+- **Paladin** (`PALADIN_*`) — a melee **wall**. Its plate shaves a **flat** amount off every blow it takes
+  (`PALADIN_ARMOR`, to a `PALADIN_MIN_DMG` floor, so it is still mortal): chip damage barely scratches it,
+  forcing the horde to focus-fire. Armour is applied in `hurtKnight` — the single damage path all knight
+  damage (minion swing, totem pulse, altar burst) now routes through. `paladinCount`.
+- **Marshal / Cavalry** (`MARSHAL_*`) — a **charging** skirmisher. Off cooldown (`MARSHAL_CHARGE_CD`) with a
+  target in `MARSHAL_CHARGE_RANGE`, it locks a heading and **dashes** (`MARSHAL_CHARGE_SPEED`/`_MS`); the
+  impact deals heavy damage (`MARSHAL_IMPACT_DMG`) and a long knockback (`MARSHAL_KNOCKBACK`) to whatever it
+  strikes, then it recovers. Melees like a common knight between charges. Punishes a clumped horde.
+  `marshalCount`.
 
-Captain/priest/crossbow/banner counts are all per-`LevelDef` dials.
+`hurtKnight(s, e, dmg)` is the centralized knight-damage path (so paladin armour holds everywhere); the
+crossbow/mender/marshal are **extra bodies** mustered per post (banner/mender/paladin/marshal never take a
+fixed slot, the crossbow takes only the third common slot). Captain/priest/crossbow/banner/mender/paladin/
+marshal counts are all per-`LevelDef` dials.
 
 ### Houses & terrain
 
@@ -408,10 +423,12 @@ Captain/priest/crossbow/banner counts are all per-`LevelDef` dials.
 `stepMarch`.
 
 Villages (`LEVELS`, via `generateNecroVillage`/`levelById`/`buildArena`): **Hollowmere** (fair first
-march, no special defenders), **The Tithe Barrows** (graves plentiful, 2 captains/1 priest/2 crossbows),
-**Saint Auber's Rest** (walled, hardest — 4 captains/3 priests/4 crossbows/2 bearers), **Gallows Fen**
-(sparse houses, thick graves, 2 captains/2 priests/3 crossbows/1 bearer). Dials: `nodeCount`, `houseFrac`,
-`postCount`, `barricadeCount`/`causewayCount`, `captainCount`/`priestCount`/`crossbowCount`/`bannerCount`,
+march, no special defenders), **The Tithe Barrows** (graves plentiful; 2 captains/1 priest/2 crossbows/1
+mender), **Saint Auber's Rest** (walled, hardest — 4 captains/3 priests/4 crossbows/2 bearers/2 menders/2
+paladins), **Gallows Fen** (sparse houses, thick graves, open ground for cavalry; 2 captains/2 priests/3
+crossbows/1 bearer/1 paladin/2 marshals). Dials: `nodeCount`, `houseFrac`, `postCount`,
+`barricadeCount`/`causewayCount`,
+`captainCount`/`priestCount`/`crossbowCount`/`bannerCount`/`menderCount`/`paladinCount`/`marshalCount`,
 `sizeScale`.
 
 ### What Necro does NOT have (deferred)

@@ -169,6 +169,7 @@ ok(target.hp < hpK0 || target.dead, "a minion swings at the knight it reaches");
 // With no knight in range it follows the necromancer.
 const s3b = necro.buildArena(necro.levelById(id));
 stowAll(s3b); // every knight far away and asleep, out of MINION_AGGRO
+s3b.solids = []; s3b.barricades = []; // clear scattered terrain so the lone minion's follow path is deterministic
 const m2 = { x: s3b.hero.x + 400, y: s3b.hero.y, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 };
 s3b.minions = [m2];
 run(s3b, 3000, still);
@@ -305,7 +306,7 @@ ok(sP2.hero.hp === hpBefore && sP2.hits === 0, "a priest never bites the necroma
 //     sight (a barricade stops a bolt and makes it hold fire) and movement.
 const sX = necro.buildArena(necro.levelById("saint-aubers"));
 ok(sX.knights.some((e) => e.crossbow), "the chantry-town musters crossbowmen");
-stowAll(sX); sX.scenery = []; sX.solids = []; sX.barricades = []; sX.causeways = [];
+stowAll(sX); sX.scenery = []; sX.solids = []; sX.barricades = []; sX.causeways = []; sX.graves = [];
 const xb = sX.knights.find((e) => e.crossbow) ?? sX.knights[0];
 xb.crossbow = true; wake(xb); xb.x = 800; xb.y = 800; xb.shootCd = 0;
 // At a holding range (between standoff and max range) it looses a bolt at the hero.
@@ -332,7 +333,7 @@ ok(xb2.vx * (sX2.hero.x - xb2.x) + xb2.vy * (sX2.hero.y - xb2.y) > 0, "a crossbo
 
 // A barricade between holds the crossbowman's fire, and physically stops a bolt.
 const sX3 = necro.buildArena(necro.levelById("saint-aubers"));
-stowAll(sX3); sX3.scenery = []; sX3.solids = []; sX3.causeways = [];
+stowAll(sX3); sX3.scenery = []; sX3.solids = []; sX3.causeways = []; sX3.graves = [];
 const xb3 = sX3.knights.find((e) => e.crossbow) ?? sX3.knights[0];
 xb3.crossbow = true; wake(xb3); xb3.x = 800; xb3.y = 800; xb3.shootCd = 0;
 sX3.hero.x = 1000; sX3.hero.y = 800; sX3.minions = []; sX3.bolts = [];
@@ -393,6 +394,71 @@ function bannerSwing(rallied) {
 const plain = bannerSwing(false), buffed = bannerSwing(true);
 ok(buffed.dmg > plain.dmg, "a rallied knight's swing bites harder");
 ok(buffed.cd < plain.cd && plain.cd > 0, "a rallied knight recovers faster between swings");
+
+// 5d. Menders — the backline chaplain. A mender never melees: it holds a standoff
+//     and channels a strong single-target heal into the most-wounded knight in range.
+const sM = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sM.knights.some((e) => e.mender), "the chantry-town musters menders");
+stowAll(sM); sM.scenery = []; sM.solids = []; sM.barricades = []; sM.causeways = [];
+sM.hero.x = 50; sM.hero.y = 50; sM.minions = [];
+const md = sM.knights.find((e) => e.mender) ?? sM.knights[0];
+md.mender = true; wake(md); md.x = 800; md.y = 800;
+const wounded = sM.knights.find((e) => !e.mender && e !== md) ?? sM.knights[1];
+wounded.mender = false; wounded.x = 800 + 150; wounded.y = 800; wounded.hp = wounded.maxHp - 30;
+const woundedHp0 = wounded.hp;
+necro.stepKnights(sM, 16);
+ok(md.mending === true, "a mender channels into a wounded knight in range");
+ok(wounded.hp > woundedHp0, "a mender heals its mark");
+// It kites away from a near threat rather than closing to melee.
+md.x = 800; md.y = 800; sM.hero.x = 840; sM.hero.y = 800; // inside MENDER_STANDOFF
+necro.stepKnights(sM, 16);
+ok(md.vx * (sM.hero.x - md.x) + md.vy * (sM.hero.y - md.y) < 0, "a mender kites from a near threat (no melee rush)");
+// A mender never bites the necromancer, even glued to it.
+const sM2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sM2); sM2.scenery = []; sM2.solids = []; sM2.barricades = []; sM2.causeways = []; sM2.graves = [];
+sM2.minions = [];
+const md2 = sM2.knights.find((e) => e.mender) ?? sM2.knights[0];
+md2.mender = true; wake(md2); md2.x = sM2.hero.x; md2.y = sM2.hero.y;
+const mHp0 = sM2.hero.hp;
+run(sM2, 600, still);
+ok(sM2.hero.hp === mHp0 && sM2.hits === 0, "a mender never bites the necromancer");
+
+// 5e. Paladins — the wall. A paladin's plate shaves a flat amount off every blow
+//     (to a floor, so it is still mortal); every other knight takes the blow whole.
+const sPal = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sPal.knights.some((e) => e.paladin), "the chantry-town musters paladins");
+const pal = sPal.knights.find((e) => e.paladin) ?? sPal.knights[0];
+const com = sPal.knights.find((e) => !e.paladin) ?? sPal.knights[1];
+pal.paladin = true; com.paladin = false;
+pal.hp = 100; pal.maxHp = 100; pal.dead = false;
+com.hp = 100; com.maxHp = 100; com.dead = false;
+necro.hurtKnight(sPal, pal, 10);
+necro.hurtKnight(sPal, com, 10);
+ok(100 - pal.hp === 10 - K.PALADIN_ARMOR, "a paladin's plate shaves a flat amount off each blow");
+ok(100 - com.hp === 10, "a common knight takes the blow whole");
+pal.hp = 100;
+necro.hurtKnight(sPal, pal, 2); // a blow under the armour
+ok(100 - pal.hp === K.PALADIN_MIN_DMG, "even a blow under the armour still lands the floor (mortal)");
+pal.hp = K.PALADIN_MIN_DMG;
+necro.hurtKnight(sPal, pal, 3);
+ok(pal.dead, "a paladin still falls when its plate is worn through");
+
+// 5f. Marshals — the cavalry. Off cooldown and with a target in range, a marshal
+//     locks a heading and DASHES; the impact deals heavy damage and a long knockback.
+const sF = necro.buildArena(necro.levelById("gallows-fen"));
+ok(sF.knights.some((e) => e.marshal), "gallows fen musters marshals");
+stowAll(sF); sF.scenery = []; sF.solids = []; sF.barricades = []; sF.causeways = []; sF.graves = [];
+sF.minions = [];
+const mar = sF.knights.find((e) => e.marshal) ?? sF.knights[0];
+mar.marshal = true; wake(mar); mar.x = 800; mar.y = 800; mar.chargeCd = 0; mar.chargeMs = 0;
+sF.hero.x = 800 + 200; sF.hero.y = 800; sF.hero.hp = K.HERO_HP; sF.hero.hurt = 0;
+necro.stepKnights(sF, 16);
+ok((mar.chargeMs ?? 0) > 0, "a marshal off cooldown locks a charge at a target in range");
+const hx0 = sF.hero.x, fhp0 = sF.hero.hp;
+run(sF, 700, still); // the dash lands its impact
+ok(sF.hero.hp <= fhp0 - K.MARSHAL_IMPACT_DMG, "a marshal's charge impact deals heavy damage");
+ok(sF.hero.x > hx0, "a charge impact knocks the necromancer back");
+ok((mar.chargeCd ?? 0) > 0 && (mar.chargeMs ?? 0) === 0, "after a charge the marshal recovers (on cooldown)");
 
 // 6. Win on all-knights-dead — clearedPct 1, phase "won", no further sim.
 const s6 = necro.buildArena(necro.levelById(id));
