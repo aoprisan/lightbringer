@@ -366,11 +366,21 @@ Rewards wading into the press. Motes grant **no souls** — frenzy is the only p
 ### Raising-rites (the skeleton "shop") & relics
 
 The hero equips **one** rite per march (`RAISE_TYPES`, resolved by `raiseTypeById`; each minion locks its
-`variant`/stats/hue/sprite at raise time):
-- **The Common Grave** (`grave`, free) — balanced.
-- **The Barrow-Wall** (`barrow`, 120) — 2× HP, slow, hard-hitting (wall of the dead).
-- **The Quick Cairn** (`cairn`, 160) — frail, fast, **+2 count** (swarming wights), fast inscribe.
-- **The Gallows Rite** (`gallows`, 240) — tough, fast revenants (capstone).
+`variant`/stats/hue/sprite at raise time). Each carries a `power: PowerKind` (`"none"|"plague"|"colossus"`,
+mirror of the Vigil's `PentaPower`) — a passive behaviour that fires automatically, so the only choice is
+which rite to equip:
+- **The Common Grave** (`grave`, free) — balanced (`none`).
+- **The Barrow-Wall** (`barrow`, 120) — 2× HP, slow, hard-hitting (wall of the dead) (`none`).
+- **The Quick Cairn** (`cairn`, 160) — frail, fast, **+2 count** (swarming wights), fast inscribe (`none`).
+- **The Gallows Rite** (`gallows`, 240) — tough, fast revenants (capstone) (`none`).
+- **The Plague Pit** (`plague`, 200) — power `plague`: a felled plague-skeleton bursts into a lingering
+  **death-miasma** (`killMinion` → `s.miasmas`; `stepMiasma` gnaws knights in `PLAGUE_CLOUD_R` for
+  `PLAGUE_CLOUD_DPS`, via `hurtKnight`). Punishes a watch that kills the horde.
+- **The Bone Colossus** (`colossus`, 280) — power `colossus`: a raise calls up **one** towering minion
+  (`stepRaise` forces count 1) instead of a host — slow, dear, and very hard to fell.
+
+`killMinion(s, m)` is the centralized minion-death path (so every source — knight swing, bolt, smite, charge
+impact — fires the rite's on-death power the same way), the inversion of `hurtKnight`/`killKnight`.
 
 **Relics** are the unlock currency (`recordOverrun`/`recordFall` bank them: `score ÷ RELIC_SCORE_DIV` on a
 win, `RELIC_PER_KILL` per kill even on a loss). `unlockRite`/`equipRite` buy and equip from the picker; ids

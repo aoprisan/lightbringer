@@ -782,6 +782,40 @@ necro.saveNecroLegacy(necro.emptyNecroLegacy());
 }
 necro.saveNecroLegacy(necro.emptyNecroLegacy()); // clean again for the render smoke test
 
+// 12f. Rites with on-death powers — a Plague skeleton bursts into a gnawing miasma
+//      when it falls; the Bone Colossus rite raises a single towering minion.
+{
+  const sp = necro.buildArena(necro.levelById(id));
+  stowAll(sp); sp.scenery = []; sp.solids = []; sp.barricades = []; sp.causeways = []; sp.graves = [];
+  const plagueM = { x: 700, y: 700, vx: 0, vy: 0, hp: 5, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "plague" };
+  sp.minions = [plagueM];
+  necro.killMinion(sp, plagueM);
+  ok(plagueM.dead && sp.miasmas.length === 1, "a fallen Plague skeleton bursts into a miasma");
+  const plainM = { x: 700, y: 700, vx: 0, vy: 0, hp: 5, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+  sp.minions = [plainM]; const before = sp.miasmas.length;
+  necro.killMinion(sp, plainM);
+  ok(sp.miasmas.length === before, "a plain skeleton leaves no miasma");
+  // The miasma gnaws a knight standing in it; one outside is spared.
+  const near = sp.knights[0]; near.dead = false; near.paladin = false; near.x = 700; near.y = 700; near.hp = 100; near.maxHp = 100;
+  const far = sp.knights[1]; far.dead = false; far.x = 700 + K.PLAGUE_CLOUD_R + 50; far.y = 700; far.hp = 100; far.maxHp = 100;
+  const nhp0 = near.hp, fhp0 = far.hp;
+  necro.stepMiasma(sp, 200);
+  ok(near.hp < nhp0, "a death-miasma gnaws a knight standing in it");
+  ok(far.hp === fhp0, "a knight outside the miasma is spared");
+}
+{
+  // The Bone Colossus rite raises a single towering minion (count forced to 1).
+  const lc = necro.loadNecroLegacy(); lc.unlocked.push("colossus"); lc.equipped = "colossus"; necro.saveNecroLegacy(lc);
+  const sc = necro.buildArena(necro.levelById(id));
+  stowAll(sc); sc.scenery = []; sc.solids = []; sc.barricades = []; sc.causeways = [];
+  const g = { kind: "grave", x: sc.hero.x, y: sc.hero.y, raisesLeft: K.GRAVE_RAISES, graveSpent: false, desecAt: -1e9 };
+  sc.graves = [g]; sc.souls = 50; sc.minions = []; sc.hero.charge = 1; sc.hero.overcharge = 0;
+  necro.stepRaise(sc);
+  ok(sc.minions.length === 1, "the Bone Colossus rite raises a single minion");
+  ok(sc.minions[0].maxHp > K.MINION_HP * 2, "the colossus stands with towering hp");
+  necro.saveNecroLegacy(necro.emptyNecroLegacy());
+}
+
 // 13. Render smoke — render/scaffold don't throw with zero sprites, at the start
 //     and after state changes.
 const svgNode = makeNode();

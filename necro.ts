@@ -126,6 +126,9 @@ interface Smite { x: number; y: number; until: number }
 // A death-mote — a rarer, hotter drop than a soul-wisp. Gathering it (walk over it)
 // does not feed souls; it sets the horde alight: a brief frenzy (haste + bite).
 interface Mote { x: number; y: number; until: number }
+// A death-miasma — the cloud a fallen Plague skeleton bursts into; it gnaws the
+// knights standing in it each frame until it fades (the rite's on-death power).
+interface Miasma { x: number; y: number; r: number; until: number }
 // A crossbowman's loosed bolt — a travelling projectile (Necro's only one). It
 // flies straight, is stopped by the first body it strikes (hero or skeleton) or
 // by a barricade, and expires on its TTL. Dodgeable, unlike a priest's hitscan.
@@ -149,6 +152,7 @@ interface NecroState {
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
   motes: Mote[];         // gatherable death-motes (frenzy on pickup)
+  miasmas: Miasma[];     // lingering plague clouds from fallen Plague skeletons
   raises: Raise[];       // fading bone-burst rings (cosmetic)
   smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
   bolts: Bolt[];         // crossbowmen's loosed bolts in flight (the only projectiles)
@@ -232,6 +236,14 @@ const FRENZY_MS = 3500;          // how long a gathered mote keeps the horde fre
 const FRENZY_HASTE = 0.7;        // a frenzied minion's swing cooldown × this (faster)
 const FRENZY_DMG_MUL = 1.3;      // …and its swing damage × this (harder)
 
+// Plague Rite — a rite power (see RaiseType.power). A felled Plague skeleton bursts
+// into a lingering death-miasma that gnaws the knights standing in it every frame
+// until it fades, so the watch is punished for killing the horde. Autonomous, like a
+// totem pulse; damage routes through hurtKnight so paladin armour still holds.
+const PLAGUE_CLOUD_MS = 2600;    // how long a death-miasma lingers
+const PLAGUE_CLOUD_R = 70;       // its radius
+const PLAGUE_CLOUD_DPS = 22;     // damage per second to knights inside it
+
 // ---------- Raising-rites (unlockable pentagrams) ----------
 // Each rite is a different pentagram that calls up a different skeleton kind: a
 // stat lean over the base MINION_* / raise tuning, plus its own sigil and bone
@@ -239,6 +251,12 @@ const FRENZY_DMG_MUL = 1.3;      // …and its swing damage × this (harder)
 // inverted — there the sigil shaped the smite, here it shapes the dead it raises.
 // "The Common Grave" is the steady starter (cost 0, always owned); the rest cost
 // relics, banked from marches. This roster is the design surface for progression.
+// A rite's passive power, mirror of the Vigil's PentaPower. "none" is a plain
+// stat-lean; "plague" bursts a damaging miasma when one of its dead falls;
+// "colossus" raises a single towering minion instead of a host. Powers fire
+// automatically — the only choice is which rite to equip (no in-march input).
+type PowerKind = "none" | "plague" | "colossus";
+
 interface RaiseType {
   id: string; name: string; desc: string; cost: number;
   hpMul: number;     // raised skeleton's hp     × MINION_HP
@@ -247,6 +265,7 @@ interface RaiseType {
   countBonus: number; // extra skeletons per raise pulse (added to RAISE_MIN..MAX)
   soulMul: number;   // souls per raise pulse     × RAISE_COST (rounded, ≥1)
   chargeMul: number; // inscribe time             × PENTA_CHARGE_MS (a slower sigil)
+  power: PowerKind;  // the rite's passive on-raise/on-death behaviour
   size: number;      // the skeleton's draw size (px)
   ring: string;      // the pentagram's signature glow/ring hue
   star: string;      // the pentagram's star-stroke hue
@@ -258,26 +277,38 @@ const RAISE_TYPES: RaiseType[] = [
   {
     id: "grave", name: "The Common Grave", cost: 0,
     desc: "The plain rite you began with — footsoldiers of the dead. Even bone, even bite.",
-    hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1,
+    hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1, power: "none",
     size: 30, ring: "#7affb0", star: "#d8ffe6", bone: "#e8efd8", sprite: "skeleton",
   },
   {
     id: "barrow", name: "The Barrow-Wall", cost: 120,
     desc: "Raises bone-brutes — slow, heavy, hard-hitting, and dear in souls. A wall of the dead that does not break.",
-    hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18,
+    hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18, power: "none",
     size: 40, ring: "#ffd36a", star: "#fff0b0", bone: "#ded2a0", sprite: "skeleton-brute",
   },
   {
     id: "cairn", name: "The Quick Cairn", cost: 160,
     desc: "Raises wights — frail and fleeting, but they swarm: a fast sigil that calls up more for less.",
-    hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72,
+    hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72, power: "none",
     size: 24, ring: "#8affd8", star: "#d8fff0", bone: "#dffff0", sprite: "skeleton-wight",
   },
   {
     id: "gallows", name: "The Gallows Rite", cost: 240,
     desc: "Raises revenants — swift, tough, and cruel, but a slow sigil and dear in souls. The capstone of the craft.",
-    hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12,
+    hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12, power: "none",
     size: 34, ring: "#c08aff", star: "#f0d8ff", bone: "#cdb8ff", sprite: "skeleton-revenant",
+  },
+  {
+    id: "plague", name: "The Plague Pit", cost: 200,
+    desc: "Raises plague-dead — and when one falls it bursts into a gnawing miasma that rots the watch where it stood. Death that punishes the killing.",
+    hpMul: 0.9, speedMul: 1.05, dmgMul: 0.9, countBonus: 1, soulMul: 1.2, chargeMul: 1, power: "plague",
+    size: 28, ring: "#9bd84a", star: "#dfffa0", bone: "#c6d49a", sprite: "skeleton",
+  },
+  {
+    id: "colossus", name: "The Bone Colossus", cost: 280,
+    desc: "Raises no host but a single horror — one towering bone-colossus, slow and dear, that wades through the watch and does not fall easily.",
+    hpMul: 4.0, speedMul: 0.62, dmgMul: 2.2, countBonus: 0, soulMul: 2.0, chargeMul: 1.25, power: "colossus",
+    size: 50, ring: "#d0743a", star: "#ffd0a0", bone: "#d8b48a", sprite: "skeleton-brute",
   },
 ];
 
@@ -823,7 +854,7 @@ function buildArena(level: LevelDef): NecroState {
     barricades, causeways,
     hero, rite, perk, perkMods: mods, souls: SOUL_START + mods.soulStart, soulRegen: 0,
     minions: [], knights,
-    wisps: [], motes: [], raises: [], smites: [], bolts: [],
+    wisps: [], motes: [], miasmas: [], raises: [], smites: [], bolts: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -906,6 +937,17 @@ function killKnight(s: NecroState, e: Knight): void {
   }
 }
 
+// Lay a minion to rest: mark it dead and fire its rite's on-death power. A Plague
+// skeleton bursts into a death-miasma where it fell. The single minion-death path,
+// so every source (knight swing, bolt, smite, charge impact) triggers it the same.
+function killMinion(s: NecroState, m: Minion): void {
+  if (m.dead) return;
+  m.dead = true;
+  if (raiseTypeById(m.variant).power === "plague") {
+    s.miasmas.push({ x: m.x, y: m.y, r: PLAGUE_CLOUD_R, until: s.elapsed + PLAGUE_CLOUD_MS });
+  }
+}
+
 // Wound a knight from any source (minion swing, totem pulse, altar burst). The
 // single damage path: a paladin's plate shaves a flat amount off each blow (to a
 // floor, so it is still mortal), every other knight takes the blow whole. Flashes
@@ -947,7 +989,11 @@ function stepRaise(s: NecroState): void {
     g.desecAt = s.elapsed;
     if (g.raisesLeft <= 0) g.graveSpent = true;
     const hp = Math.round(MINION_HP * rite.hpMul);
-    const n = RAISE_MIN + rite.countBonus + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
+    // The Bone Colossus rite raises a single towering minion; every other rite raises
+    // a burst of RAISE_MIN..MAX (+countBonus).
+    const n = rite.power === "colossus"
+      ? 1
+      : RAISE_MIN + rite.countBonus + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
     for (let i = 0; i < n; i++) {
       if (aliveMinions(s) >= MINION_CAP) break;
       const a = Math.random() * Math.PI * 2;
@@ -1146,7 +1192,7 @@ function stepKnights(s: NecroState, dt: number): void {
           if (lost || blocked) {
             e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // foiled — recharge
           } else if (s.elapsed >= e.smiteUntil) {
-            v!.dead = true;
+            killMinion(s, v!);
             s.smites.push({ x: v!.x, y: v!.y, until: s.elapsed + PRIEST_SMITE_MS });
             e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // spent
           }
@@ -1228,7 +1274,7 @@ function stepKnights(s: NecroState, dt: number): void {
               if ((m.x - e.x) ** 2 + (m.y - e.y) ** 2 <= (KNIGHT_RADIUS + MINION_RADIUS + 4) ** 2) {
                 m.hp -= MARSHAL_IMPACT_DMG; m.hit = s.elapsed + HIT_FLASH_MS;
                 m.x += (dx / kd) * MARSHAL_KNOCKBACK; m.y += (dy / kd) * MARSHAL_KNOCKBACK;
-                if (m.hp <= 0) m.dead = true;
+                if (m.hp <= 0) killMinion(s, m);
                 struck = true; break;
               }
             }
@@ -1245,7 +1291,7 @@ function stepKnights(s: NecroState, dt: number): void {
               if (dist <= reach) {
                 if (targetMinion) {
                   targetMinion.hp -= KNIGHT_DMG; targetMinion.hit = s.elapsed + HIT_FLASH_MS;
-                  if (targetMinion.hp <= 0) targetMinion.dead = true;
+                  if (targetMinion.hp <= 0) killMinion(s, targetMinion);
                 } else if (h.hurt <= 0) {
                   h.hp -= KNIGHT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS;
                 }
@@ -1267,7 +1313,7 @@ function stepKnights(s: NecroState, dt: number): void {
               targetMinion.hp -= dmg;
               targetMinion.hit = s.elapsed + HIT_FLASH_MS;
               e.attackCd = cd;
-              if (targetMinion.hp <= 0) targetMinion.dead = true;
+              if (targetMinion.hp <= 0) killMinion(s, targetMinion);
             }
           } else {
             const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
@@ -1353,7 +1399,7 @@ function stepBolts(s: NecroState, dt: number): void {
         if ((m.x - nx) ** 2 + (m.y - ny) ** 2 <= (MINION_RADIUS + 2) ** 2) {
           m.hp -= b.dmg;
           m.hit = s.elapsed + HIT_FLASH_MS;
-          if (m.hp <= 0) m.dead = true;
+          if (m.hp <= 0) killMinion(s, m);
           hit = true;
           break;
         }
@@ -1501,6 +1547,23 @@ function stepMotes(s: NecroState): void {
   s.motes = s.motes.filter((m) => m.until > s.elapsed);
 }
 
+// Death-miasmas left by fallen Plague skeletons: each gnaws the knights standing in
+// it every frame for its lifetime (autonomous, like a totem pulse), then fades.
+// Damage routes through hurtKnight so a paladin's plate still holds. Run each frame.
+function stepMiasma(s: NecroState, dt: number): void {
+  if (!s.miasmas.length) return;
+  const dmg = (PLAGUE_CLOUD_DPS * dt) / 1000;
+  for (const c of s.miasmas) {
+    if (c.until <= s.elapsed) continue;
+    const r2 = c.r ** 2;
+    for (const e of s.knights) {
+      if (e.dead) continue;
+      if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 <= r2) hurtKnight(s, e, dmg);
+    }
+  }
+  s.miasmas = s.miasmas.filter((c) => c.until > s.elapsed);
+}
+
 // One slice of march time, analogous to pentagram's stepCombat: integrate the
 // necromancer from the input vector, raise minions at graves, move the horde, move
 // the watch, resolve the house layer and altar burst, gather wisps, and check the
@@ -1557,6 +1620,7 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   stepDesecrate(s);    // minions raze the houses they reach (heals the horde)
   stepHouses(s, dt);   // razed houses rise into totems; totems burn the watch
   stepAltar(s);        // an altar by the necromancer fires its one-shot burst
+  stepMiasma(s, dt);   // plague clouds from fallen Plague skeletons gnaw the watch
 
   // Retire spent FX (cheap; only when any are live).
   if (s.raises.length) s.raises = s.raises.filter((r) => r.until > s.elapsed);
@@ -1901,6 +1965,22 @@ function render(s: NecroState, layer: SVGGElement): void {
       opacity: Math.min(1, 0.4 + life), filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
     }));
     layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 3.2, fill: "#ffd0c0" }));
+  }
+
+  // Death-miasmas — sickly green plague clouds a fallen Plague skeleton burst into,
+  // gnawing the watch within. They breathe and fade. Procedural only.
+  for (const c of s.miasmas) {
+    const life = Math.max(0, (c.until - s.elapsed) / PLAGUE_CLOUD_MS);
+    if (life <= 0) continue;
+    const breathe = 0.92 + 0.08 * Math.sin(s.elapsed / 200);
+    layer.appendChild(el("circle", {
+      cx: c.x, cy: c.y, r: c.r * breathe, fill: "#6fae28",
+      opacity: 0.16 + 0.18 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", {
+      cx: c.x, cy: c.y, r: c.r * breathe, fill: "none",
+      stroke: "#9bd84a", "stroke-width": 1.5, opacity: 0.4 * life,
+    }));
   }
 
   // Raise-burst rings — a quick necrotic eruption where the dead clawed up (or an
@@ -2910,7 +2990,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
   testGlobal.__necro = {
     generateNecroVillage, buildArena, freshNecro, stepMarch,
     stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps, stepMotes,
-    killKnight, hurtKnight, desecrateHouse, reconsecrateHouse, nearScar,
+    killKnight, hurtKnight, killMinion, stepMiasma, desecrateHouse, reconsecrateHouse, nearScar,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
@@ -2926,6 +3006,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
       PENTA_OVERCHARGE_MS, OVERCHARGE_EXTRA_COST, CHAMPION_HP_MUL, CHAMPION_DMG_MUL, CHAMPION_SIZE_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, FRENZY_MS, FRENZY_HASTE, FRENZY_DMG_MUL,
+      PLAGUE_CLOUD_MS, PLAGUE_CLOUD_R, PLAGUE_CLOUD_DPS,
       SOUL_PER_RAZE, SOUL_REGEN_MS, SOUL_REGEN_TO,
       RELIC_SCORE_DIV, RELIC_PER_KILL,
       WISP_DROP_CHANCE, WISP_SOULS, WISP_TTL_MS, WISP_RADIUS,
