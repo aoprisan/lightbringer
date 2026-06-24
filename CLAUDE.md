@@ -343,6 +343,13 @@ The pentagram is the gate on every raise: standing still (`HERO_STILL_MAXSPEED`)
 (`PENTA_CHARGE_MS`, ×`rite.chargeMul`); the dead only rise at charge ≥ `PENTA_RAISE_AT`. `stepRaise` then
 spends souls and spawns minions from a reachable grave.
 
+**Overcharge — the risk/reward on the core verb.** Holding still *past* a full inscription banks
+`hero.overcharge` (0→1 over `PENTA_OVERCHARGE_MS`); any movement spends it back to 0 (like charge fade). When
+the next raise pulse fires with a full overcharge **and** souls to spare (`OVERCHARGE_EXTRA_COST`), it is
+**empowered**: it raises one extra **champion** skeleton (`champion: true`, `CHAMPION_HP_MUL`/`CHAMPION_DMG_MUL`/
+`CHAMPION_SIZE_MUL`) and resets the overcharge. Same stand-still verb — the deeper play is to hold the stand
+longer over a grave (more power ⇄ more exposure). No new input.
+
 **Souls** are a deliberate **anti-fountain** economy: a march starts with `SOUL_START` (9); a raise costs
 `RAISE_COST` (×`rite.soulMul`); souls come from felling a knight (`SOUL_PER_KILL`), razing a house
 (`SOUL_PER_RAZE`, the snowball), and a slow **seep** (`SOUL_REGEN_MS`) that **only trickles while below
@@ -350,18 +357,50 @@ spends souls and spawns minions from a reachable grave.
 `GRAVE_RAISES` (5) raises before `graveSpent`, with `GRAVE_COOLDOWN_MS` between pulses; the horde is capped at
 `MINION_CAP` (40). Slain knights drop soul **wisps** the hero gathers (`stepWisps`).
 
+**Death-motes & frenzy** (the snowball's heartbeat; mirror of the Vigil's ember surge, inverted to a horde
+buff). A felled knight may *also* drop a hot **death-mote** (`MOTE_DROP_CHANCE`, rarer than and separate from
+a wisp); gathering it (`stepMotes`, walk over it) sets `hero.frenzyUntil` — a `FRENZY_MS` window in which the
+**whole horde** swings faster (`FRENZY_HASTE`) and bites harder (`FRENZY_DMG_MUL`), read once in `stepMinions`.
+Rewards wading into the press. Motes grant **no souls** — frenzy is the only payoff.
+
 ### Raising-rites (the skeleton "shop") & relics
 
 The hero equips **one** rite per march (`RAISE_TYPES`, resolved by `raiseTypeById`; each minion locks its
-`variant`/stats/hue/sprite at raise time):
-- **The Common Grave** (`grave`, free) — balanced.
-- **The Barrow-Wall** (`barrow`, 120) — 2× HP, slow, hard-hitting (wall of the dead).
-- **The Quick Cairn** (`cairn`, 160) — frail, fast, **+2 count** (swarming wights), fast inscribe.
-- **The Gallows Rite** (`gallows`, 240) — tough, fast revenants (capstone).
+`variant`/stats/hue/sprite at raise time). Each carries a `power: PowerKind` (`"none"|"plague"|"colossus"`,
+mirror of the Vigil's `PentaPower`) — a passive behaviour that fires automatically, so the only choice is
+which rite to equip:
+- **The Common Grave** (`grave`, free) — balanced (`none`).
+- **The Barrow-Wall** (`barrow`, 120) — 2× HP, slow, hard-hitting (wall of the dead) (`none`).
+- **The Quick Cairn** (`cairn`, 160) — frail, fast, **+2 count** (swarming wights), fast inscribe (`none`).
+- **The Gallows Rite** (`gallows`, 240) — tough, fast revenants (capstone) (`none`).
+- **The Plague Pit** (`plague`, 200) — power `plague`: a felled plague-skeleton bursts into a lingering
+  **death-miasma** (`killMinion` → `s.miasmas`; `stepMiasma` gnaws knights in `PLAGUE_CLOUD_R` for
+  `PLAGUE_CLOUD_DPS`, via `hurtKnight`). Punishes a watch that kills the horde.
+- **The Bone Colossus** (`colossus`, 280) — power `colossus`: a raise calls up **one** towering minion
+  (`stepRaise` forces count 1) instead of a host — slow, dear, and very hard to fell.
+
+`killMinion(s, m)` is the centralized minion-death path (so every source — knight swing, bolt, smite, charge
+impact — fires the rite's on-death power the same way), the inversion of `hurtKnight`/`killKnight`.
 
 **Relics** are the unlock currency (`recordOverrun`/`recordFall` bank them: `score ÷ RELIC_SCORE_DIV` on a
 win, `RELIC_PER_KILL` per kill even on a loss). `unlockRite`/`equipRite` buy and equip from the picker; ids
 live in `NecroLegacy` (`unlocked`/`equipped`, defaulted on load).
+
+### Perks (the necromancer's craft) & the second relic sink
+
+The hero also equips **one** perk per march (`PERKS`, resolved by `perkById`; `perkMods` merges its bundle
+over `PERK_DEFAULTS`) — a passive build choice made once at the picker, **never an in-march input** (mirror of
+the parent's perk catalog and the Vigil's sigil shop). Bought with the same **relics** that buy rites:
+- **No Pact** (`none`, free, always owned, default) — baseline.
+- **Gravecaller** (120) — `soulStart +3`, `soulRegenTo +1`.
+- **Swift Dead** (160) — `minionSpeedMul ×1.18`.
+- **Carrion Feast** (240) — `desecHealMul ×1.6`, `soulPerRaze +1`.
+
+`buildArena` resolves the equipped perk into `s.perk`/`s.perkMods`, read at exactly four sites: starting souls
++ seep floor (`stepMarch`), minion travel speed (`stepMinions`), and razing heal + soul (`desecrateHouse`).
+`unlockPerk`/`equipPerk` buy/equip from the picker (a perk row beside the rite row, one handler branched on
+`data-kind`); ids live in `NecroLegacy` (`perksUnlocked`/`perkEquipped`, defaulted on load — **no key bump**,
+exactly like the rite fields).
 
 ### Knight variants (the defenders) & the priest
 
@@ -371,7 +410,35 @@ guard until roused, then chase the nearest threat (necromancer or minion) and sw
 (`PRIEST_CHARGE_MS`), locks the nearest skeleton in range (`PRIEST_SMITE_RANGE`), and after a windup beam
 **kills it outright** — with **two counterplays**: crowd it with skeletons (each within `PRIEST_SWARM_RADIUS`
 slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own body** on the beam
-(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Priest/captain counts are per-`LevelDef` dials.
+(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Five more defenders deepen the watch:
+- **Crossbowman** (`CROSSBOW_*`) — the watch's **ranged** arm (mirror of the Vigil's spitter, and Necro's
+  **only projectile**). It **never melees**: it holds a standoff (`CROSSBOW_STANDOFF`/`CROSSBOW_RANGE`,
+  kiting near threats, closing far ones) and looses **dodgeable bolts** (`stepBolts`, a `Bolt` on `s.bolts`)
+  on `CROSSBOW_SHOOT_CD`. A bolt is stopped by a **barricade** (`barricadeBetween`/`segsCross`) — which also
+  makes it **hold fire** when one blocks line of sight — so the counters are cover, body-blocking with the
+  horde, and movement (it punishes standing still to inscribe). `crossbowCount`.
+- **Standard-Bearer** (`BANNER_*`) — the watch's **support**. It melees like a common knight but its banner
+  emits a **rally aura** (`BANNER_RADIUS`): knights within it swing faster (`BANNER_HASTE`), hit harder
+  (`BANNER_DMG_MUL`), and slowly mend (`BANNER_HEAL`) — a transient per-frame `rallied` flag recomputed in
+  `stepKnights`. **Kill the bearer and the buff collapses.** `bannerCount`.
+- **Mender / Chaplain** (`MENDER_*`) — a backline **healer** (direct port of the Vigil's mender). It **never
+  melees**: it holds a standoff (`MENDER_STANDOFF`) and channels a **strong single-target heal**
+  (`MENDER_HEAL`) into the most-wounded knight within `MENDER_RANGE` (drawn as a mend-beam). Kill it (or its
+  mark) first. `menderCount`.
+- **Paladin** (`PALADIN_*`) — a melee **wall**. Its plate shaves a **flat** amount off every blow it takes
+  (`PALADIN_ARMOR`, to a `PALADIN_MIN_DMG` floor, so it is still mortal): chip damage barely scratches it,
+  forcing the horde to focus-fire. Armour is applied in `hurtKnight` — the single damage path all knight
+  damage (minion swing, totem pulse, altar burst) now routes through. `paladinCount`.
+- **Marshal / Cavalry** (`MARSHAL_*`) — a **charging** skirmisher. Off cooldown (`MARSHAL_CHARGE_CD`) with a
+  target in `MARSHAL_CHARGE_RANGE`, it locks a heading and **dashes** (`MARSHAL_CHARGE_SPEED`/`_MS`); the
+  impact deals heavy damage (`MARSHAL_IMPACT_DMG`) and a long knockback (`MARSHAL_KNOCKBACK`) to whatever it
+  strikes, then it recovers. Melees like a common knight between charges. Punishes a clumped horde.
+  `marshalCount`.
+
+`hurtKnight(s, e, dmg)` is the centralized knight-damage path (so paladin armour holds everywhere); the
+crossbow/mender/marshal are **extra bodies** mustered per post (banner/mender/paladin/marshal never take a
+fixed slot, the crossbow takes only the third common slot). Captain/priest/crossbow/banner/mender/paladin/
+marshal counts are all per-`LevelDef` dials.
 
 ### Houses & terrain
 
@@ -395,9 +462,12 @@ slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own 
 `stepMarch`.
 
 Villages (`LEVELS`, via `generateNecroVillage`/`levelById`/`buildArena`): **Hollowmere** (fair first
-march), **The Tithe Barrows** (graves plentiful, 2 captains/1 priest), **Saint Auber's Rest** (walled,
-hardest — 4 captains/3 priests), **Gallows Fen** (sparse houses, thick graves, 2 captains/2 priests). Dials:
-`nodeCount`, `houseFrac`, `postCount`, `barricadeCount`/`causewayCount`, `captainCount`/`priestCount`,
+march, no special defenders), **The Tithe Barrows** (graves plentiful; 2 captains/1 priest/2 crossbows/1
+mender), **Saint Auber's Rest** (walled, hardest — 4 captains/3 priests/4 crossbows/2 bearers/2 menders/2
+paladins), **Gallows Fen** (sparse houses, thick graves, open ground for cavalry; 2 captains/2 priests/3
+crossbows/1 bearer/1 paladin/2 marshals). Dials: `nodeCount`, `houseFrac`, `postCount`,
+`barricadeCount`/`causewayCount`,
+`captainCount`/`priestCount`/`crossbowCount`/`bannerCount`/`menderCount`/`paladinCount`/`marshalCount`,
 `sizeScale`.
 
 ### What Necro does NOT have (deferred)
@@ -409,7 +479,8 @@ a share-link button (`shareGameLink`). These are reasonable parity ports to add 
 ### Persistence & art
 
 No mid-march save. The legacy is `necromancer.legacy.v1` (`NecroLegacy`: `runs`, `overruns`, `best` per
-village, `housesRazed`, `totemsRaised`, `relics`, `unlocked`, `equipped`), via
+village, `housesRazed`, `totemsRaised`, `relics`, `unlocked`, `equipped`, plus `perksUnlocked`/`perkEquipped`
+for the perk shop — all new fields defaulted on load with **no key bump**), via
 `loadNecroLegacy`/`saveNecroLegacy`/`emptyNecroLegacy` and the write-once-per-end `recordOverrun`/
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath`, the render
 fallbacks), so the game is fully playable with zero PNGs — though its PNG art **has now shipped** and is in

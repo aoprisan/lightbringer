@@ -63,6 +63,8 @@ interface Hero {
   hp: number; maxHp: number;
   hurt: number; // remaining i-frame ms after a knight's blow (0 = vulnerable)
   charge: number; // 0..1 — how fully the raising-pentagram is inscribed (ramps while still)
+  overcharge: number; // 0..1 — banked past a full inscription (stand still longer); empowers the next raise
+  frenzyUntil: number; // s.elapsed until which the horde is frenzied (gathered a death-mote); 0 = none
   angle: number;  // the sigil's slow cosmetic spin, in degrees
 }
 
@@ -78,6 +80,7 @@ interface Minion {
   hit: number;       // s.elapsed time until which it flashes from a fresh blow
   bornAt: number;    // s.elapsed it was raised (for the spawn flourish)
   variant: string;   // the raising-rite that called it up — its skeleton kind (RaiseType id)
+  champion?: boolean; // raised by an overcharged sigil: bigger, tougher, harder-hitting (CHAMPION_*)
 }
 
 // A village knight — the watch, inverted. Guards its post (wandering on a leash)
@@ -100,6 +103,18 @@ interface Knight {
   mana?: number;                // 0..1 — a priest's holy charge toward its next smite
   smiteUntil?: number;          // a priest mid-rite: s.elapsed deadline its locked smite lands (the windup telegraph)
   smiteTarget?: Minion | null;  // the skeleton its building smite is aimed at (re-checked each frame)
+  crossbow?: boolean;           // a crossbowman: doesn't melee — holds a standoff and looses bolts (see stepKnights)
+  shootCd?: number;             // a crossbowman's ms until it can loose its next bolt
+  banner?: boolean;             // a standard-bearer: rallies the watch around it (an aura, see stepKnights)
+  rallied?: boolean;            // transient (per-frame): within a living banner's rally this frame — never persisted
+  mender?: boolean;             // a chaplain-mender: doesn't melee — holds a standoff and heals the most-wounded knight
+  mending?: boolean;            // transient (per-frame): channelling a heal this frame (for the render beam)
+  mendX?: number; mendY?: number; // transient: the knight it is mending (beam endpoint), set when mending
+  paladin?: boolean;            // a paladin: a melee wall with flat per-hit armour (see hurtKnight)
+  marshal?: boolean;            // a marshal: melees, but periodically charges in a straight-line dash (see stepKnights)
+  chargeCd?: number;            // a marshal's ms until it can charge again
+  chargeMs?: number;            // a marshal's ms remaining in the current charge dash (>0 ⇒ charging)
+  chargeDx?: number; chargeDy?: number; // a marshal's locked charge heading
 }
 
 // FX, drawn then faded — never persisted. A Raise is the bone-burst ring on a
@@ -108,6 +123,16 @@ interface Knight {
 interface Raise { x: number; y: number; r: number; until: number }
 interface Wisp { x: number; y: number; until: number }
 interface Smite { x: number; y: number; until: number }
+// A death-mote — a rarer, hotter drop than a soul-wisp. Gathering it (walk over it)
+// does not feed souls; it sets the horde alight: a brief frenzy (haste + bite).
+interface Mote { x: number; y: number; until: number }
+// A death-miasma — the cloud a fallen Plague skeleton bursts into; it gnaws the
+// knights standing in it each frame until it fades (the rite's on-death power).
+interface Miasma { x: number; y: number; r: number; until: number }
+// A crossbowman's loosed bolt — a travelling projectile (Necro's only one). It
+// flies straight, is stopped by the first body it strikes (hero or skeleton) or
+// by a barricade, and expires on its TTL. Dodgeable, unlike a priest's hitscan.
+interface Bolt { x: number; y: number; vx: number; vy: number; dmg: number; until: number }
 
 interface NecroState {
   level: LevelDef;
@@ -119,13 +144,18 @@ interface NecroState {
   causeways: Segment[];  // open lanes the necromancer runs swift along
   hero: Hero;            // the necromancer
   rite: RaiseType;       // the equipped raising-rite (resolved from the legacy at build)
+  perk: NecroPerk;       // the equipped perk (resolved from the legacy at build)
+  perkMods: PerkMods;    // the equipped perk's resolved modifier bundle (read at a handful of sites)
   souls: number;         // the raise resource
   soulRegen: number;     // ms accumulator for the patient soul-seep (transient, not saved)
   minions: Minion[];
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
+  motes: Mote[];         // gatherable death-motes (frenzy on pickup)
+  miasmas: Miasma[];     // lingering plague clouds from fallen Plague skeletons
   raises: Raise[];       // fading bone-burst rings (cosmetic)
   smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
+  bolts: Bolt[];         // crossbowmen's loosed bolts in flight (the only projectiles)
   elapsed: number;       // ms since the march began (clear time)
   kills: number;         // knights felled
   hits: number;          // times a knight has landed a blow on the necromancer
@@ -182,6 +212,38 @@ const PENTA_RAISE_AT = 0.6;      // the sigil raises the dead once at least this
 const PENTA_RADIUS = 64;         // the sigil's drawn reach around the necromancer
 const PENTA_SPIN = 0.05;         // degrees of sigil rotation per ms (cosmetic)
 
+// Overcharge — the risk/reward on the core verb. Standing still PAST a full
+// inscription banks an overcharge (0→1 over PENTA_OVERCHARGE_MS); any movement
+// spends it back to nothing, same as charge fade. When the next raise pulse fires
+// with a full overcharge AND souls to spare, it is empowered: it raises one extra
+// CHAMPION skeleton (bigger, tougher, harder-hitting) and resets the overcharge. So
+// the deeper play is to hold the stand longer over a grave — more power, more exposure.
+const PENTA_OVERCHARGE_MS = 700;     // time past a full inscription to bank one overcharge
+const OVERCHARGE_EXTRA_COST = 3;     // extra souls an empowered (champion) raise spends
+const CHAMPION_HP_MUL = 2.6;         // a champion skeleton's hp × the rite's raised hp
+const CHAMPION_DMG_MUL = 1.7;        // …its swing damage × the rite's raised damage
+const CHAMPION_SIZE_MUL = 1.5;       // …its draw size × the rite's skeleton size
+
+// Death-motes & frenzy — the snowball's heartbeat (mirror of the Vigil's ember
+// motes, inverted to a horde buff). A felled knight may drop a hot death-mote
+// (rarer than a soul-wisp, and separate from it); gathering it — just walk over it —
+// sets the WHOLE horde alight for a short frenzy: faster swings and a harder bite.
+// Rewards wading into the press rather than turtling at range.
+const MOTE_DROP_CHANCE = 0.18;   // fraction of kills that leave a death-mote (rarer than a wisp)
+const MOTE_TTL_MS = 6000;        // how long a death-mote waits to be gathered
+const MOTE_RADIUS = 18;          // gather reach (over and above the hero's radius)
+const FRENZY_MS = 3500;          // how long a gathered mote keeps the horde frenzied
+const FRENZY_HASTE = 0.7;        // a frenzied minion's swing cooldown × this (faster)
+const FRENZY_DMG_MUL = 1.3;      // …and its swing damage × this (harder)
+
+// Plague Rite — a rite power (see RaiseType.power). A felled Plague skeleton bursts
+// into a lingering death-miasma that gnaws the knights standing in it every frame
+// until it fades, so the watch is punished for killing the horde. Autonomous, like a
+// totem pulse; damage routes through hurtKnight so paladin armour still holds.
+const PLAGUE_CLOUD_MS = 2600;    // how long a death-miasma lingers
+const PLAGUE_CLOUD_R = 70;       // its radius
+const PLAGUE_CLOUD_DPS = 22;     // damage per second to knights inside it
+
 // ---------- Raising-rites (unlockable pentagrams) ----------
 // Each rite is a different pentagram that calls up a different skeleton kind: a
 // stat lean over the base MINION_* / raise tuning, plus its own sigil and bone
@@ -189,6 +251,12 @@ const PENTA_SPIN = 0.05;         // degrees of sigil rotation per ms (cosmetic)
 // inverted — there the sigil shaped the smite, here it shapes the dead it raises.
 // "The Common Grave" is the steady starter (cost 0, always owned); the rest cost
 // relics, banked from marches. This roster is the design surface for progression.
+// A rite's passive power, mirror of the Vigil's PentaPower. "none" is a plain
+// stat-lean; "plague" bursts a damaging miasma when one of its dead falls;
+// "colossus" raises a single towering minion instead of a host. Powers fire
+// automatically — the only choice is which rite to equip (no in-march input).
+type PowerKind = "none" | "plague" | "colossus";
+
 interface RaiseType {
   id: string; name: string; desc: string; cost: number;
   hpMul: number;     // raised skeleton's hp     × MINION_HP
@@ -197,6 +265,7 @@ interface RaiseType {
   countBonus: number; // extra skeletons per raise pulse (added to RAISE_MIN..MAX)
   soulMul: number;   // souls per raise pulse     × RAISE_COST (rounded, ≥1)
   chargeMul: number; // inscribe time             × PENTA_CHARGE_MS (a slower sigil)
+  power: PowerKind;  // the rite's passive on-raise/on-death behaviour
   size: number;      // the skeleton's draw size (px)
   ring: string;      // the pentagram's signature glow/ring hue
   star: string;      // the pentagram's star-stroke hue
@@ -208,32 +277,94 @@ const RAISE_TYPES: RaiseType[] = [
   {
     id: "grave", name: "The Common Grave", cost: 0,
     desc: "The plain rite you began with — footsoldiers of the dead. Even bone, even bite.",
-    hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1,
+    hpMul: 1, speedMul: 1, dmgMul: 1, countBonus: 0, soulMul: 1, chargeMul: 1, power: "none",
     size: 30, ring: "#7affb0", star: "#d8ffe6", bone: "#e8efd8", sprite: "skeleton",
   },
   {
     id: "barrow", name: "The Barrow-Wall", cost: 120,
     desc: "Raises bone-brutes — slow, heavy, hard-hitting, and dear in souls. A wall of the dead that does not break.",
-    hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18,
+    hpMul: 2.0, speedMul: 0.72, dmgMul: 1.6, countBonus: 0, soulMul: 1.5, chargeMul: 1.18, power: "none",
     size: 40, ring: "#ffd36a", star: "#fff0b0", bone: "#ded2a0", sprite: "skeleton-brute",
   },
   {
     id: "cairn", name: "The Quick Cairn", cost: 160,
     desc: "Raises wights — frail and fleeting, but they swarm: a fast sigil that calls up more for less.",
-    hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72,
+    hpMul: 0.6, speedMul: 1.5, dmgMul: 0.8, countBonus: 2, soulMul: 1, chargeMul: 0.72, power: "none",
     size: 24, ring: "#8affd8", star: "#d8fff0", bone: "#dffff0", sprite: "skeleton-wight",
   },
   {
     id: "gallows", name: "The Gallows Rite", cost: 240,
     desc: "Raises revenants — swift, tough, and cruel, but a slow sigil and dear in souls. The capstone of the craft.",
-    hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12,
+    hpMul: 1.6, speedMul: 1.18, dmgMul: 1.4, countBonus: 0, soulMul: 1.5, chargeMul: 1.12, power: "none",
     size: 34, ring: "#c08aff", star: "#f0d8ff", bone: "#cdb8ff", sprite: "skeleton-revenant",
+  },
+  {
+    id: "plague", name: "The Plague Pit", cost: 200,
+    desc: "Raises plague-dead — and when one falls it bursts into a gnawing miasma that rots the watch where it stood. Death that punishes the killing.",
+    hpMul: 0.9, speedMul: 1.05, dmgMul: 0.9, countBonus: 1, soulMul: 1.2, chargeMul: 1, power: "plague",
+    size: 28, ring: "#9bd84a", star: "#dfffa0", bone: "#c6d49a", sprite: "skeleton",
+  },
+  {
+    id: "colossus", name: "The Bone Colossus", cost: 280,
+    desc: "Raises no host but a single horror — one towering bone-colossus, slow and dear, that wades through the watch and does not fall easily.",
+    hpMul: 4.0, speedMul: 0.62, dmgMul: 2.2, countBonus: 0, soulMul: 2.0, chargeMul: 1.25, power: "colossus",
+    size: 50, ring: "#d0743a", star: "#ffd0a0", bone: "#d8b48a", sprite: "skeleton-brute",
   },
 ];
 
 function raiseTypeById(id: string): RaiseType {
   return RAISE_TYPES.find((t) => t.id === id) || RAISE_TYPES[0];
 }
+
+// ---------- Perks (the necromancer's craft) ----------
+// One equipped perk per march bends the carrier's own dials a little — a passive
+// build choice made once at the picker, never an in-march input. Mirror of the
+// parent's perk catalog and the Vigil's sigil shop, bought with the same relics that
+// buy rites. "No Pact" is always owned and the default; the rest cost relics. Each
+// perk's `mods` are merged over PERK_DEFAULTS into a bundle read at a few sim sites.
+interface PerkMods {
+  soulStart: number;      // + souls a march begins with
+  soulRegenTo: number;    // + the soul-seep floor (the trickle climbs back up to this)
+  minionSpeedMul: number; // × minion travel speed
+  desecHealMul: number;   // × the horde-heal a razed house grants
+  soulPerRaze: number;    // + souls a razed house feeds the carrier
+}
+interface NecroPerk { id: string; name: string; desc: string; cost: number; mods: Partial<PerkMods> }
+
+const PERK_DEFAULTS: PerkMods = {
+  soulStart: 0, soulRegenTo: 0, minionSpeedMul: 1, desecHealMul: 1, soulPerRaze: 0,
+};
+
+const PERKS: NecroPerk[] = [
+  {
+    id: "none", name: "No Pact", cost: 0,
+    desc: "The bare craft — no bargain struck. Raise and rule on your own strength alone.",
+    mods: {},
+  },
+  {
+    id: "gravecaller", name: "Gravecaller", cost: 120,
+    desc: "You begin with the dead already stirring — more souls in hand, and a deeper well the seep climbs back to.",
+    mods: { soulStart: 3, soulRegenTo: 1 },
+  },
+  {
+    id: "swift", name: "Swift Dead", cost: 160,
+    desc: "Your skeletons run with an unnatural quickness — they reach the watch before it can form a line.",
+    mods: { minionSpeedMul: 1.18 },
+  },
+  {
+    id: "carrion", name: "Carrion Feast", cost: 240,
+    desc: "Every razed house gluts the horde — a stronger mend across the dead, and an extra soul wrung from the ruin.",
+    mods: { desecHealMul: 1.6, soulPerRaze: 1 },
+  },
+];
+
+function perkById(id: string): NecroPerk {
+  return PERKS.find((p) => p.id === id) || PERKS[0];
+}
+function perkMods(p: NecroPerk): PerkMods {
+  return { ...PERK_DEFAULTS, ...p.mods };
+}
+
 const WISP_DROP_CHANCE = 0.5;    // fraction of kills that leave a gatherable wisp
 const WISP_SOULS = 1;            // souls a gathered wisp grants
 const WISP_TTL_MS = 7000;        // how long a wisp waits to be gathered
@@ -287,6 +418,64 @@ const PRIEST_SWARM_SLOW = 0.55;     // each crowding skeleton adds this to the c
 const PRIEST_BLOCK_HALF = 16;       // the necromancer interposed within this (+radii) of the beam interrupts the rite
 const PRIEST_SMITE_MS = 460;        // how long the holy-flash FX lingers
 
+// Crossbowmen — the watch's ranged arm (mirror of the Vigil's spitter). A
+// crossbowman never melees: it holds a standoff and looses a dodgeable bolt at the
+// nearest threat (the necromancer or a skeleton). It punishes the core loop —
+// standing still to inscribe the raising-pentagram — so the counters are to break
+// line of sight behind a barricade (a bolt is stopped by one), bodyblock with the
+// horde, or simply keep moving. Frail (a soft target to rush down) and killable
+// like any knight (counts toward the host).
+const CROSSBOW_HP_MUL = 1.0;        // a crossbowman's hp over a common knight (frail backline)
+const CROSSBOW_RANGE = 320;         // it looses at a threat within this
+const CROSSBOW_STANDOFF = 190;      // it backs away from a threat closer than this (kiting)
+const CROSSBOW_SHOOT_CD = 1500;     // ms between bolts
+const BOLT_SPEED = 360;             // a bolt's flight speed, units/s
+const BOLT_DMG = 10;                // damage a bolt deals (hero or skeleton)
+const BOLT_TTL_MS = 2600;           // a bolt fades after this long aloft (a range cap)
+
+// Standard-bearers — the watch's support (the defenders' answer to the Vigil's
+// mender). A standard-bearer carries no special attack; it melees like a common
+// knight, but its raised banner emits a RALLY aura: every other knight within it
+// swings faster, bites harder, and slowly mends. The read is "kill the support
+// first" — fell the bearer and the buff collapses. Stouter than a common knight
+// (it leads from the line), killable, and counts toward the host.
+const BANNER_HP_MUL = 1.6;          // a standard-bearer's hp over a common knight
+const BANNER_RADIUS = 150;          // the rally aura reaches this far
+const BANNER_HASTE = 0.75;          // a rallied knight's swing cooldown is scaled by this (25% faster)
+const BANNER_DMG_MUL = 1.25;        // a rallied knight's swing deals this much of its damage
+const BANNER_HEAL = 4;              // hp/sec a rallied knight mends, up to its maxHp (a slow attrition edge)
+
+// Menders — the chantry's field-chaplains (a direct port of the Vigil's healer).
+// A mender never melees: it holds a standoff and channels a STRONG single-target
+// heal into the most-wounded knight in range, undoing the horde's chip damage.
+// Distinct from a standard-bearer (a small passive aura that melees): the mender is
+// a backline that does nothing but mend — so kill it first. Frail.
+const MENDER_HP_MUL = 1.2;          // a mender's hp over a common knight (a soft backline)
+const MENDER_RANGE = 240;           // it mends the most-wounded knight within this
+const MENDER_STANDOFF = 170;        // it kites away from a threat closer than this
+const MENDER_HEAL = 16;             // hp/sec it channels into its mark (strong, single-target)
+
+// Paladins — the watch's wall. A paladin melees like a common knight, but its plate
+// shaves a FLAT amount off every blow it takes (to a floor, so it still dies): chip
+// damage barely scratches it, forcing the horde to focus-fire or overwhelm. Distinct
+// from a captain (just a bigger hp pool). Armour is applied in hurtKnight.
+const PALADIN_HP_MUL = 1.8;         // a paladin's hp over a common knight
+const PALADIN_ARMOR = 6;            // flat damage shaved off each blow a paladin takes
+const PALADIN_MIN_DMG = 1;          // ...but every blow still lands at least this (it is mortal)
+
+// Marshals — the watch's cavalry. A marshal melees between charges, but periodically
+// locks a heading and DASHES in a straight line at high speed; the impact deals heavy
+// damage and a long knockback to whatever it strikes (necromancer or skeleton), then
+// it recovers. Fast, high-pressure, and punishes a clumped horde — keep moving and
+// don't bunch up. Distinct from every other knight (a new movement mechanic).
+const MARSHAL_HP_MUL = 1.5;         // a marshal's hp over a common knight
+const MARSHAL_CHARGE_CD = 2600;     // ms between charges
+const MARSHAL_CHARGE_MS = 420;      // how long a charge dash lasts
+const MARSHAL_CHARGE_SPEED = 520;   // dash speed, units/s (far above KNIGHT_SPEED)
+const MARSHAL_CHARGE_RANGE = 340;   // it begins a charge at a target within this (and off cooldown)
+const MARSHAL_IMPACT_DMG = 20;      // damage a charge impact deals
+const MARSHAL_KNOCKBACK = 120;      // how far an impact flings what it strikes
+
 // Obstacles — the village's solid structures (wells, altars) block bodies; the
 // hero, minions and knights weave around them. Houses and graves are passable
 // (you raze the former, raise at the latter). Radii are roughly the footprint.
@@ -326,7 +515,7 @@ const ALTAR_BURST_DMG = 60;      // damage dealt to every knight caught
 
 // Scoring — overrunning a village banks a score. Tuned for relationships, not
 // magnitudes: faster pays, a razed/unscathed village pays, and a harder village
-// multiplies it all. (No embers — perks are deferred in this first playable.)
+// multiplies it all. (Score feeds relics — the currency for both rites and perks.)
 const SCORE_PER_KNIGHT = 100;        // base, per knight in the host
 const SCORE_TARGET_PER_KNIGHT = 1700; // ms per knight you're "expected" to take
 const SCORE_SPEED_PER_SEC = 20;      // points per second cleared under that target
@@ -367,6 +556,11 @@ interface LevelDef {
   causewayCount: number;  // open lanes the necromancer runs swift along
   captainCount?: number;  // posts whose lead knight is a stout captain (default 0)
   priestCount?: number;   // posts that muster a mana-channeling priest (default 0)
+  crossbowCount?: number; // posts whose third knight is a ranged crossbowman (default 0)
+  bannerCount?: number;   // posts that muster an extra rally-aura standard-bearer (default 0)
+  menderCount?: number;   // posts that muster an extra backline mender/chaplain (default 0)
+  paladinCount?: number;  // posts that muster an extra armoured paladin wall (default 0)
+  marshalCount?: number;  // posts that muster an extra charging marshal/cavalry (default 0)
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -389,7 +583,8 @@ const LEVELS: LevelDef[] = [
     nodeCount: 124, minDist: 66,
     houseFrac: 0.22, wellCount: 3, altarCount: 4, graveCount: 9,
     postCount: 7, postSpacing: 320,
-    barricadeCount: 6, causewayCount: 9, captainCount: 2, priestCount: 1, sizeScale: 1.0,
+    barricadeCount: 6, causewayCount: 9, captainCount: 2, priestCount: 1,
+    crossbowCount: 2, menderCount: 1, sizeScale: 1.0,
   },
   {
     id: "saint-aubers",
@@ -399,7 +594,8 @@ const LEVELS: LevelDef[] = [
     nodeCount: 118, minDist: 70,
     houseFrac: 0.16, wellCount: 5, altarCount: 3, graveCount: 5,
     postCount: 9, postSpacing: 270,
-    barricadeCount: 12, causewayCount: 4, captainCount: 4, priestCount: 3, sizeScale: 1.1,
+    barricadeCount: 12, causewayCount: 4, captainCount: 4, priestCount: 3,
+    crossbowCount: 4, bannerCount: 2, menderCount: 2, paladinCount: 2, sizeScale: 1.1,
   },
   {
     id: "gallows-fen",
@@ -409,7 +605,8 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 84,
     houseFrac: 0.30, wellCount: 2, altarCount: 5, graveCount: 8,
     postCount: 6, postSpacing: 400,
-    barricadeCount: 10, causewayCount: 3, captainCount: 2, priestCount: 2, sizeScale: 1.15,
+    barricadeCount: 10, causewayCount: 3, captainCount: 2, priestCount: 2,
+    crossbowCount: 3, bannerCount: 1, paladinCount: 1, marshalCount: 2, sizeScale: 1.15,
   },
 ];
 
@@ -508,6 +705,28 @@ function closestOnSegment(
   return { x, y, d: Math.hypot(px - x, py - y) };
 }
 
+// Do segments A(a→b) and B(c→d) cross? Standard orientation test — used to tell
+// whether a barricade stands between a crossbowman and its mark (so it holds fire
+// rather than loosing into a wall) and whether a bolt in flight has struck one.
+function segsCross(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number,
+): boolean {
+  const o = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) =>
+    Math.sign((qx - px) * (ry - py) - (qy - py) * (rx - px));
+  const o1 = o(ax, ay, bx, by, cx, cy), o2 = o(ax, ay, bx, by, dx, dy);
+  const o3 = o(cx, cy, dx, dy, ax, ay), o4 = o(cx, cy, dx, dy, bx, by);
+  return o1 !== o2 && o3 !== o4;
+}
+
+// Does any barricade stand on the line between two points? (Bolts and LOS both ask.)
+function barricadeBetween(s: NecroState, ax: number, ay: number, bx: number, by: number): boolean {
+  for (const f of s.barricades) {
+    if (segsCross(ax, ay, bx, by, f.x1, f.y1, f.x2, f.y2)) return true;
+  }
+  return false;
+}
+
 // String `count` line segments between pairs of nodes whose gap falls in
 // [lo, hi], hugging each anchor's nearest in-band neighbour so the segment runs
 // along the village grid. Barricades want short gaps (walls between neighbours);
@@ -572,44 +791,70 @@ function buildArena(level: LevelDef): NecroState {
   const causeways = weaveSegments(scenery, level.causewayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
-    charge: 0, angle: 0,
+    charge: 0, overcharge: 0, frenzyUntil: 0, angle: 0,
   };
   const knights: Knight[] = [];
   const captainCount = Math.min(level.captainCount ?? 0, posts.length);
   const priestCount = Math.min(level.priestCount ?? 0, posts.length);
+  const crossbowCount = Math.min(level.crossbowCount ?? 0, posts.length);
+  const bannerCount = Math.min(level.bannerCount ?? 0, posts.length);
+  const menderCount = Math.min(level.menderCount ?? 0, posts.length);
+  const paladinCount = Math.min(level.paladinCount ?? 0, posts.length);
+  const marshalCount = Math.min(level.marshalCount ?? 0, posts.length);
+  // Muster one knight near a post — a small helper so the post's fixed three and
+  // its (optional) extra defenders all spawn the same way.
+  const muster = (post: { x: number; y: number }, k: Partial<Knight> & { hp: number }): void => {
+    const a = Math.random() * Math.PI * 2;
+    const r = 18 + Math.random() * 44;
+    const x = clamp(post.x + Math.cos(a) * r, KNIGHT_RADIUS, w - KNIGHT_RADIUS);
+    const y = clamp(post.y + Math.sin(a) * r, KNIGHT_RADIUS, h - KNIGHT_RADIUS);
+    knights.push({
+      x, y, vx: 0, vy: 0, hp: k.hp, maxHp: k.hp, dead: false,
+      state: "guard",
+      wanderAngle: Math.random() * Math.PI * 2,
+      wanderTimer: Math.random() * KNIGHT_WANDER_RETARGET_MS,
+      homeX: post.x, homeY: post.y,
+      attackCd: 0, hit: 0, mana: 0, shootCd: 0, chargeCd: 0, chargeMs: 0,
+      captain: k.captain, priest: k.priest, crossbow: k.crossbow, banner: k.banner,
+      mender: k.mender, paladin: k.paladin, marshal: k.marshal,
+    });
+  };
   posts.forEach((post, pi) => {
     for (let j = 0; j < KNIGHT_PER_POST; j++) {
       const captain = j === 0 && pi < captainCount;
       // The 2nd of a post's knights is a priest on the first `priestCount` posts —
       // a backline caster standing apart from the post's lead (captain or not).
       const priest = j === 1 && pi < priestCount;
-      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL : priest ? KNIGHT_HP * PRIEST_HP_MUL : KNIGHT_HP;
-      const a = Math.random() * Math.PI * 2;
-      const r = 18 + Math.random() * 44;
-      const x = clamp(post.x + Math.cos(a) * r, KNIGHT_RADIUS, w - KNIGHT_RADIUS);
-      const y = clamp(post.y + Math.sin(a) * r, KNIGHT_RADIUS, h - KNIGHT_RADIUS);
-      knights.push({
-        x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false,
-        state: "guard",
-        wanderAngle: Math.random() * Math.PI * 2,
-        wanderTimer: Math.random() * KNIGHT_WANDER_RETARGET_MS,
-        homeX: post.x, homeY: post.y,
-        attackCd: 0, hit: 0,
-        captain, priest, mana: 0,
-      });
+      // The 3rd is a ranged crossbowman on the first `crossbowCount` posts (it only
+      // ever takes a common slot, so it never contends with the captain or priest).
+      const crossbow = j === 2 && pi < crossbowCount;
+      const hp = captain ? KNIGHT_HP * CAPTAIN_HP_MUL
+        : priest ? KNIGHT_HP * PRIEST_HP_MUL
+        : crossbow ? KNIGHT_HP * CROSSBOW_HP_MUL
+        : KNIGHT_HP;
+      muster(post, { hp, captain, priest, crossbow });
     }
+    // The support/specialist defenders are EXTRA bodies the first N posts raise —
+    // added, not slotted, so the post's fixed three are untouched.
+    if (pi < bannerCount) muster(post, { hp: KNIGHT_HP * BANNER_HP_MUL, banner: true });
+    if (pi < menderCount) muster(post, { hp: KNIGHT_HP * MENDER_HP_MUL, mender: true });
+    if (pi < paladinCount) muster(post, { hp: KNIGHT_HP * PALADIN_HP_MUL, paladin: true });
+    if (pi < marshalCount) muster(post, { hp: KNIGHT_HP * MARSHAL_HP_MUL, marshal: true });
   });
-  // The equipped raising-rite is re-derived from the legacy on every build (the
-  // picker has the only chooser; a march is rite-locked once it begins).
-  const rite = raiseTypeById(loadNecroLegacy().equipped);
+  // The equipped raising-rite and perk are re-derived from the legacy on every build
+  // (the picker has the only chooser; a march is locked once it begins).
+  const legacy = loadNecroLegacy();
+  const rite = raiseTypeById(legacy.equipped);
+  const perk = perkById(legacy.perkEquipped);
+  const mods = perkMods(perk);
   return {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     graves: scenery.filter((n) => n.kind === "grave"),
     barricades, causeways,
-    hero, rite, souls: SOUL_START, soulRegen: 0,
+    hero, rite, perk, perkMods: mods, souls: SOUL_START + mods.soulStart, soulRegen: 0,
     minions: [], knights,
-    wisps: [], raises: [], smites: [],
+    wisps: [], motes: [], miasmas: [], raises: [], smites: [], bolts: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -676,9 +921,9 @@ function scoreRun(s: NecroState): ScoreBreakdown {
 }
 
 // Fell a knight: mark it dead, count the kill, grant souls directly, and — by
-// chance — leave a gatherable soul-wisp where it fell. The single kill path, so
-// every damage source (minion swing, totem pulse, altar burst) feeds souls the
-// same way.
+// chance — leave a gatherable soul-wisp (souls) and/or a rarer death-mote (a horde
+// frenzy on pickup) where it fell. The single kill path, so every damage source
+// (minion swing, totem pulse, altar burst) feeds souls and drops the same way.
 function killKnight(s: NecroState, e: Knight): void {
   if (e.dead) return;
   e.dead = true;
@@ -687,6 +932,32 @@ function killKnight(s: NecroState, e: Knight): void {
   if (Math.random() < WISP_DROP_CHANCE) {
     s.wisps.push({ x: e.x, y: e.y, until: s.elapsed + WISP_TTL_MS });
   }
+  if (Math.random() < MOTE_DROP_CHANCE) {
+    s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
+  }
+}
+
+// Lay a minion to rest: mark it dead and fire its rite's on-death power. A Plague
+// skeleton bursts into a death-miasma where it fell. The single minion-death path,
+// so every source (knight swing, bolt, smite, charge impact) triggers it the same.
+function killMinion(s: NecroState, m: Minion): void {
+  if (m.dead) return;
+  m.dead = true;
+  if (raiseTypeById(m.variant).power === "plague") {
+    s.miasmas.push({ x: m.x, y: m.y, r: PLAGUE_CLOUD_R, until: s.elapsed + PLAGUE_CLOUD_MS });
+  }
+}
+
+// Wound a knight from any source (minion swing, totem pulse, altar burst). The
+// single damage path: a paladin's plate shaves a flat amount off each blow (to a
+// floor, so it is still mortal), every other knight takes the blow whole. Flashes
+// it and fells it (killKnight) at zero. Keeps paladin armour true everywhere.
+function hurtKnight(s: NecroState, e: Knight, dmg: number): void {
+  if (e.dead) return;
+  const d = e.paladin ? Math.max(PALADIN_MIN_DMG, dmg - PALADIN_ARMOR) : dmg;
+  e.hp -= d;
+  e.hit = s.elapsed + HIT_FLASH_MS;
+  if (e.hp <= 0) killKnight(s, e);
 }
 
 // Raise the dead: only while the raising-pentagram is inscribed (charge ≥ PENTA_RAISE_AT,
@@ -718,7 +989,11 @@ function stepRaise(s: NecroState): void {
     g.desecAt = s.elapsed;
     if (g.raisesLeft <= 0) g.graveSpent = true;
     const hp = Math.round(MINION_HP * rite.hpMul);
-    const n = RAISE_MIN + rite.countBonus + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
+    // The Bone Colossus rite raises a single towering minion; every other rite raises
+    // a burst of RAISE_MIN..MAX (+countBonus).
+    const n = rite.power === "colossus"
+      ? 1
+      : RAISE_MIN + rite.countBonus + Math.floor(Math.random() * (RAISE_MAX - RAISE_MIN + 1));
     for (let i = 0; i < n; i++) {
       if (aliveMinions(s) >= MINION_CAP) break;
       const a = Math.random() * Math.PI * 2;
@@ -732,6 +1007,26 @@ function stepRaise(s: NecroState): void {
         variant: rite.id,
       });
       s.raisedTotal++;
+    }
+    // An overcharged sigil (the held stand past full, see stepMarch) empowers this
+    // pulse: spend extra souls to raise one CHAMPION of the rite's kind, then the
+    // overcharge is spent. Skipped silently if souls or horde room fall short — the
+    // ordinary raise still stood.
+    if (h.overcharge >= 1 && s.souls >= OVERCHARGE_EXTRA_COST && aliveMinions(s) < MINION_CAP) {
+      s.souls -= OVERCHARGE_EXTRA_COST;
+      h.overcharge = 0;
+      const chp = Math.round(hp * CHAMPION_HP_MUL);
+      const a = Math.random() * Math.PI * 2;
+      const r = MINION_RADIUS + Math.random() * 22;
+      s.minions.push({
+        x: clamp(g.x + Math.cos(a) * r, MINION_RADIUS, s.w - MINION_RADIUS),
+        y: clamp(g.y + Math.sin(a) * r, MINION_RADIUS, s.h - MINION_RADIUS),
+        vx: 0, vy: 0, hp: chp, maxHp: chp, dead: false,
+        state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: s.elapsed,
+        variant: rite.id, champion: true,
+      });
+      s.raisedTotal++;
+      s.raises.push({ x: g.x, y: g.y, r: 64, until: s.elapsed + 480 }); // a bigger burst
     }
     s.raises.push({ x: g.x, y: g.y, r: 40, until: s.elapsed + 360 });
   }
@@ -758,12 +1053,16 @@ function nearestKnight(s: NecroState, x: number, y: number, range: number): numb
 function stepMinions(s: NecroState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveKnights(s) > 0 && aliveKnights(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  // While the horde is frenzied (a gathered death-mote), every minion swings faster
+  // and bites harder for the window; Swift Dead (a perk) hastens the horde's travel.
+  const frenzied = s.elapsed < h.frenzyUntil;
   for (const m of s.minions) {
     if (m.dead) continue;
     m.attackCd = Math.max(0, m.attackCd - dt);
-    // The skeleton's kind (its raising-rite) leans its pace and bite.
+    // The skeleton's kind (its raising-rite) leans its pace and bite; a champion
+    // (overcharged raise) hits harder still.
     const def = raiseTypeById(m.variant);
-    const moveSpeed = MINION_SPEED * def.speedMul;
+    const moveSpeed = MINION_SPEED * def.speedMul * s.perkMods.minionSpeedMul;
 
     // Pick a quarry: the nearest knight in aggro range (global during cleanup).
     const ti = nearestKnight(s, m.x, m.y, cleanup ? Infinity : MINION_AGGRO);
@@ -778,10 +1077,11 @@ function stepMinions(s: NecroState, dt: number): void {
       // Swing if in reach, off cooldown.
       const reach = MINION_RADIUS + KNIGHT_RADIUS + MINION_ATTACK_REACH;
       if (dist <= reach && m.attackCd <= 0) {
-        target.hp -= MINION_DMG * def.dmgMul;
-        target.hit = s.elapsed + HIT_FLASH_MS;
-        m.attackCd = MINION_ATTACK_CD;
-        if (target.hp <= 0) killKnight(s, target);
+        let dmg = MINION_DMG * def.dmgMul;
+        if (m.champion) dmg *= CHAMPION_DMG_MUL;
+        if (frenzied) dmg *= FRENZY_DMG_MUL;
+        hurtKnight(s, target, dmg);
+        m.attackCd = MINION_ATTACK_CD * (frenzied ? FRENZY_HASTE : 1);
       }
       dx /= dist; dy /= dist;
       // Separation among fellow minions so the horde packs rather than overlaps.
@@ -833,6 +1133,22 @@ function nearestMinion(s: NecroState, x: number, y: number, range: number): numb
 function stepKnights(s: NecroState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveKnights(s) <= s.total * CLEANUP_AGGRO_FRAC;
+
+  // Rally pass — a standard-bearer's banner emboldens the watch around it. Recompute
+  // each frame which knights stand within a living bearer's aura (transient, never
+  // persisted); rallied knights swing faster/harder (read below) and slowly mend.
+  // Fell the bearer and the buff collapses — the "kill the support first" read.
+  const banners = s.knights.filter((b) => b.banner && !b.dead);
+  for (const e of s.knights) {
+    if (e.dead) continue;
+    e.rallied = false;
+    if (e.banner) continue; // a bearer doesn't rally itself
+    for (const b of banners) {
+      if ((b.x - e.x) ** 2 + (b.y - e.y) ** 2 <= BANNER_RADIUS ** 2) { e.rallied = true; break; }
+    }
+    if (e.rallied && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + (BANNER_HEAL * dt) / 1000);
+  }
+
   for (const e of s.knights) {
     if (e.dead) continue;
     e.attackCd = Math.max(0, e.attackCd - dt);
@@ -876,7 +1192,7 @@ function stepKnights(s: NecroState, dt: number): void {
           if (lost || blocked) {
             e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // foiled — recharge
           } else if (s.elapsed >= e.smiteUntil) {
-            v!.dead = true;
+            killMinion(s, v!);
             s.smites.push({ x: v!.x, y: v!.y, until: s.elapsed + PRIEST_SMITE_MS });
             e.smiteUntil = undefined; e.smiteTarget = null; e.mana = 0; // spent
           }
@@ -896,17 +1212,108 @@ function stepKnights(s: NecroState, dt: number): void {
         }
         dx /= dist; dy /= dist;
         speed = 0; // a channeling priest stands fast
+      } else if (e.crossbow) {
+        // A crossbowman never melees. It holds a standoff and looses a dodgeable
+        // bolt at the nearest threat, then must reload. The counters: break line of
+        // sight behind a barricade (a bolt is stopped by one, and it holds fire when
+        // one stands between), bodyblock with the horde, or simply keep moving.
+        e.shootCd = Math.max(0, (e.shootCd ?? 0) - dt);
+        dx /= dist; dy /= dist;
+        if (dist < CROSSBOW_STANDOFF) { dx = -dx; dy = -dy; speed = KNIGHT_SPEED; } // kite back
+        else if (dist > CROSSBOW_RANGE) { speed = KNIGHT_SPEED; }                   // close to range
+        else { speed = 0; }                                                          // hold and loose
+        if (e.shootCd <= 0 && dist <= CROSSBOW_RANGE && !barricadeBetween(s, e.x, e.y, tx, ty)) {
+          s.bolts.push({
+            x: e.x, y: e.y, vx: dx * BOLT_SPEED, vy: dy * BOLT_SPEED,
+            dmg: BOLT_DMG, until: s.elapsed + BOLT_TTL_MS,
+          });
+          e.shootCd = CROSSBOW_SHOOT_CD;
+        }
+      } else if (e.mender) {
+        // A mender never melees. It holds a standoff and channels a strong heal into
+        // the most-wounded knight in range, undoing the horde's chip damage — so kill
+        // it first. Frail backline; kites away from a threat that closes on it.
+        e.mending = false;
+        let wi = -1, worst = 1;
+        for (let i = 0; i < s.knights.length; i++) {
+          const o = s.knights[i];
+          if (o.dead || o === e || o.hp >= o.maxHp) continue;
+          if ((o.x - e.x) ** 2 + (o.y - e.y) ** 2 > MENDER_RANGE ** 2) continue;
+          const frac = o.hp / o.maxHp;
+          if (frac < worst) { worst = frac; wi = i; }
+        }
+        if (wi >= 0) {
+          const o = s.knights[wi];
+          o.hp = Math.min(o.maxHp, o.hp + (MENDER_HEAL * dt) / 1000);
+          e.mending = true; e.mendX = o.x; e.mendY = o.y;
+        }
+        dx /= dist; dy /= dist;
+        if (dist < MENDER_STANDOFF) { dx = -dx; dy = -dy; speed = KNIGHT_SPEED; } // kite from a near threat
+        else { speed = 0; }                                                        // else hold near the wounded
+      } else if (e.marshal) {
+        // A marshal charges: off cooldown and with a target in range it locks a
+        // heading and DASHES; the impact deals heavy damage and a long knockback to
+        // whatever it strikes (necromancer or skeleton), then it recovers. Between
+        // charges it melees like a common knight. Punishes a clumped horde.
+        e.chargeCd = Math.max(0, (e.chargeCd ?? 0) - dt);
+        if ((e.chargeMs ?? 0) > 0) {
+          // Mid-dash along the locked heading.
+          e.chargeMs = Math.max(0, (e.chargeMs ?? 0) - dt);
+          dx = e.chargeDx ?? 0; dy = e.chargeDy ?? 0; speed = MARSHAL_CHARGE_SPEED;
+          const kd = Math.hypot(dx, dy) || 1;
+          let struck = false;
+          // Impact: the necromancer first, then any skeleton in the dash's path.
+          if (h.hurt <= 0 && (h.x - e.x) ** 2 + (h.y - e.y) ** 2 <= (KNIGHT_RADIUS + HERO_RADIUS + 4) ** 2) {
+            h.hp -= MARSHAL_IMPACT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS;
+            const p = pushOut(s, h.x + (dx / kd) * MARSHAL_KNOCKBACK, h.y + (dy / kd) * MARSHAL_KNOCKBACK, HERO_RADIUS);
+            h.x = p.x; h.y = p.y; struck = true;
+          }
+          if (!struck) {
+            for (const m of s.minions) {
+              if (m.dead) continue;
+              if ((m.x - e.x) ** 2 + (m.y - e.y) ** 2 <= (KNIGHT_RADIUS + MINION_RADIUS + 4) ** 2) {
+                m.hp -= MARSHAL_IMPACT_DMG; m.hit = s.elapsed + HIT_FLASH_MS;
+                m.x += (dx / kd) * MARSHAL_KNOCKBACK; m.y += (dy / kd) * MARSHAL_KNOCKBACK;
+                if (m.hp <= 0) killMinion(s, m);
+                struck = true; break;
+              }
+            }
+          }
+          if (struck || (e.chargeMs ?? 0) <= 0) { e.chargeMs = 0; e.chargeCd = MARSHAL_CHARGE_CD; } // recover
+        } else {
+          dx /= dist; dy /= dist;
+          if ((e.chargeCd ?? 0) <= 0 && dist <= MARSHAL_CHARGE_RANGE) {
+            e.chargeMs = MARSHAL_CHARGE_MS; e.chargeDx = dx; e.chargeDy = dy; speed = MARSHAL_CHARGE_SPEED; // begin a charge
+          } else {
+            // Between charges: a common-knight swing when adjacent.
+            if (e.attackCd <= 0) {
+              const reach = (targetMinion ? MINION_RADIUS : HERO_RADIUS) + KNIGHT_RADIUS + KNIGHT_ATTACK_REACH;
+              if (dist <= reach) {
+                if (targetMinion) {
+                  targetMinion.hp -= KNIGHT_DMG; targetMinion.hit = s.elapsed + HIT_FLASH_MS;
+                  if (targetMinion.hp <= 0) killMinion(s, targetMinion);
+                } else if (h.hurt <= 0) {
+                  h.hp -= KNIGHT_DMG; s.hits++; h.hurt = HERO_IFRAMES_MS;
+                }
+                e.attackCd = KNIGHT_ATTACK_CD;
+              }
+            }
+            speed = KNIGHT_SPEED;
+          }
+        }
       } else {
-        // Swing if in reach, off cooldown.
+        // Swing if in reach, off cooldown. A rallied knight (within a standard-
+        // bearer's aura) bites harder and recovers faster.
         if (e.attackCd <= 0) {
-          const dmg = e.captain ? CAPTAIN_DMG : KNIGHT_DMG;
+          const dmg = (e.captain ? CAPTAIN_DMG : KNIGHT_DMG) * (e.rallied ? BANNER_DMG_MUL : 1);
+          const cd = KNIGHT_ATTACK_CD * (e.rallied ? BANNER_HASTE : 1);
           if (targetMinion) {
             const reach = KNIGHT_RADIUS + MINION_RADIUS + KNIGHT_ATTACK_REACH;
             if (dist <= reach) {
               targetMinion.hp -= dmg;
               targetMinion.hit = s.elapsed + HIT_FLASH_MS;
-              e.attackCd = KNIGHT_ATTACK_CD;
-              if (targetMinion.hp <= 0) targetMinion.dead = true;
+              e.attackCd = cd;
+              if (targetMinion.hp <= 0) killMinion(s, targetMinion);
             }
           } else {
             const reach = KNIGHT_RADIUS + HERO_RADIUS + KNIGHT_ATTACK_REACH;
@@ -914,7 +1321,7 @@ function stepKnights(s: NecroState, dt: number): void {
               h.hp -= dmg;
               s.hits++;
               h.hurt = HERO_IFRAMES_MS;
-              e.attackCd = KNIGHT_ATTACK_CD;
+              e.attackCd = cd;
               const kx = h.x - e.x, ky = h.y - e.y, kd = Math.hypot(kx, ky) || 1;
               const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
               h.x = p.x; h.y = p.y;
@@ -960,6 +1367,51 @@ function stepKnights(s: NecroState, dt: number): void {
   }
 }
 
+// Fly the crossbowmen's bolts (Necro's only projectiles). Each travels straight and
+// is consumed by the first thing it strikes — the necromancer (gated by i-frames,
+// with knockback, like a melee blow), a skeleton (damage, may kill), or a barricade
+// (broken line of sight). It also fades on its TTL or once off the map. Dodgeable:
+// keep moving or put a wall between you and the volley.
+function stepBolts(s: NecroState, dt: number): void {
+  if (!s.bolts.length) return;
+  const h = s.hero;
+  const live: Bolt[] = [];
+  for (const b of s.bolts) {
+    if (b.until <= s.elapsed) continue;
+    const nx = b.x + (b.vx * dt) / 1000, ny = b.y + (b.vy * dt) / 1000;
+    if (nx < 0 || ny < 0 || nx > s.w || ny > s.h) continue; // flew off the map
+    if (barricadeBetween(s, b.x, b.y, nx, ny)) continue;    // struck a barricade — stopped
+    let hit = false;
+    // The necromancer.
+    if (h.hurt <= 0 && (h.x - nx) ** 2 + (h.y - ny) ** 2 <= HERO_RADIUS ** 2) {
+      h.hp -= b.dmg;
+      s.hits++;
+      h.hurt = HERO_IFRAMES_MS;
+      const kx = b.vx, ky = b.vy, kd = Math.hypot(kx, ky) || 1;
+      const p = pushOut(s, h.x + (kx / kd) * HERO_KNOCKBACK, h.y + (ky / kd) * HERO_KNOCKBACK, HERO_RADIUS);
+      h.x = p.x; h.y = p.y;
+      hit = true;
+    }
+    // A skeleton in the way.
+    if (!hit) {
+      for (const m of s.minions) {
+        if (m.dead) continue;
+        if ((m.x - nx) ** 2 + (m.y - ny) ** 2 <= (MINION_RADIUS + 2) ** 2) {
+          m.hp -= b.dmg;
+          m.hit = s.elapsed + HIT_FLASH_MS;
+          if (m.hp <= 0) killMinion(s, m);
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (hit) continue;
+    b.x = nx; b.y = ny;
+    live.push(b);
+  }
+  s.bolts = live;
+}
+
 // Raze a standing house to desecrated ground: count it, mend the horde, and (the
 // inversion of the parent's kindle) leave it razed so it may rise into a totem. A
 // still-scarred (re-blessed) house resists the horde (no re-razing). The single
@@ -969,13 +1421,14 @@ function desecrateHouse(s: NecroState, n: ArenaNode, heal: number): void {
   if (n.reconsecrated && n.reconsecrated > s.elapsed) return; // the scar still bars re-razing
   n.desecrated = true; n.desecAt = s.elapsed; n.risen = false; n.reconsecrated = 0;
   s.desecCount++;
-  s.souls += SOUL_PER_RAZE; // a razed house feeds the carrier — souls to raise more
+  s.souls += SOUL_PER_RAZE + s.perkMods.soulPerRaze; // a razed house feeds the carrier (Carrion Feast: +1)
   if (heal) {
     // The village rallies the horde only up to HEAL_CAP·maxHp; distribute the
-    // mend across living minions so razing keeps a swarm on its feet.
+    // mend across living minions so razing keeps a swarm on its feet. Carrion Feast
+    // (a perk) deepens the mend.
     const live = s.minions.filter((m) => !m.dead);
     if (live.length) {
-      const each = heal; // heal each living minion a little (clamped to its cap)
+      const each = heal * s.perkMods.desecHealMul; // heal each living minion a little (clamped to its cap)
       for (const m of live) {
         const ceil = Math.max(m.hp, m.maxHp * HEAL_CAP);
         m.hp = Math.min(ceil, m.hp + each);
@@ -1018,11 +1471,7 @@ function stepHouses(s: NecroState, dt: number): void {
     if (!n.risen) continue;
     for (const e of s.knights) {
       if (e.dead) continue;
-      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= tr2) {
-        e.hp -= tdmg;
-        e.hit = s.elapsed + HIT_FLASH_MS;
-        if (e.hp <= 0) killKnight(s, e);
-      }
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= tr2) hurtKnight(s, e, tdmg);
     }
   }
 }
@@ -1054,11 +1503,7 @@ function stepAltar(s: NecroState): void {
     const br2 = ALTAR_BURST_R ** 2;
     for (const e of s.knights) {
       if (e.dead) continue;
-      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= br2) {
-        e.hp -= ALTAR_BURST_DMG;
-        e.hit = s.elapsed + HIT_FLASH_MS;
-        if (e.hp <= 0) killKnight(s, e);
-      }
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= br2) hurtKnight(s, e, ALTAR_BURST_DMG);
     }
     for (const d of s.scenery) {
       if (d.kind !== "house" || d.desecrated) continue;
@@ -1082,6 +1527,41 @@ function stepWisps(s: NecroState): void {
     }
   }
   s.wisps = s.wisps.filter((w) => w.until > s.elapsed);
+}
+
+// Gather any death-mote the necromancer has walked onto: it grants no souls — it
+// sets the horde alight, opening a FRENZY_MS window of haste + harder bite read in
+// stepMinions. Then retire faded (or gathered) motes. Mirror of the Vigil's ember
+// surge, inverted from a hero buff to a horde buff.
+function stepMotes(s: NecroState): void {
+  if (!s.motes.length) return;
+  const h = s.hero;
+  const rr = (HERO_RADIUS + MOTE_RADIUS) ** 2;
+  for (const m of s.motes) {
+    if (m.until <= s.elapsed) continue;
+    if ((m.x - h.x) ** 2 + (m.y - h.y) ** 2 <= rr) {
+      m.until = 0; // consumed
+      h.frenzyUntil = s.elapsed + FRENZY_MS;
+    }
+  }
+  s.motes = s.motes.filter((m) => m.until > s.elapsed);
+}
+
+// Death-miasmas left by fallen Plague skeletons: each gnaws the knights standing in
+// it every frame for its lifetime (autonomous, like a totem pulse), then fades.
+// Damage routes through hurtKnight so a paladin's plate still holds. Run each frame.
+function stepMiasma(s: NecroState, dt: number): void {
+  if (!s.miasmas.length) return;
+  const dmg = (PLAGUE_CLOUD_DPS * dt) / 1000;
+  for (const c of s.miasmas) {
+    if (c.until <= s.elapsed) continue;
+    const r2 = c.r ** 2;
+    for (const e of s.knights) {
+      if (e.dead) continue;
+      if ((e.x - c.x) ** 2 + (e.y - c.y) ** 2 <= r2) hurtKnight(s, e, dmg);
+    }
+  }
+  s.miasmas = s.miasmas.filter((c) => c.until > s.elapsed);
 }
 
 // One slice of march time, analogous to pentagram's stepCombat: integrate the
@@ -1111,15 +1591,20 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   const chargeMs = PENTA_CHARGE_MS * s.rite.chargeMul; // a heavier rite inscribes slower
   if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
     h.charge = Math.min(1, h.charge + dt / chargeMs);
+    // Past a full inscription, the held stand banks an overcharge — the next raise
+    // erupts as a champion (stepRaise). The deeper play is to hold the stand longer.
+    if (h.charge >= 1) h.overcharge = Math.min(1, h.overcharge + dt / PENTA_OVERCHARGE_MS);
   } else {
     h.charge = Math.max(0, h.charge - dt / chargeMs);
+    h.overcharge = 0; // marching spends the banked overcharge back to nothing
   }
   h.angle = (h.angle + dt * PENTA_SPIN) % 360;
 
   // The patient soul-seep: when the carrier has run low, the dead trickle a few
   // souls back so a grave is never permanently useless — but only up to a floor,
   // never enough to replace felling knights and razing houses.
-  if (s.souls < SOUL_REGEN_TO) {
+  const regenFloor = SOUL_REGEN_TO + s.perkMods.soulRegenTo; // Gravecaller deepens the well
+  if (s.souls < regenFloor) {
     s.soulRegen += dt;
     if (s.soulRegen >= SOUL_REGEN_MS) { s.souls += 1; s.soulRegen = 0; }
   } else {
@@ -1128,11 +1613,14 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
 
   stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
+  stepMotes(s);        // gather any death-mote underfoot (frenzies the horde)
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
   stepKnights(s, dt);  // the watch guards / engages the horde and the necromancer
+  stepBolts(s, dt);    // crossbowmen's loosed bolts fly and strike (or are walled off)
   stepDesecrate(s);    // minions raze the houses they reach (heals the horde)
   stepHouses(s, dt);   // razed houses rise into totems; totems burn the watch
   stepAltar(s);        // an altar by the necromancer fires its one-shot burst
+  stepMiasma(s, dt);   // plague clouds from fallen Plague skeletons gnaw the watch
 
   // Retire spent FX (cheap; only when any are live).
   if (s.raises.length) s.raises = s.raises.filter((r) => r.until > s.elapsed);
@@ -1466,6 +1954,35 @@ function render(s: NecroState, layer: SVGGElement): void {
     layer.appendChild(el("circle", { cx: w.x, cy: w.y, r: 3.0, fill: "#e6fff0" }));
   }
 
+  // Death-motes — a hotter, blood-red drop than a soul-wisp; gathering one frenzies
+  // the horde. Pulse faster so they read as "grab me". Procedural only.
+  for (const m of s.motes) {
+    const life = Math.max(0, (m.until - s.elapsed) / MOTE_TTL_MS);
+    if (life <= 0) continue;
+    const pulse = 1 + 0.3 * Math.sin(s.elapsed / 90);
+    layer.appendChild(el("circle", {
+      cx: m.x, cy: m.y, r: 12 * pulse, fill: "#c41e2a",
+      opacity: Math.min(1, 0.4 + life), filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 3.2, fill: "#ffd0c0" }));
+  }
+
+  // Death-miasmas — sickly green plague clouds a fallen Plague skeleton burst into,
+  // gnawing the watch within. They breathe and fade. Procedural only.
+  for (const c of s.miasmas) {
+    const life = Math.max(0, (c.until - s.elapsed) / PLAGUE_CLOUD_MS);
+    if (life <= 0) continue;
+    const breathe = 0.92 + 0.08 * Math.sin(s.elapsed / 200);
+    layer.appendChild(el("circle", {
+      cx: c.x, cy: c.y, r: c.r * breathe, fill: "#6fae28",
+      opacity: 0.16 + 0.18 * life, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", {
+      cx: c.x, cy: c.y, r: c.r * breathe, fill: "none",
+      stroke: "#9bd84a", "stroke-width": 1.5, opacity: 0.4 * life,
+    }));
+  }
+
   // Raise-burst rings — a quick necrotic eruption where the dead clawed up (or an
   // altar burst), fading as it expands. Procedural only.
   for (const r of s.raises) {
@@ -1492,6 +2009,19 @@ function render(s: NecroState, layer: SVGGElement): void {
     }));
   }
 
+  // Bolts in flight — a crossbowman's loosed quarrels. A short steel streak along
+  // the line of travel with a bright head. Procedural only.
+  for (const b of s.bolts) {
+    const len = Math.hypot(b.vx, b.vy) || 1;
+    const ux = b.vx / len, uy = b.vy / len;
+    const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#glow)" };
+    layer.appendChild(el("line", {
+      x1: b.x - ux * 9, y1: b.y - uy * 9, x2: b.x + ux * 5, y2: b.y + uy * 5,
+      stroke: "#e8efd8", "stroke-width": 2, "stroke-linecap": "round", opacity: 0.9, ...fx,
+    }));
+    layer.appendChild(el("circle", { cx: b.x + ux * 5, cy: b.y + uy * 5, r: 2.2, fill: "#fff6d8", ...fx }));
+  }
+
   // Knights — the village watch. Engaging ones draw full; guards lurk faint.
   const knightKey = sprites.has("knight-engage")
     ? "knight-engage" : sprites.has("knight-guard") ? "knight-guard" : null;
@@ -1501,17 +2031,26 @@ function render(s: NecroState, layer: SVGGElement): void {
     if (e.dead) continue;
     const op = e.state === "engage" ? 1 : 0.6;
     const flash = e.hit > s.elapsed ? Math.max(0, (e.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = (e.captain ? 58 : e.priest ? 50 : 44) * (1 + flash * 0.18);
+    const sz = (e.captain || e.paladin ? 58 : e.banner || e.marshal ? 54 : e.priest || e.mender ? 50 : 44) * (1 + flash * 0.18);
     // A priest draws its own sprite when shipped, else falls back to the knight art.
     const useKey = e.priest && priestKey ? priestKey : (e.state === "engage" ? knightKey : guardKey);
     if (useKey) {
       layer.appendChild(spriteImage(useKey, e.x, e.y, sz, op));
     } else {
-      const q = KNIGHT_RADIUS * (e.captain ? 2 : 1.5);
+      const q = KNIGHT_RADIUS * (e.captain || e.paladin ? 2 : 1.5);
       layer.appendChild(el("rect", {
         x: e.x - q / 2, y: e.y - q / 2, width: q, height: q,
-        fill: e.priest ? "#201d2a" : "#2a2620",
-        stroke: e.priest ? "#ffe8a0" : "#cfd2c0", "stroke-width": 2, opacity: op,
+        fill: e.priest ? "#201d2a" : e.crossbow ? "#22251c" : e.mender ? "#1a261e" : "#2a2620",
+        stroke: e.priest ? "#ffe8a0" : e.crossbow ? "#9fb0c0" : e.banner ? "#e0c060"
+          : e.mender ? "#9dffb6" : e.paladin ? "#dfe8f0" : e.marshal ? "#d8b070" : "#cfd2c0",
+        "stroke-width": 2, opacity: op,
+      }));
+    }
+    // A rallied knight (within a bearer's aura) carries a faint warm glow.
+    if (e.rallied) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 4, fill: "none",
+        stroke: "#e0c060", "stroke-width": 1.4, opacity: 0.35 * op,
       }));
     }
     // A captain reads at a glance: a steel-bright ring.
@@ -1520,6 +2059,79 @@ function render(s: NecroState, layer: SVGGElement): void {
         cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
         stroke: "#dfe4d0", "stroke-width": 2, opacity: 0.55 * op,
       }));
+    }
+    // A crossbowman reads slate-cold, with a loaded tick that brightens as it readies
+    // its next bolt — the telegraph to break sight or sidestep the volley.
+    if (e.crossbow) {
+      const ready = clamp(1 - (e.shootCd ?? 0) / CROSSBOW_SHOOT_CD, 0, 1);
+      const tickFx: Record<string, string> = ready >= 1 && !LOW_FX ? { filter: "url(#glow)" } : {};
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
+        stroke: "#9fb0c0", "stroke-width": 1.6, opacity: 0.5 * op,
+      }));
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y - KNIGHT_RADIUS - 9, r: 2 + 1.5 * ready,
+        fill: ready >= 1 ? "#fff6d8" : "#7f8a96", opacity: (0.4 + 0.6 * ready) * op, ...tickFx,
+      }));
+    }
+    // A standard-bearer reads by its raised banner and a faint rally field, so the
+    // buffed ground — and the target to fell first — is legible.
+    if (e.banner) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: BANNER_RADIUS, fill: "none",
+        stroke: "#e0c060", "stroke-width": 1, "stroke-dasharray": "5 9", opacity: 0.22 * op,
+      }));
+      layer.appendChild(el("line", {
+        x1: e.x, y1: e.y - KNIGHT_RADIUS - 2, x2: e.x, y2: e.y - KNIGHT_RADIUS - 22,
+        stroke: "#cfd2c0", "stroke-width": 1.6, opacity: 0.85 * op,
+      }));
+      layer.appendChild(el("path", {
+        d: `M ${e.x} ${e.y - KNIGHT_RADIUS - 22} L ${e.x + 12} ${e.y - KNIGHT_RADIUS - 18} L ${e.x} ${e.y - KNIGHT_RADIUS - 14} Z`,
+        fill: "#e0c060", opacity: 0.9 * op,
+      }));
+    }
+    // A mender reads pale-green, with a mend-beam to the knight it is healing — the
+    // read to fell the chaplain (or its mark) and stop the heal.
+    if (e.mender) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
+        stroke: "#9dffb6", "stroke-width": 1.6, opacity: 0.5 * op,
+      }));
+      if (e.mending && e.mendX != null && e.mendY != null) {
+        const beamFx: Record<string, string> = LOW_FX ? {} : { filter: "url(#bloom)" };
+        layer.appendChild(el("line", {
+          x1: e.x, y1: e.y, x2: e.mendX, y2: e.mendY,
+          stroke: "#aeffce", "stroke-width": 2, "stroke-linecap": "round", opacity: 0.6 * op, ...beamFx,
+        }));
+      }
+    }
+    // A paladin reads as a wall: a thick steel-bright double ring (its plate).
+    if (e.paladin) {
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 5, fill: "none",
+        stroke: "#dfe8f0", "stroke-width": 3, opacity: 0.6 * op,
+      }));
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 9, fill: "none",
+        stroke: "#aebccc", "stroke-width": 1.2, opacity: 0.4 * op,
+      }));
+    }
+    // A marshal reads by a forward lance-tick, and flares a motion streak mid-charge.
+    if (e.marshal) {
+      const charging = (e.chargeMs ?? 0) > 0;
+      const hx = e.chargeDx ?? (e.vx ? e.vx / (Math.hypot(e.vx, e.vy) || 1) : 0);
+      const hy = e.chargeDy ?? (e.vy ? e.vy / (Math.hypot(e.vx, e.vy) || 1) : 0);
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: KNIGHT_RADIUS + 6, fill: "none",
+        stroke: "#d8b070", "stroke-width": charging ? 2.6 : 1.4, opacity: (charging ? 0.85 : 0.45) * op,
+      }));
+      if (charging) {
+        const fx: Record<string, string> = LOW_FX ? {} : { filter: "url(#glow)" };
+        layer.appendChild(el("line", {
+          x1: e.x - hx * 22, y1: e.y - hy * 22, x2: e.x + hx * 18, y2: e.y + hy * 18,
+          stroke: "#ffe3a8", "stroke-width": 3, "stroke-linecap": "round", opacity: 0.8 * op, ...fx,
+        }));
+      }
     }
     // A priest reads by its holy charge: an aura that fills toward a smite and
     // flares bright gold when fully charged — the telegraph to rush it or feint.
@@ -1574,15 +2186,31 @@ function render(s: NecroState, layer: SVGGElement): void {
 
   // Minions — the horde. Small bone figures, drawn over the watch they swarm.
   const baseSkeleton = sprites.has("skeleton") ? "skeleton" : null;
+  const frenzied = s.elapsed < s.hero.frenzyUntil; // a gathered death-mote alights the horde
   for (const m of s.minions) {
     if (m.dead) continue;
     // The skeleton's raising-rite sets its art, size and bone/aura hue, so the four
     // kinds — footsoldier, brute, wight, revenant — read apart at a glance. Its own
-    // sprite is used when shipped; otherwise it falls back to the base skeleton.
+    // sprite is used when shipped; otherwise it falls back to the base skeleton. A
+    // champion (overcharged raise) stands markedly larger.
     const def = raiseTypeById(m.variant);
     const skKey = sprites.has(def.sprite) ? def.sprite : baseSkeleton;
     const flash = m.hit > s.elapsed ? Math.max(0, (m.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = def.size * (1 + flash * 0.18);
+    const sz = def.size * (m.champion ? CHAMPION_SIZE_MUL : 1) * (1 + flash * 0.18);
+    // A frenzied horde wears a hot outer ring so the buff window is legible.
+    if (frenzied) {
+      layer.appendChild(el("circle", {
+        cx: m.x, cy: m.y, r: sz * 0.5, fill: "none", stroke: "#ff5a3c",
+        "stroke-width": 2, opacity: 0.6, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
+    // A champion reads at a glance: a bold gold ward-ring over its kind's aura.
+    if (m.champion) {
+      layer.appendChild(el("circle", {
+        cx: m.x, cy: m.y, r: sz * 0.46, fill: "none", stroke: "#ffd36a",
+        "stroke-width": 2.4, opacity: 0.85, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
     // A signature aura in the rite's hue rings every skeleton it raised.
     if (def.id !== "grave") {
       layer.appendChild(el("circle", {
@@ -1639,6 +2267,21 @@ function render(s: NecroState, layer: SVGGElement): void {
       cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: ring,
       "stroke-width": 1, opacity: op * 0.6,
     }));
+    // Overcharge — a held stand past a full inscription. A second gold star grows and
+    // a halo swells as the overcharge banks, telegraphing the empowered (champion)
+    // raise that is one pulse away. Pure procedural flourish over the sigil.
+    if (h.overcharge > 0.02) {
+      const oc = h.overcharge;
+      layer.appendChild(el("circle", {
+        cx: h.x, cy: h.y, r: r * (1.05 + 0.18 * oc), fill: "none", stroke: "#ffd36a",
+        "stroke-width": 1 + 2.5 * oc, opacity: 0.5 * oc, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      layer.appendChild(el("path", {
+        d: pentagramPath(h.x, h.y, r * 0.92, -h.angle * 1.3),
+        fill: "none", stroke: "#fff0b0", "stroke-width": 1.6 + 1.4 * oc, "stroke-linejoin": "round",
+        opacity: 0.65 * oc, filter: "url(#glow)",
+      }));
+    }
   }
 
   // The necromancer, drawn last over everything with a necrotic aura.
@@ -1674,12 +2317,15 @@ interface NecroLegacy {
   relics: number;        // the unlock currency, banked from marches
   unlocked: string[];    // raising-rite ids the carrier owns (always includes "grave")
   equipped: string;      // the rite id currently equipped
+  perksUnlocked: string[]; // perk ids the carrier owns (always includes "none")
+  perkEquipped: string;    // the perk id currently equipped
 }
 
 function emptyNecroLegacy(): NecroLegacy {
   return {
     runs: 0, overruns: 0, best: {}, housesRazed: 0, totemsRaised: 0,
     relics: 0, unlocked: ["grave"], equipped: "grave",
+    perksUnlocked: ["none"], perkEquipped: "none",
   };
 }
 
@@ -1693,6 +2339,11 @@ function loadNecroLegacy(): NecroLegacy {
     const owned = new Set(l.unlocked && l.unlocked.length ? l.unlocked : ["grave"]);
     owned.add("grave");
     const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "grave";
+    // Perk fields default in the same way for saves from before they existed (no key
+    // bump): "none" is always owned, and an unknown/unowned equip falls back to it.
+    const perksOwned = new Set(l.perksUnlocked && l.perksUnlocked.length ? l.perksUnlocked : ["none"]);
+    perksOwned.add("none");
+    const perkEquipped = l.perkEquipped && perksOwned.has(l.perkEquipped) ? l.perkEquipped : "none";
     return {
       runs: l.runs || 0,
       overruns: l.overruns || 0,
@@ -1702,6 +2353,8 @@ function loadNecroLegacy(): NecroLegacy {
       relics: l.relics || 0,
       unlocked: [...owned],
       equipped,
+      perksUnlocked: [...perksOwned],
+      perkEquipped,
     };
   } catch { return emptyNecroLegacy(); }
 }
@@ -1752,6 +2405,27 @@ function equipRite(id: string): NecroLegacy {
   const l = loadNecroLegacy();
   if (!l.unlocked.includes(id)) return l;
   l.equipped = id;
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Buy a perk if it is unowned and affordable: deduct its relics and add it to the
+// carrier's roster. A no-op (legacy unchanged) otherwise. Mirror of unlockRite.
+function unlockPerk(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  const p = perkById(id);
+  if (p.id !== id || l.perksUnlocked.includes(id) || l.relics < p.cost) return l;
+  l.relics -= p.cost;
+  l.perksUnlocked.push(id);
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Equip a perk the carrier owns. A no-op for an unowned id. Mirror of equipRite.
+function equipPerk(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  if (!l.perksUnlocked.includes(id)) return l;
+  l.perkEquipped = id;
   saveNecroLegacy(l);
   return l;
 }
@@ -1956,18 +2630,25 @@ function start(): void {
         fill: n.risen ? "#d8ffe6" : "#7affb0", opacity: 0.9,
       }));
     }
-    // The horde.
+    // The horde (champions read larger and gold).
     for (const m of s.minions) {
       if (m.dead) continue;
-      mmEl.appendChild(el("circle", { cx: m.x * scale, cy: m.y * scale, r: 1.0, fill: "#e8efd8", opacity: 0.85 }));
+      mmEl.appendChild(el("circle", {
+        cx: m.x * scale, cy: m.y * scale, r: m.champion ? 1.7 : 1.0,
+        fill: m.champion ? "#ffd36a" : "#e8efd8", opacity: 0.9,
+      }));
     }
-    // The watch that remains — the map's whole point (captains stand out steel,
-    // priests gold so you can pick the casters to rush).
+    // The watch that remains — the map's whole point (captains/paladins steel,
+    // priests gold, crossbowmen slate, bearers amber, menders green, marshals tan —
+    // so you can pick which threat to rush).
     for (const e of s.knights) {
       if (e.dead) continue;
       mmEl.appendChild(el("circle", {
-        cx: e.x * scale, cy: e.y * scale, r: e.captain ? 1.9 : e.priest ? 1.6 : 1.3,
-        fill: e.priest ? "#ffe8a0" : "#cfd2c0", opacity: 0.95,
+        cx: e.x * scale, cy: e.y * scale,
+        r: e.captain || e.paladin ? 1.9 : e.banner || e.marshal ? 1.7 : e.priest || e.mender ? 1.6 : e.crossbow ? 1.5 : 1.3,
+        fill: e.priest ? "#ffe8a0" : e.banner ? "#e0c060" : e.crossbow ? "#9fb0c0"
+          : e.mender ? "#9dffb6" : e.paladin ? "#dfe8f0" : e.marshal ? "#d8b070" : "#cfd2c0",
+        opacity: 0.95,
       }));
     }
     const vw = svg.clientWidth, vh = svg.clientHeight;
@@ -2165,9 +2846,32 @@ function start(): void {
       else { badge = ` <span class="ptype-cost">${t.cost} relics</span>`; act = ""; disabled = true; }
       const verb = act === "equip" ? "Equip" : act === "unlock" ? "Learn" : equipped ? "Equipped" : "Locked";
       html +=
-        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-kind="rite" data-act="${act}"${disabled ? " disabled" : ""}>` +
         `<span class="city-name"><span class="ptype-swatch" style="background:${t.star};box-shadow:0 0 6px ${t.ring}"></span>${t.name}${badge}</span>` +
         `<span class="city-line">${t.desc}</span>` +
+        `<span class="ptype-verb">${verb}</span></button>`;
+    }
+    html += `</div>`;
+
+    // Perks — the necromancer's craft. One passive bargain equipped per march, bought
+    // with the same relics that buy rites. Mirrors the rite shop, button for button.
+    html +=
+      `<div class="legacy"><div class="legacy-head">Perks <span class="legacy-new">one per march</span></div></div>` +
+      `<div class="ptypes">`;
+    for (const p of PERKS) {
+      const owned = l.perksUnlocked.includes(p.id);
+      const equipped = l.perkEquipped === p.id;
+      const afford = l.relics >= p.cost;
+      let badge: string, act: string, disabled = false;
+      if (equipped) { badge = ` <span class="legacy-new">equipped</span>`; act = ""; disabled = true; }
+      else if (owned) { badge = ""; act = "equip"; }
+      else if (afford) { badge = ` <span class="legacy-new">${p.cost} relics</span>`; act = "unlock"; }
+      else { badge = ` <span class="ptype-cost">${p.cost} relics</span>`; act = ""; disabled = true; }
+      const verb = act === "equip" ? "Equip" : act === "unlock" ? "Strike pact" : equipped ? "Equipped" : "Locked";
+      html +=
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${p.id}" data-kind="perk" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<span class="city-name"><span class="ptype-swatch" style="background:#b98cff;box-shadow:0 0 6px #7a4dff"></span>${p.name}${badge}</span>` +
+        `<span class="city-line">${p.desc}</span>` +
         `<span class="ptype-verb">${verb}</span></button>`;
     }
     html += `</div>`;
@@ -2192,13 +2896,19 @@ function start(): void {
         if (lv) showPicker(lv.id);
       };
     });
-    // Learn / equip a rite, then re-render so the new ownership and equip show.
+    // Learn / equip a rite or strike / equip a perk, then re-render so the new
+    // ownership and equip show. One handler over both shops, branched on data-kind.
     overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
-      const id = b.dataset.id || "", act = b.dataset.act || "";
+      const id = b.dataset.id || "", act = b.dataset.act || "", kind = b.dataset.kind || "rite";
       if (!act) return;
       b.onclick = () => {
-        if (act === "unlock") { unlockRite(id); equipRite(id); }
-        else if (act === "equip") equipRite(id);
+        if (kind === "perk") {
+          if (act === "unlock") { unlockPerk(id); equipPerk(id); }
+          else if (act === "equip") equipPerk(id);
+        } else {
+          if (act === "unlock") { unlockRite(id); equipRite(id); }
+          else if (act === "equip") equipRite(id);
+        }
         showPicker(sel.id);
       };
     });
@@ -2279,20 +2989,25 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
   testGlobal.__necro = {
     generateNecroVillage, buildArena, freshNecro, stepMarch,
-    stepRaise, stepMinions, stepKnights, stepDesecrate, stepHouses, stepAltar, stepWisps,
-    killKnight, desecrateHouse, reconsecrateHouse, nearScar,
+    stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps, stepMotes,
+    killKnight, hurtKnight, killMinion, stepMiasma, desecrateHouse, reconsecrateHouse, nearScar,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
-    weaveSegments, closestOnSegment, pushOut, pentagramPath,
+    weaveSegments, closestOnSegment, segsCross, barricadeBetween, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,
     RAISE_TYPES, raiseTypeById, unlockRite, equipRite,
+    PERKS, perkById, perkMods, unlockPerk, equipPerk,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       SOUL_START, RAISE_COST, RAISE_MIN, RAISE_MAX, GRAVE_REACH, GRAVE_RADIUS,
       GRAVE_RAISES, GRAVE_COOLDOWN_MS, SOUL_PER_KILL,
       HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
+      PENTA_OVERCHARGE_MS, OVERCHARGE_EXTRA_COST, CHAMPION_HP_MUL, CHAMPION_DMG_MUL, CHAMPION_SIZE_MUL,
+      MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, FRENZY_MS, FRENZY_HASTE, FRENZY_DMG_MUL,
+      PLAGUE_CLOUD_MS, PLAGUE_CLOUD_R, PLAGUE_CLOUD_DPS,
+      SOUL_PER_RAZE, SOUL_REGEN_MS, SOUL_REGEN_TO,
       RELIC_SCORE_DIV, RELIC_PER_KILL,
       WISP_DROP_CHANCE, WISP_SOULS, WISP_TTL_MS, WISP_RADIUS,
       MINION_HP, MINION_SPEED, MINION_RADIUS, MINION_DMG, MINION_ATTACK_CD,
@@ -2302,6 +3017,13 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       KNIGHT_WANDER_SPEED, KNIGHT_LEASH, CLEANUP_AGGRO_FRAC, CAPTAIN_HP_MUL, CAPTAIN_DMG,
       PRIEST_HP_MUL, PRIEST_CHARGE_MS, PRIEST_SMITE_RANGE, PRIEST_SMITE_MS,
       PRIEST_SMITE_WINDUP_MS, PRIEST_SWARM_RADIUS, PRIEST_SWARM_SLOW, PRIEST_BLOCK_HALF,
+      CROSSBOW_HP_MUL, CROSSBOW_RANGE, CROSSBOW_STANDOFF, CROSSBOW_SHOOT_CD,
+      BOLT_SPEED, BOLT_DMG, BOLT_TTL_MS,
+      BANNER_HP_MUL, BANNER_RADIUS, BANNER_HASTE, BANNER_DMG_MUL, BANNER_HEAL,
+      MENDER_HP_MUL, MENDER_RANGE, MENDER_STANDOFF, MENDER_HEAL,
+      PALADIN_HP_MUL, PALADIN_ARMOR, PALADIN_MIN_DMG,
+      MARSHAL_HP_MUL, MARSHAL_CHARGE_CD, MARSHAL_CHARGE_MS, MARSHAL_CHARGE_SPEED,
+      MARSHAL_CHARGE_RANGE, MARSHAL_IMPACT_DMG, MARSHAL_KNOCKBACK,
       OBSTACLE_RADIUS, BARRICADE_HALF, CAUSEWAY_HALF, CAUSEWAY_BOOST,
       DESEC_REACH, DESEC_HEAL, HEAL_CAP, HOUSE_RISE_MS, TOTEM_RADIUS, TOTEM_DMG,
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,

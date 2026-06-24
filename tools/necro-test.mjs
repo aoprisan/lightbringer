@@ -169,6 +169,7 @@ ok(target.hp < hpK0 || target.dead, "a minion swings at the knight it reaches");
 // With no knight in range it follows the necromancer.
 const s3b = necro.buildArena(necro.levelById(id));
 stowAll(s3b); // every knight far away and asleep, out of MINION_AGGRO
+s3b.solids = []; s3b.barricades = []; // clear scattered terrain so the lone minion's follow path is deterministic
 const m2 = { x: s3b.hero.x + 400, y: s3b.hero.y, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0 };
 s3b.minions = [m2];
 run(s3b, 3000, still);
@@ -299,6 +300,165 @@ sP2.minions = [];
 const hpBefore = sP2.hero.hp;
 run(sP2, 600, still);
 ok(sP2.hero.hp === hpBefore && sP2.hits === 0, "a priest never bites the necromancer (no HP loss, no hit)");
+
+// 5b. Crossbowmen — the ranged arm. A crossbowman never melees: it holds a standoff
+//     and looses a dodgeable bolt at the nearest threat. The counters are line of
+//     sight (a barricade stops a bolt and makes it hold fire) and movement.
+const sX = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sX.knights.some((e) => e.crossbow), "the chantry-town musters crossbowmen");
+stowAll(sX); sX.scenery = []; sX.solids = []; sX.barricades = []; sX.causeways = []; sX.graves = [];
+const xb = sX.knights.find((e) => e.crossbow) ?? sX.knights[0];
+xb.crossbow = true; wake(xb); xb.x = 800; xb.y = 800; xb.shootCd = 0;
+// At a holding range (between standoff and max range) it looses a bolt at the hero.
+sX.hero.x = 800 + 250; sX.hero.y = 800; sX.minions = []; sX.elapsed = 0;
+necro.stepMarch(sX, 16, still);
+ok(sX.bolts.length === 1, "a crossbowman at range looses a bolt");
+const hpX0 = sX.hero.hp;
+run(sX, 900, still); // long enough for the bolt to land, short of the next reload
+ok(sX.hero.hp < hpX0 && sX.hits >= 1, "a loosed bolt flies and strikes the necromancer");
+ok(sX.bolts.length === 0, "a bolt is consumed when it strikes (or fades)");
+
+// Standoff — a threat inside CROSSBOW_STANDOFF makes it kite away, never closing to
+// melee; a threat past CROSSBOW_RANGE makes it close the gap.
+const sX2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX2); sX2.scenery = []; sX2.solids = []; sX2.barricades = []; sX2.causeways = [];
+const xb2 = sX2.knights.find((e) => e.crossbow) ?? sX2.knights[0];
+xb2.crossbow = true; wake(xb2); xb2.x = 800; xb2.y = 800; xb2.shootCd = 0;
+sX2.hero.x = 800 + 40; sX2.hero.y = 800; sX2.minions = []; // well inside standoff
+necro.stepKnights(sX2, 16);
+ok(xb2.vx * (sX2.hero.x - xb2.x) + xb2.vy * (sX2.hero.y - xb2.y) < 0, "a crossbowman kites away from a near threat (no melee rush)");
+xb2.x = 800; xb2.y = 800; sX2.hero.x = 800 + (K.CROSSBOW_RANGE + 120); // out past max range
+necro.stepKnights(sX2, 16);
+ok(xb2.vx * (sX2.hero.x - xb2.x) + xb2.vy * (sX2.hero.y - xb2.y) > 0, "a crossbowman closes on a far threat to bring it in range");
+
+// A barricade between holds the crossbowman's fire, and physically stops a bolt.
+const sX3 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX3); sX3.scenery = []; sX3.solids = []; sX3.causeways = []; sX3.graves = [];
+const xb3 = sX3.knights.find((e) => e.crossbow) ?? sX3.knights[0];
+xb3.crossbow = true; wake(xb3); xb3.x = 800; xb3.y = 800; xb3.shootCd = 0;
+sX3.hero.x = 1000; sX3.hero.y = 800; sX3.minions = []; sX3.bolts = [];
+sX3.barricades = [{ x1: 900, y1: 760, x2: 900, y2: 840 }]; // a wall on the line
+necro.stepKnights(sX3, 16);
+ok(sX3.bolts.length === 0, "a crossbowman holds fire when a barricade blocks line of sight");
+sX3.bolts = [{ x: 800, y: 800, vx: K.BOLT_SPEED, vy: 0, dmg: K.BOLT_DMG, until: 1e9 }];
+const hpX3 = sX3.hero.hp;
+run(sX3, 1200, still);
+ok(sX3.hero.hp === hpX3 && sX3.bolts.length === 0, "a bolt is stopped by a barricade (the necromancer behind it is spared)");
+
+// A bolt passes through the necromancer during i-frames (no double-hit).
+const sX4 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX4); sX4.scenery = []; sX4.solids = []; sX4.barricades = []; sX4.causeways = [];
+sX4.minions = [];
+sX4.hero.x = 900; sX4.hero.y = 900; sX4.hero.hurt = K.HERO_IFRAMES_MS;
+sX4.bolts = [{ x: 900 - 20, y: 900, vx: K.BOLT_SPEED, vy: 0, dmg: K.BOLT_DMG, until: 1e9 }];
+const hpX4 = sX4.hero.hp;
+necro.stepBolts(sX4, 16);
+ok(sX4.hero.hp === hpX4, "a bolt does not bite the necromancer mid-i-frames");
+
+// 5c. Standard-bearers — the support. A bearer's banner rallies the watch around it:
+//     rallied knights swing faster, bite harder, and slowly mend. Fell the bearer
+//     and the buff collapses ("kill the support first").
+const sB = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sB.knights.some((e) => e.banner), "the chantry-town musters standard-bearers");
+stowAll(sB); sB.scenery = []; sB.solids = []; sB.barricades = []; sB.causeways = [];
+sB.hero.x = 50; sB.hero.y = 50; sB.minions = [];
+const bearer = sB.knights.find((e) => e.banner) ?? sB.knights[0];
+bearer.banner = true; bearer.x = 800; bearer.y = 800;
+const ally = sB.knights.find((e) => !e.banner && !e.priest && !e.crossbow && e !== bearer) ?? sB.knights[1];
+ally.banner = false; ally.priest = false; ally.crossbow = false;
+ally.x = 880; ally.y = 800; ally.hp = ally.maxHp - 10; wake(ally); // within BANNER_RADIUS, wounded
+const allyHp0 = ally.hp;
+necro.stepKnights(sB, 16);
+ok(ally.rallied === true, "a knight in the bearer's aura is rallied");
+ok(ally.hp > allyHp0, "a rallied knight slowly mends");
+ok(bearer.rallied === false, "a bearer does not rally itself");
+// Fell the bearer — the rally collapses.
+bearer.dead = true;
+necro.stepKnights(sB, 16);
+ok(ally.rallied === false, "felling the bearer collapses the rally");
+
+// A rallied swing bites harder and recovers faster than a plain one.
+function bannerSwing(rallied) {
+  const ss = necro.buildArena(necro.levelById("saint-aubers"));
+  stowAll(ss); ss.scenery = []; ss.solids = []; ss.barricades = []; ss.causeways = [];
+  ss.hero.x = 50; ss.hero.y = 50;
+  const br = ss.knights.find((e) => e.banner) ?? ss.knights[0];
+  br.banner = true; br.dead = !rallied; br.x = 800; br.y = 800; // a live bearer only when rallied
+  const kn = ss.knights.find((e) => !e.banner && e !== br) ?? ss.knights[1];
+  kn.banner = false; kn.priest = false; kn.crossbow = false; kn.captain = false;
+  kn.x = 850; kn.y = 800; kn.attackCd = 0; wake(kn);
+  const m = mkMinion(850, 800); ss.minions = [m]; // a target in reach
+  necro.stepKnights(ss, 16);
+  return { dmg: K.MINION_HP - m.hp, cd: kn.attackCd };
+}
+const plain = bannerSwing(false), buffed = bannerSwing(true);
+ok(buffed.dmg > plain.dmg, "a rallied knight's swing bites harder");
+ok(buffed.cd < plain.cd && plain.cd > 0, "a rallied knight recovers faster between swings");
+
+// 5d. Menders — the backline chaplain. A mender never melees: it holds a standoff
+//     and channels a strong single-target heal into the most-wounded knight in range.
+const sM = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sM.knights.some((e) => e.mender), "the chantry-town musters menders");
+stowAll(sM); sM.scenery = []; sM.solids = []; sM.barricades = []; sM.causeways = [];
+sM.hero.x = 50; sM.hero.y = 50; sM.minions = [];
+const md = sM.knights.find((e) => e.mender) ?? sM.knights[0];
+md.mender = true; wake(md); md.x = 800; md.y = 800;
+const wounded = sM.knights.find((e) => !e.mender && e !== md) ?? sM.knights[1];
+wounded.mender = false; wounded.x = 800 + 150; wounded.y = 800; wounded.hp = wounded.maxHp - 30;
+const woundedHp0 = wounded.hp;
+necro.stepKnights(sM, 16);
+ok(md.mending === true, "a mender channels into a wounded knight in range");
+ok(wounded.hp > woundedHp0, "a mender heals its mark");
+// It kites away from a near threat rather than closing to melee.
+md.x = 800; md.y = 800; sM.hero.x = 840; sM.hero.y = 800; // inside MENDER_STANDOFF
+necro.stepKnights(sM, 16);
+ok(md.vx * (sM.hero.x - md.x) + md.vy * (sM.hero.y - md.y) < 0, "a mender kites from a near threat (no melee rush)");
+// A mender never bites the necromancer, even glued to it.
+const sM2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sM2); sM2.scenery = []; sM2.solids = []; sM2.barricades = []; sM2.causeways = []; sM2.graves = [];
+sM2.minions = [];
+const md2 = sM2.knights.find((e) => e.mender) ?? sM2.knights[0];
+md2.mender = true; wake(md2); md2.x = sM2.hero.x; md2.y = sM2.hero.y;
+const mHp0 = sM2.hero.hp;
+run(sM2, 600, still);
+ok(sM2.hero.hp === mHp0 && sM2.hits === 0, "a mender never bites the necromancer");
+
+// 5e. Paladins — the wall. A paladin's plate shaves a flat amount off every blow
+//     (to a floor, so it is still mortal); every other knight takes the blow whole.
+const sPal = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sPal.knights.some((e) => e.paladin), "the chantry-town musters paladins");
+const pal = sPal.knights.find((e) => e.paladin) ?? sPal.knights[0];
+const com = sPal.knights.find((e) => !e.paladin) ?? sPal.knights[1];
+pal.paladin = true; com.paladin = false;
+pal.hp = 100; pal.maxHp = 100; pal.dead = false;
+com.hp = 100; com.maxHp = 100; com.dead = false;
+necro.hurtKnight(sPal, pal, 10);
+necro.hurtKnight(sPal, com, 10);
+ok(100 - pal.hp === 10 - K.PALADIN_ARMOR, "a paladin's plate shaves a flat amount off each blow");
+ok(100 - com.hp === 10, "a common knight takes the blow whole");
+pal.hp = 100;
+necro.hurtKnight(sPal, pal, 2); // a blow under the armour
+ok(100 - pal.hp === K.PALADIN_MIN_DMG, "even a blow under the armour still lands the floor (mortal)");
+pal.hp = K.PALADIN_MIN_DMG;
+necro.hurtKnight(sPal, pal, 3);
+ok(pal.dead, "a paladin still falls when its plate is worn through");
+
+// 5f. Marshals — the cavalry. Off cooldown and with a target in range, a marshal
+//     locks a heading and DASHES; the impact deals heavy damage and a long knockback.
+const sF = necro.buildArena(necro.levelById("gallows-fen"));
+ok(sF.knights.some((e) => e.marshal), "gallows fen musters marshals");
+stowAll(sF); sF.scenery = []; sF.solids = []; sF.barricades = []; sF.causeways = []; sF.graves = [];
+sF.minions = [];
+const mar = sF.knights.find((e) => e.marshal) ?? sF.knights[0];
+mar.marshal = true; wake(mar); mar.x = 800; mar.y = 800; mar.chargeCd = 0; mar.chargeMs = 0;
+sF.hero.x = 800 + 200; sF.hero.y = 800; sF.hero.hp = K.HERO_HP; sF.hero.hurt = 0;
+necro.stepKnights(sF, 16);
+ok((mar.chargeMs ?? 0) > 0, "a marshal off cooldown locks a charge at a target in range");
+const hx0 = sF.hero.x, fhp0 = sF.hero.hp;
+run(sF, 700, still); // the dash lands its impact
+ok(sF.hero.hp <= fhp0 - K.MARSHAL_IMPACT_DMG, "a marshal's charge impact deals heavy damage");
+ok(sF.hero.x > hx0, "a charge impact knocks the necromancer back");
+ok((mar.chargeCd ?? 0) > 0 && (mar.chargeMs ?? 0) === 0, "after a charge the marshal recovers (on cooldown)");
 
 // 6. Win on all-knights-dead — clearedPct 1, phase "won", no further sim.
 const s6 = necro.buildArena(necro.levelById(id));
@@ -533,6 +693,128 @@ ok(fl.relics === 21, "a fall banks the relics of the fallen on top");
 
 // Restore a clean legacy so the render smoke-test below starts from the starter.
 necro.saveNecroLegacy(necro.emptyNecroLegacy());
+
+// 12c. Overcharge — standing still PAST a full inscription banks an overcharge; the
+//      next raise spends extra souls to add a champion, then resets. Moving spends it.
+necro.saveNecroLegacy(necro.emptyNecroLegacy()); // plain rite + No Pact
+{
+  const so = necro.buildArena(necro.levelById(id));
+  stowAll(so); so.scenery = []; so.solids = []; so.barricades = []; so.causeways = [];
+  const g = { kind: "grave", x: so.hero.x, y: so.hero.y, raisesLeft: K.GRAVE_RAISES, graveSpent: false, desecAt: undefined };
+  so.graves = []; so.souls = 50; so.minions = []; // no grave yet, so nothing consumes the bank
+  // A held stand past a full inscription banks the overcharge (over PENTA_OVERCHARGE_MS).
+  run(so, K.PENTA_CHARGE_MS + K.PENTA_OVERCHARGE_MS + 200, still);
+  ok(so.hero.charge >= 1 && so.hero.overcharge >= 1, "standing still past a full inscription banks an overcharge");
+  // Empowered raise: spend the extra souls, add exactly one champion, reset overcharge.
+  so.graves = [g]; g.desecAt = -1e9; so.minions = []; so.hero.overcharge = 1; so.hero.charge = 1;
+  const souls0 = so.souls;
+  necro.stepRaise(so);
+  const champs = so.minions.filter((m) => m.champion);
+  ok(champs.length === 1, "an overcharged raise calls up exactly one champion");
+  ok(so.hero.overcharge === 0, "an empowered raise spends the banked overcharge");
+  ok(souls0 - so.souls >= K.OVERCHARGE_EXTRA_COST + 1, "an empowered raise spends the extra souls");
+  ok(champs[0].maxHp > K.MINION_HP, "a champion stands with leaned (higher) hp");
+  // Control: no overcharge → an ordinary raise, no champion.
+  g.desecAt = -1e9; so.hero.overcharge = 0; so.hero.charge = 1; so.minions = [];
+  necro.stepRaise(so);
+  ok(so.minions.length > 0 && !so.minions.some((m) => m.champion), "a raise without overcharge calls up no champion");
+}
+{
+  // Marching spends a banked overcharge back to nothing.
+  const sm = necro.buildArena(necro.levelById(id));
+  sm.hero.charge = 1; sm.hero.overcharge = 1;
+  necro.stepMarch(sm, 16, { x: 1, y: 0 });
+  ok(sm.hero.overcharge === 0, "marching spends the banked overcharge");
+}
+
+// 12d. Death-mote frenzy — a felled knight may drop a death-mote; gathering it
+//      frenzies the WHOLE horde (faster, harder swings) for a window, then it reverts.
+{
+  const sf = necro.buildArena(necro.levelById(id));
+  sf.motes = [{ x: sf.hero.x, y: sf.hero.y, until: sf.elapsed + K.MOTE_TTL_MS }];
+  necro.stepMotes(sf);
+  ok(sf.hero.frenzyUntil > sf.elapsed, "gathering a death-mote frenzies the horde");
+  ok(sf.motes.length === 0, "a gathered death-mote is consumed");
+}
+function minionSwing(frenzied) {
+  const s = necro.buildArena(necro.levelById(id));
+  stowAll(s); s.scenery = []; s.solids = []; s.barricades = []; s.causeways = []; s.graves = [];
+  s.hero.frenzyUntil = frenzied ? s.elapsed + K.FRENZY_MS : 0;
+  const e = s.knights[0]; wake(e); e.x = 800; e.y = 800; e.hp = 1000; e.maxHp = 1000; e.paladin = false;
+  const m = { x: 800, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+  s.minions = [m];
+  const hp0 = e.hp;
+  necro.stepMinions(s, 16);
+  return { dmg: hp0 - e.hp, cd: m.attackCd };
+}
+const calm = minionSwing(false), wild = minionSwing(true);
+ok(wild.dmg > calm.dmg, "a frenzied minion bites harder");
+ok(wild.cd < calm.cd && calm.cd > 0, "a frenzied minion swings faster (shorter cooldown)");
+
+// 12e. Perks — one passive bargain per march, bought with relics; resolved at build.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+{
+  let lp = necro.loadNecroLegacy();
+  ok(lp.perksUnlocked.includes("none") && lp.perkEquipped === "none", "a fresh legacy owns and equips No Pact");
+  necro.unlockPerk("gravecaller");
+  ok(!necro.loadNecroLegacy().perksUnlocked.includes("gravecaller"), "a perk can't be struck with no relics");
+  lp = necro.loadNecroLegacy(); lp.relics = 1000; necro.saveNecroLegacy(lp);
+  const gc = necro.PERKS.find((p) => p.id === "gravecaller");
+  necro.unlockPerk("gravecaller");
+  lp = necro.loadNecroLegacy();
+  ok(lp.perksUnlocked.includes("gravecaller") && lp.relics === 1000 - gc.cost, "striking a pact deducts its relics");
+  necro.equipPerk("gravecaller");
+  ok(necro.loadNecroLegacy().perkEquipped === "gravecaller", "a struck perk equips");
+  const sg = necro.buildArena(necro.levelById(id));
+  ok(sg.souls === K.SOUL_START + 3, "Gravecaller starts the march with extra souls");
+  // Swift Dead: the horde travels faster (resolved into perkMods).
+  lp = necro.loadNecroLegacy(); lp.perksUnlocked.push("swift"); lp.perkEquipped = "swift"; necro.saveNecroLegacy(lp);
+  ok(necro.buildArena(necro.levelById(id)).perkMods.minionSpeedMul > 1, "Swift Dead hastens the horde's travel");
+  // Carrion Feast: razing wrings an extra soul and deepens the mend.
+  lp = necro.loadNecroLegacy(); lp.perksUnlocked.push("carrion"); lp.perkEquipped = "carrion"; necro.saveNecroLegacy(lp);
+  const sc = necro.buildArena(necro.levelById(id));
+  sc.minions = [{ x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" }];
+  const house = sc.scenery.find((n) => n.kind === "house" && !n.desecrated);
+  const csouls0 = sc.souls, chp0 = sc.minions[0].hp;
+  necro.desecrateHouse(sc, house, K.DESEC_HEAL);
+  ok(sc.souls - csouls0 === K.SOUL_PER_RAZE + 1, "Carrion Feast wrings an extra soul from a razing");
+  ok(sc.minions[0].hp - chp0 > K.DESEC_HEAL, "Carrion Feast deepens the razing mend");
+}
+necro.saveNecroLegacy(necro.emptyNecroLegacy()); // clean again for the render smoke test
+
+// 12f. Rites with on-death powers — a Plague skeleton bursts into a gnawing miasma
+//      when it falls; the Bone Colossus rite raises a single towering minion.
+{
+  const sp = necro.buildArena(necro.levelById(id));
+  stowAll(sp); sp.scenery = []; sp.solids = []; sp.barricades = []; sp.causeways = []; sp.graves = [];
+  const plagueM = { x: 700, y: 700, vx: 0, vy: 0, hp: 5, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "plague" };
+  sp.minions = [plagueM];
+  necro.killMinion(sp, plagueM);
+  ok(plagueM.dead && sp.miasmas.length === 1, "a fallen Plague skeleton bursts into a miasma");
+  const plainM = { x: 700, y: 700, vx: 0, vy: 0, hp: 5, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+  sp.minions = [plainM]; const before = sp.miasmas.length;
+  necro.killMinion(sp, plainM);
+  ok(sp.miasmas.length === before, "a plain skeleton leaves no miasma");
+  // The miasma gnaws a knight standing in it; one outside is spared.
+  const near = sp.knights[0]; near.dead = false; near.paladin = false; near.x = 700; near.y = 700; near.hp = 100; near.maxHp = 100;
+  const far = sp.knights[1]; far.dead = false; far.x = 700 + K.PLAGUE_CLOUD_R + 50; far.y = 700; far.hp = 100; far.maxHp = 100;
+  const nhp0 = near.hp, fhp0 = far.hp;
+  necro.stepMiasma(sp, 200);
+  ok(near.hp < nhp0, "a death-miasma gnaws a knight standing in it");
+  ok(far.hp === fhp0, "a knight outside the miasma is spared");
+}
+{
+  // The Bone Colossus rite raises a single towering minion (count forced to 1).
+  const lc = necro.loadNecroLegacy(); lc.unlocked.push("colossus"); lc.equipped = "colossus"; necro.saveNecroLegacy(lc);
+  const sc = necro.buildArena(necro.levelById(id));
+  stowAll(sc); sc.scenery = []; sc.solids = []; sc.barricades = []; sc.causeways = [];
+  const g = { kind: "grave", x: sc.hero.x, y: sc.hero.y, raisesLeft: K.GRAVE_RAISES, graveSpent: false, desecAt: -1e9 };
+  sc.graves = [g]; sc.souls = 50; sc.minions = []; sc.hero.charge = 1; sc.hero.overcharge = 0;
+  necro.stepRaise(sc);
+  ok(sc.minions.length === 1, "the Bone Colossus rite raises a single minion");
+  ok(sc.minions[0].maxHp > K.MINION_HP * 2, "the colossus stands with towering hp");
+  necro.saveNecroLegacy(necro.emptyNecroLegacy());
+}
 
 // 13. Render smoke — render/scaffold don't throw with zero sprites, at the start
 //     and after state changes.
