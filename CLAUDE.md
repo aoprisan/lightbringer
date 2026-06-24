@@ -371,7 +371,20 @@ guard until roused, then chase the nearest threat (necromancer or minion) and sw
 (`PRIEST_CHARGE_MS`), locks the nearest skeleton in range (`PRIEST_SMITE_RANGE`), and after a windup beam
 **kills it outright** — with **two counterplays**: crowd it with skeletons (each within `PRIEST_SWARM_RADIUS`
 slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own body** on the beam
-(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Priest/captain counts are per-`LevelDef` dials.
+(`PRIEST_BLOCK_HALF`) to foil the smite (costs no life). Two more defenders deepen the watch:
+- **Crossbowman** (`CROSSBOW_*`) — the watch's **ranged** arm (mirror of the Vigil's spitter, and Necro's
+  **only projectile**). It **never melees**: it holds a standoff (`CROSSBOW_STANDOFF`/`CROSSBOW_RANGE`,
+  kiting near threats, closing far ones) and looses **dodgeable bolts** (`stepBolts`, a `Bolt` on `s.bolts`)
+  on `CROSSBOW_SHOOT_CD`. A bolt is stopped by a **barricade** (`barricadeBetween`/`segsCross`) — which also
+  makes it **hold fire** when one blocks line of sight — so the counters are cover, body-blocking with the
+  horde, and movement (it punishes standing still to inscribe). `crossbowCount`.
+- **Standard-Bearer** (`BANNER_*`) — the watch's **support** (the defenders' answer to the Vigil's mender).
+  It melees like a common knight but its banner emits a **rally aura** (`BANNER_RADIUS`): knights within it
+  swing faster (`BANNER_HASTE`), hit harder (`BANNER_DMG_MUL`), and slowly mend (`BANNER_HEAL`) — a transient
+  per-frame `rallied` flag recomputed in `stepKnights`. **Kill the bearer and the buff collapses.** Mustered
+  as one **extra** body per post (never taking a fixed slot). `bannerCount`.
+
+Captain/priest/crossbow/banner counts are all per-`LevelDef` dials.
 
 ### Houses & terrain
 
@@ -395,9 +408,10 @@ slows the channel by `PRIEST_SWARM_SLOW`), or **interpose the necromancer's own 
 `stepMarch`.
 
 Villages (`LEVELS`, via `generateNecroVillage`/`levelById`/`buildArena`): **Hollowmere** (fair first
-march), **The Tithe Barrows** (graves plentiful, 2 captains/1 priest), **Saint Auber's Rest** (walled,
-hardest — 4 captains/3 priests), **Gallows Fen** (sparse houses, thick graves, 2 captains/2 priests). Dials:
-`nodeCount`, `houseFrac`, `postCount`, `barricadeCount`/`causewayCount`, `captainCount`/`priestCount`,
+march, no special defenders), **The Tithe Barrows** (graves plentiful, 2 captains/1 priest/2 crossbows),
+**Saint Auber's Rest** (walled, hardest — 4 captains/3 priests/4 crossbows/2 bearers), **Gallows Fen**
+(sparse houses, thick graves, 2 captains/2 priests/3 crossbows/1 bearer). Dials: `nodeCount`, `houseFrac`,
+`postCount`, `barricadeCount`/`causewayCount`, `captainCount`/`priestCount`/`crossbowCount`/`bannerCount`,
 `sizeScale`.
 
 ### What Necro does NOT have (deferred)

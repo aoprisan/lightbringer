@@ -300,6 +300,100 @@ const hpBefore = sP2.hero.hp;
 run(sP2, 600, still);
 ok(sP2.hero.hp === hpBefore && sP2.hits === 0, "a priest never bites the necromancer (no HP loss, no hit)");
 
+// 5b. Crossbowmen — the ranged arm. A crossbowman never melees: it holds a standoff
+//     and looses a dodgeable bolt at the nearest threat. The counters are line of
+//     sight (a barricade stops a bolt and makes it hold fire) and movement.
+const sX = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sX.knights.some((e) => e.crossbow), "the chantry-town musters crossbowmen");
+stowAll(sX); sX.scenery = []; sX.solids = []; sX.barricades = []; sX.causeways = [];
+const xb = sX.knights.find((e) => e.crossbow) ?? sX.knights[0];
+xb.crossbow = true; wake(xb); xb.x = 800; xb.y = 800; xb.shootCd = 0;
+// At a holding range (between standoff and max range) it looses a bolt at the hero.
+sX.hero.x = 800 + 250; sX.hero.y = 800; sX.minions = []; sX.elapsed = 0;
+necro.stepMarch(sX, 16, still);
+ok(sX.bolts.length === 1, "a crossbowman at range looses a bolt");
+const hpX0 = sX.hero.hp;
+run(sX, 900, still); // long enough for the bolt to land, short of the next reload
+ok(sX.hero.hp < hpX0 && sX.hits >= 1, "a loosed bolt flies and strikes the necromancer");
+ok(sX.bolts.length === 0, "a bolt is consumed when it strikes (or fades)");
+
+// Standoff — a threat inside CROSSBOW_STANDOFF makes it kite away, never closing to
+// melee; a threat past CROSSBOW_RANGE makes it close the gap.
+const sX2 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX2); sX2.scenery = []; sX2.solids = []; sX2.barricades = []; sX2.causeways = [];
+const xb2 = sX2.knights.find((e) => e.crossbow) ?? sX2.knights[0];
+xb2.crossbow = true; wake(xb2); xb2.x = 800; xb2.y = 800; xb2.shootCd = 0;
+sX2.hero.x = 800 + 40; sX2.hero.y = 800; sX2.minions = []; // well inside standoff
+necro.stepKnights(sX2, 16);
+ok(xb2.vx * (sX2.hero.x - xb2.x) + xb2.vy * (sX2.hero.y - xb2.y) < 0, "a crossbowman kites away from a near threat (no melee rush)");
+xb2.x = 800; xb2.y = 800; sX2.hero.x = 800 + (K.CROSSBOW_RANGE + 120); // out past max range
+necro.stepKnights(sX2, 16);
+ok(xb2.vx * (sX2.hero.x - xb2.x) + xb2.vy * (sX2.hero.y - xb2.y) > 0, "a crossbowman closes on a far threat to bring it in range");
+
+// A barricade between holds the crossbowman's fire, and physically stops a bolt.
+const sX3 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX3); sX3.scenery = []; sX3.solids = []; sX3.causeways = [];
+const xb3 = sX3.knights.find((e) => e.crossbow) ?? sX3.knights[0];
+xb3.crossbow = true; wake(xb3); xb3.x = 800; xb3.y = 800; xb3.shootCd = 0;
+sX3.hero.x = 1000; sX3.hero.y = 800; sX3.minions = []; sX3.bolts = [];
+sX3.barricades = [{ x1: 900, y1: 760, x2: 900, y2: 840 }]; // a wall on the line
+necro.stepKnights(sX3, 16);
+ok(sX3.bolts.length === 0, "a crossbowman holds fire when a barricade blocks line of sight");
+sX3.bolts = [{ x: 800, y: 800, vx: K.BOLT_SPEED, vy: 0, dmg: K.BOLT_DMG, until: 1e9 }];
+const hpX3 = sX3.hero.hp;
+run(sX3, 1200, still);
+ok(sX3.hero.hp === hpX3 && sX3.bolts.length === 0, "a bolt is stopped by a barricade (the necromancer behind it is spared)");
+
+// A bolt passes through the necromancer during i-frames (no double-hit).
+const sX4 = necro.buildArena(necro.levelById("saint-aubers"));
+stowAll(sX4); sX4.scenery = []; sX4.solids = []; sX4.barricades = []; sX4.causeways = [];
+sX4.minions = [];
+sX4.hero.x = 900; sX4.hero.y = 900; sX4.hero.hurt = K.HERO_IFRAMES_MS;
+sX4.bolts = [{ x: 900 - 20, y: 900, vx: K.BOLT_SPEED, vy: 0, dmg: K.BOLT_DMG, until: 1e9 }];
+const hpX4 = sX4.hero.hp;
+necro.stepBolts(sX4, 16);
+ok(sX4.hero.hp === hpX4, "a bolt does not bite the necromancer mid-i-frames");
+
+// 5c. Standard-bearers — the support. A bearer's banner rallies the watch around it:
+//     rallied knights swing faster, bite harder, and slowly mend. Fell the bearer
+//     and the buff collapses ("kill the support first").
+const sB = necro.buildArena(necro.levelById("saint-aubers"));
+ok(sB.knights.some((e) => e.banner), "the chantry-town musters standard-bearers");
+stowAll(sB); sB.scenery = []; sB.solids = []; sB.barricades = []; sB.causeways = [];
+sB.hero.x = 50; sB.hero.y = 50; sB.minions = [];
+const bearer = sB.knights.find((e) => e.banner) ?? sB.knights[0];
+bearer.banner = true; bearer.x = 800; bearer.y = 800;
+const ally = sB.knights.find((e) => !e.banner && !e.priest && !e.crossbow && e !== bearer) ?? sB.knights[1];
+ally.banner = false; ally.priest = false; ally.crossbow = false;
+ally.x = 880; ally.y = 800; ally.hp = ally.maxHp - 10; wake(ally); // within BANNER_RADIUS, wounded
+const allyHp0 = ally.hp;
+necro.stepKnights(sB, 16);
+ok(ally.rallied === true, "a knight in the bearer's aura is rallied");
+ok(ally.hp > allyHp0, "a rallied knight slowly mends");
+ok(bearer.rallied === false, "a bearer does not rally itself");
+// Fell the bearer — the rally collapses.
+bearer.dead = true;
+necro.stepKnights(sB, 16);
+ok(ally.rallied === false, "felling the bearer collapses the rally");
+
+// A rallied swing bites harder and recovers faster than a plain one.
+function bannerSwing(rallied) {
+  const ss = necro.buildArena(necro.levelById("saint-aubers"));
+  stowAll(ss); ss.scenery = []; ss.solids = []; ss.barricades = []; ss.causeways = [];
+  ss.hero.x = 50; ss.hero.y = 50;
+  const br = ss.knights.find((e) => e.banner) ?? ss.knights[0];
+  br.banner = true; br.dead = !rallied; br.x = 800; br.y = 800; // a live bearer only when rallied
+  const kn = ss.knights.find((e) => !e.banner && e !== br) ?? ss.knights[1];
+  kn.banner = false; kn.priest = false; kn.crossbow = false; kn.captain = false;
+  kn.x = 850; kn.y = 800; kn.attackCd = 0; wake(kn);
+  const m = mkMinion(850, 800); ss.minions = [m]; // a target in reach
+  necro.stepKnights(ss, 16);
+  return { dmg: K.MINION_HP - m.hp, cd: kn.attackCd };
+}
+const plain = bannerSwing(false), buffed = bannerSwing(true);
+ok(buffed.dmg > plain.dmg, "a rallied knight's swing bites harder");
+ok(buffed.cd < plain.cd && plain.cd > 0, "a rallied knight recovers faster between swings");
+
 // 6. Win on all-knights-dead — clearedPct 1, phase "won", no further sim.
 const s6 = necro.buildArena(necro.levelById(id));
 // Fell all but the last knight up front (counting each, so clearedPct tracks).
