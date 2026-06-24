@@ -694,6 +694,94 @@ ok(fl.relics === 21, "a fall banks the relics of the fallen on top");
 // Restore a clean legacy so the render smoke-test below starts from the starter.
 necro.saveNecroLegacy(necro.emptyNecroLegacy());
 
+// 12c. Overcharge — standing still PAST a full inscription banks an overcharge; the
+//      next raise spends extra souls to add a champion, then resets. Moving spends it.
+necro.saveNecroLegacy(necro.emptyNecroLegacy()); // plain rite + No Pact
+{
+  const so = necro.buildArena(necro.levelById(id));
+  stowAll(so); so.scenery = []; so.solids = []; so.barricades = []; so.causeways = [];
+  const g = { kind: "grave", x: so.hero.x, y: so.hero.y, raisesLeft: K.GRAVE_RAISES, graveSpent: false, desecAt: undefined };
+  so.graves = []; so.souls = 50; so.minions = []; // no grave yet, so nothing consumes the bank
+  // A held stand past a full inscription banks the overcharge (over PENTA_OVERCHARGE_MS).
+  run(so, K.PENTA_CHARGE_MS + K.PENTA_OVERCHARGE_MS + 200, still);
+  ok(so.hero.charge >= 1 && so.hero.overcharge >= 1, "standing still past a full inscription banks an overcharge");
+  // Empowered raise: spend the extra souls, add exactly one champion, reset overcharge.
+  so.graves = [g]; g.desecAt = -1e9; so.minions = []; so.hero.overcharge = 1; so.hero.charge = 1;
+  const souls0 = so.souls;
+  necro.stepRaise(so);
+  const champs = so.minions.filter((m) => m.champion);
+  ok(champs.length === 1, "an overcharged raise calls up exactly one champion");
+  ok(so.hero.overcharge === 0, "an empowered raise spends the banked overcharge");
+  ok(souls0 - so.souls >= K.OVERCHARGE_EXTRA_COST + 1, "an empowered raise spends the extra souls");
+  ok(champs[0].maxHp > K.MINION_HP, "a champion stands with leaned (higher) hp");
+  // Control: no overcharge → an ordinary raise, no champion.
+  g.desecAt = -1e9; so.hero.overcharge = 0; so.hero.charge = 1; so.minions = [];
+  necro.stepRaise(so);
+  ok(so.minions.length > 0 && !so.minions.some((m) => m.champion), "a raise without overcharge calls up no champion");
+}
+{
+  // Marching spends a banked overcharge back to nothing.
+  const sm = necro.buildArena(necro.levelById(id));
+  sm.hero.charge = 1; sm.hero.overcharge = 1;
+  necro.stepMarch(sm, 16, { x: 1, y: 0 });
+  ok(sm.hero.overcharge === 0, "marching spends the banked overcharge");
+}
+
+// 12d. Death-mote frenzy — a felled knight may drop a death-mote; gathering it
+//      frenzies the WHOLE horde (faster, harder swings) for a window, then it reverts.
+{
+  const sf = necro.buildArena(necro.levelById(id));
+  sf.motes = [{ x: sf.hero.x, y: sf.hero.y, until: sf.elapsed + K.MOTE_TTL_MS }];
+  necro.stepMotes(sf);
+  ok(sf.hero.frenzyUntil > sf.elapsed, "gathering a death-mote frenzies the horde");
+  ok(sf.motes.length === 0, "a gathered death-mote is consumed");
+}
+function minionSwing(frenzied) {
+  const s = necro.buildArena(necro.levelById(id));
+  stowAll(s); s.scenery = []; s.solids = []; s.barricades = []; s.causeways = []; s.graves = [];
+  s.hero.frenzyUntil = frenzied ? s.elapsed + K.FRENZY_MS : 0;
+  const e = s.knights[0]; wake(e); e.x = 800; e.y = 800; e.hp = 1000; e.maxHp = 1000; e.paladin = false;
+  const m = { x: 800, y: 800, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "attack", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" };
+  s.minions = [m];
+  const hp0 = e.hp;
+  necro.stepMinions(s, 16);
+  return { dmg: hp0 - e.hp, cd: m.attackCd };
+}
+const calm = minionSwing(false), wild = minionSwing(true);
+ok(wild.dmg > calm.dmg, "a frenzied minion bites harder");
+ok(wild.cd < calm.cd && calm.cd > 0, "a frenzied minion swings faster (shorter cooldown)");
+
+// 12e. Perks — one passive bargain per march, bought with relics; resolved at build.
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+{
+  let lp = necro.loadNecroLegacy();
+  ok(lp.perksUnlocked.includes("none") && lp.perkEquipped === "none", "a fresh legacy owns and equips No Pact");
+  necro.unlockPerk("gravecaller");
+  ok(!necro.loadNecroLegacy().perksUnlocked.includes("gravecaller"), "a perk can't be struck with no relics");
+  lp = necro.loadNecroLegacy(); lp.relics = 1000; necro.saveNecroLegacy(lp);
+  const gc = necro.PERKS.find((p) => p.id === "gravecaller");
+  necro.unlockPerk("gravecaller");
+  lp = necro.loadNecroLegacy();
+  ok(lp.perksUnlocked.includes("gravecaller") && lp.relics === 1000 - gc.cost, "striking a pact deducts its relics");
+  necro.equipPerk("gravecaller");
+  ok(necro.loadNecroLegacy().perkEquipped === "gravecaller", "a struck perk equips");
+  const sg = necro.buildArena(necro.levelById(id));
+  ok(sg.souls === K.SOUL_START + 3, "Gravecaller starts the march with extra souls");
+  // Swift Dead: the horde travels faster (resolved into perkMods).
+  lp = necro.loadNecroLegacy(); lp.perksUnlocked.push("swift"); lp.perkEquipped = "swift"; necro.saveNecroLegacy(lp);
+  ok(necro.buildArena(necro.levelById(id)).perkMods.minionSpeedMul > 1, "Swift Dead hastens the horde's travel");
+  // Carrion Feast: razing wrings an extra soul and deepens the mend.
+  lp = necro.loadNecroLegacy(); lp.perksUnlocked.push("carrion"); lp.perkEquipped = "carrion"; necro.saveNecroLegacy(lp);
+  const sc = necro.buildArena(necro.levelById(id));
+  sc.minions = [{ x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" }];
+  const house = sc.scenery.find((n) => n.kind === "house" && !n.desecrated);
+  const csouls0 = sc.souls, chp0 = sc.minions[0].hp;
+  necro.desecrateHouse(sc, house, K.DESEC_HEAL);
+  ok(sc.souls - csouls0 === K.SOUL_PER_RAZE + 1, "Carrion Feast wrings an extra soul from a razing");
+  ok(sc.minions[0].hp - chp0 > K.DESEC_HEAL, "Carrion Feast deepens the razing mend");
+}
+necro.saveNecroLegacy(necro.emptyNecroLegacy()); // clean again for the render smoke test
+
 // 13. Render smoke — render/scaffold don't throw with zero sprites, at the start
 //     and after state changes.
 const svgNode = makeNode();

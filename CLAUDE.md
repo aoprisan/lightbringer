@@ -343,12 +343,25 @@ The pentagram is the gate on every raise: standing still (`HERO_STILL_MAXSPEED`)
 (`PENTA_CHARGE_MS`, ×`rite.chargeMul`); the dead only rise at charge ≥ `PENTA_RAISE_AT`. `stepRaise` then
 spends souls and spawns minions from a reachable grave.
 
+**Overcharge — the risk/reward on the core verb.** Holding still *past* a full inscription banks
+`hero.overcharge` (0→1 over `PENTA_OVERCHARGE_MS`); any movement spends it back to 0 (like charge fade). When
+the next raise pulse fires with a full overcharge **and** souls to spare (`OVERCHARGE_EXTRA_COST`), it is
+**empowered**: it raises one extra **champion** skeleton (`champion: true`, `CHAMPION_HP_MUL`/`CHAMPION_DMG_MUL`/
+`CHAMPION_SIZE_MUL`) and resets the overcharge. Same stand-still verb — the deeper play is to hold the stand
+longer over a grave (more power ⇄ more exposure). No new input.
+
 **Souls** are a deliberate **anti-fountain** economy: a march starts with `SOUL_START` (9); a raise costs
 `RAISE_COST` (×`rite.soulMul`); souls come from felling a knight (`SOUL_PER_KILL`), razing a house
 (`SOUL_PER_RAZE`, the snowball), and a slow **seep** (`SOUL_REGEN_MS`) that **only trickles while below
 `SOUL_REGEN_TO`** — so you can always raise again, but you can never farm souls by standing idle. Graves hold
 `GRAVE_RAISES` (5) raises before `graveSpent`, with `GRAVE_COOLDOWN_MS` between pulses; the horde is capped at
 `MINION_CAP` (40). Slain knights drop soul **wisps** the hero gathers (`stepWisps`).
+
+**Death-motes & frenzy** (the snowball's heartbeat; mirror of the Vigil's ember surge, inverted to a horde
+buff). A felled knight may *also* drop a hot **death-mote** (`MOTE_DROP_CHANCE`, rarer than and separate from
+a wisp); gathering it (`stepMotes`, walk over it) sets `hero.frenzyUntil` — a `FRENZY_MS` window in which the
+**whole horde** swings faster (`FRENZY_HASTE`) and bites harder (`FRENZY_DMG_MUL`), read once in `stepMinions`.
+Rewards wading into the press. Motes grant **no souls** — frenzy is the only payoff.
 
 ### Raising-rites (the skeleton "shop") & relics
 
@@ -362,6 +375,22 @@ The hero equips **one** rite per march (`RAISE_TYPES`, resolved by `raiseTypeByI
 **Relics** are the unlock currency (`recordOverrun`/`recordFall` bank them: `score ÷ RELIC_SCORE_DIV` on a
 win, `RELIC_PER_KILL` per kill even on a loss). `unlockRite`/`equipRite` buy and equip from the picker; ids
 live in `NecroLegacy` (`unlocked`/`equipped`, defaulted on load).
+
+### Perks (the necromancer's craft) & the second relic sink
+
+The hero also equips **one** perk per march (`PERKS`, resolved by `perkById`; `perkMods` merges its bundle
+over `PERK_DEFAULTS`) — a passive build choice made once at the picker, **never an in-march input** (mirror of
+the parent's perk catalog and the Vigil's sigil shop). Bought with the same **relics** that buy rites:
+- **No Pact** (`none`, free, always owned, default) — baseline.
+- **Gravecaller** (120) — `soulStart +3`, `soulRegenTo +1`.
+- **Swift Dead** (160) — `minionSpeedMul ×1.18`.
+- **Carrion Feast** (240) — `desecHealMul ×1.6`, `soulPerRaze +1`.
+
+`buildArena` resolves the equipped perk into `s.perk`/`s.perkMods`, read at exactly four sites: starting souls
++ seep floor (`stepMarch`), minion travel speed (`stepMinions`), and razing heal + soul (`desecrateHouse`).
+`unlockPerk`/`equipPerk` buy/equip from the picker (a perk row beside the rite row, one handler branched on
+`data-kind`); ids live in `NecroLegacy` (`perksUnlocked`/`perkEquipped`, defaulted on load — **no key bump**,
+exactly like the rite fields).
 
 ### Knight variants (the defenders) & the priest
 
@@ -440,7 +469,8 @@ a share-link button (`shareGameLink`). These are reasonable parity ports to add 
 ### Persistence & art
 
 No mid-march save. The legacy is `necromancer.legacy.v1` (`NecroLegacy`: `runs`, `overruns`, `best` per
-village, `housesRazed`, `totemsRaised`, `relics`, `unlocked`, `equipped`), via
+village, `housesRazed`, `totemsRaised`, `relics`, `unlocked`, `equipped`, plus `perksUnlocked`/`perkEquipped`
+for the perk shop — all new fields defaulted on load with **no key bump**), via
 `loadNecroLegacy`/`saveNecroLegacy`/`emptyNecroLegacy` and the write-once-per-end `recordOverrun`/
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath`, the render
 fallbacks), so the game is fully playable with zero PNGs — though its PNG art **has now shipped** and is in

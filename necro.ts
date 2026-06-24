@@ -63,6 +63,8 @@ interface Hero {
   hp: number; maxHp: number;
   hurt: number; // remaining i-frame ms after a knight's blow (0 = vulnerable)
   charge: number; // 0..1 — how fully the raising-pentagram is inscribed (ramps while still)
+  overcharge: number; // 0..1 — banked past a full inscription (stand still longer); empowers the next raise
+  frenzyUntil: number; // s.elapsed until which the horde is frenzied (gathered a death-mote); 0 = none
   angle: number;  // the sigil's slow cosmetic spin, in degrees
 }
 
@@ -78,6 +80,7 @@ interface Minion {
   hit: number;       // s.elapsed time until which it flashes from a fresh blow
   bornAt: number;    // s.elapsed it was raised (for the spawn flourish)
   variant: string;   // the raising-rite that called it up — its skeleton kind (RaiseType id)
+  champion?: boolean; // raised by an overcharged sigil: bigger, tougher, harder-hitting (CHAMPION_*)
 }
 
 // A village knight — the watch, inverted. Guards its post (wandering on a leash)
@@ -120,6 +123,9 @@ interface Knight {
 interface Raise { x: number; y: number; r: number; until: number }
 interface Wisp { x: number; y: number; until: number }
 interface Smite { x: number; y: number; until: number }
+// A death-mote — a rarer, hotter drop than a soul-wisp. Gathering it (walk over it)
+// does not feed souls; it sets the horde alight: a brief frenzy (haste + bite).
+interface Mote { x: number; y: number; until: number }
 // A crossbowman's loosed bolt — a travelling projectile (Necro's only one). It
 // flies straight, is stopped by the first body it strikes (hero or skeleton) or
 // by a barricade, and expires on its TTL. Dodgeable, unlike a priest's hitscan.
@@ -135,11 +141,14 @@ interface NecroState {
   causeways: Segment[];  // open lanes the necromancer runs swift along
   hero: Hero;            // the necromancer
   rite: RaiseType;       // the equipped raising-rite (resolved from the legacy at build)
+  perk: NecroPerk;       // the equipped perk (resolved from the legacy at build)
+  perkMods: PerkMods;    // the equipped perk's resolved modifier bundle (read at a handful of sites)
   souls: number;         // the raise resource
   soulRegen: number;     // ms accumulator for the patient soul-seep (transient, not saved)
   minions: Minion[];
   knights: Knight[];
   wisps: Wisp[];         // gatherable soul motes dropped by slain knights
+  motes: Mote[];         // gatherable death-motes (frenzy on pickup)
   raises: Raise[];       // fading bone-burst rings (cosmetic)
   smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
   bolts: Bolt[];         // crossbowmen's loosed bolts in flight (the only projectiles)
@@ -199,6 +208,30 @@ const PENTA_RAISE_AT = 0.6;      // the sigil raises the dead once at least this
 const PENTA_RADIUS = 64;         // the sigil's drawn reach around the necromancer
 const PENTA_SPIN = 0.05;         // degrees of sigil rotation per ms (cosmetic)
 
+// Overcharge — the risk/reward on the core verb. Standing still PAST a full
+// inscription banks an overcharge (0→1 over PENTA_OVERCHARGE_MS); any movement
+// spends it back to nothing, same as charge fade. When the next raise pulse fires
+// with a full overcharge AND souls to spare, it is empowered: it raises one extra
+// CHAMPION skeleton (bigger, tougher, harder-hitting) and resets the overcharge. So
+// the deeper play is to hold the stand longer over a grave — more power, more exposure.
+const PENTA_OVERCHARGE_MS = 700;     // time past a full inscription to bank one overcharge
+const OVERCHARGE_EXTRA_COST = 3;     // extra souls an empowered (champion) raise spends
+const CHAMPION_HP_MUL = 2.6;         // a champion skeleton's hp × the rite's raised hp
+const CHAMPION_DMG_MUL = 1.7;        // …its swing damage × the rite's raised damage
+const CHAMPION_SIZE_MUL = 1.5;       // …its draw size × the rite's skeleton size
+
+// Death-motes & frenzy — the snowball's heartbeat (mirror of the Vigil's ember
+// motes, inverted to a horde buff). A felled knight may drop a hot death-mote
+// (rarer than a soul-wisp, and separate from it); gathering it — just walk over it —
+// sets the WHOLE horde alight for a short frenzy: faster swings and a harder bite.
+// Rewards wading into the press rather than turtling at range.
+const MOTE_DROP_CHANCE = 0.18;   // fraction of kills that leave a death-mote (rarer than a wisp)
+const MOTE_TTL_MS = 6000;        // how long a death-mote waits to be gathered
+const MOTE_RADIUS = 18;          // gather reach (over and above the hero's radius)
+const FRENZY_MS = 3500;          // how long a gathered mote keeps the horde frenzied
+const FRENZY_HASTE = 0.7;        // a frenzied minion's swing cooldown × this (faster)
+const FRENZY_DMG_MUL = 1.3;      // …and its swing damage × this (harder)
+
 // ---------- Raising-rites (unlockable pentagrams) ----------
 // Each rite is a different pentagram that calls up a different skeleton kind: a
 // stat lean over the base MINION_* / raise tuning, plus its own sigil and bone
@@ -251,6 +284,56 @@ const RAISE_TYPES: RaiseType[] = [
 function raiseTypeById(id: string): RaiseType {
   return RAISE_TYPES.find((t) => t.id === id) || RAISE_TYPES[0];
 }
+
+// ---------- Perks (the necromancer's craft) ----------
+// One equipped perk per march bends the carrier's own dials a little — a passive
+// build choice made once at the picker, never an in-march input. Mirror of the
+// parent's perk catalog and the Vigil's sigil shop, bought with the same relics that
+// buy rites. "No Pact" is always owned and the default; the rest cost relics. Each
+// perk's `mods` are merged over PERK_DEFAULTS into a bundle read at a few sim sites.
+interface PerkMods {
+  soulStart: number;      // + souls a march begins with
+  soulRegenTo: number;    // + the soul-seep floor (the trickle climbs back up to this)
+  minionSpeedMul: number; // × minion travel speed
+  desecHealMul: number;   // × the horde-heal a razed house grants
+  soulPerRaze: number;    // + souls a razed house feeds the carrier
+}
+interface NecroPerk { id: string; name: string; desc: string; cost: number; mods: Partial<PerkMods> }
+
+const PERK_DEFAULTS: PerkMods = {
+  soulStart: 0, soulRegenTo: 0, minionSpeedMul: 1, desecHealMul: 1, soulPerRaze: 0,
+};
+
+const PERKS: NecroPerk[] = [
+  {
+    id: "none", name: "No Pact", cost: 0,
+    desc: "The bare craft — no bargain struck. Raise and rule on your own strength alone.",
+    mods: {},
+  },
+  {
+    id: "gravecaller", name: "Gravecaller", cost: 120,
+    desc: "You begin with the dead already stirring — more souls in hand, and a deeper well the seep climbs back to.",
+    mods: { soulStart: 3, soulRegenTo: 1 },
+  },
+  {
+    id: "swift", name: "Swift Dead", cost: 160,
+    desc: "Your skeletons run with an unnatural quickness — they reach the watch before it can form a line.",
+    mods: { minionSpeedMul: 1.18 },
+  },
+  {
+    id: "carrion", name: "Carrion Feast", cost: 240,
+    desc: "Every razed house gluts the horde — a stronger mend across the dead, and an extra soul wrung from the ruin.",
+    mods: { desecHealMul: 1.6, soulPerRaze: 1 },
+  },
+];
+
+function perkById(id: string): NecroPerk {
+  return PERKS.find((p) => p.id === id) || PERKS[0];
+}
+function perkMods(p: NecroPerk): PerkMods {
+  return { ...PERK_DEFAULTS, ...p.mods };
+}
+
 const WISP_DROP_CHANCE = 0.5;    // fraction of kills that leave a gatherable wisp
 const WISP_SOULS = 1;            // souls a gathered wisp grants
 const WISP_TTL_MS = 7000;        // how long a wisp waits to be gathered
@@ -401,7 +484,7 @@ const ALTAR_BURST_DMG = 60;      // damage dealt to every knight caught
 
 // Scoring — overrunning a village banks a score. Tuned for relationships, not
 // magnitudes: faster pays, a razed/unscathed village pays, and a harder village
-// multiplies it all. (No embers — perks are deferred in this first playable.)
+// multiplies it all. (Score feeds relics — the currency for both rites and perks.)
 const SCORE_PER_KNIGHT = 100;        // base, per knight in the host
 const SCORE_TARGET_PER_KNIGHT = 1700; // ms per knight you're "expected" to take
 const SCORE_SPEED_PER_SEC = 20;      // points per second cleared under that target
@@ -677,7 +760,7 @@ function buildArena(level: LevelDef): NecroState {
   const causeways = weaveSegments(scenery, level.causewayCount, level.minDist * 3, level.minDist * 5);
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
-    charge: 0, angle: 0,
+    charge: 0, overcharge: 0, frenzyUntil: 0, angle: 0,
   };
   const knights: Knight[] = [];
   const captainCount = Math.min(level.captainCount ?? 0, posts.length);
@@ -727,17 +810,20 @@ function buildArena(level: LevelDef): NecroState {
     if (pi < paladinCount) muster(post, { hp: KNIGHT_HP * PALADIN_HP_MUL, paladin: true });
     if (pi < marshalCount) muster(post, { hp: KNIGHT_HP * MARSHAL_HP_MUL, marshal: true });
   });
-  // The equipped raising-rite is re-derived from the legacy on every build (the
-  // picker has the only chooser; a march is rite-locked once it begins).
-  const rite = raiseTypeById(loadNecroLegacy().equipped);
+  // The equipped raising-rite and perk are re-derived from the legacy on every build
+  // (the picker has the only chooser; a march is locked once it begins).
+  const legacy = loadNecroLegacy();
+  const rite = raiseTypeById(legacy.equipped);
+  const perk = perkById(legacy.perkEquipped);
+  const mods = perkMods(perk);
   return {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     graves: scenery.filter((n) => n.kind === "grave"),
     barricades, causeways,
-    hero, rite, souls: SOUL_START, soulRegen: 0,
+    hero, rite, perk, perkMods: mods, souls: SOUL_START + mods.soulStart, soulRegen: 0,
     minions: [], knights,
-    wisps: [], raises: [], smites: [], bolts: [],
+    wisps: [], motes: [], raises: [], smites: [], bolts: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -804,9 +890,9 @@ function scoreRun(s: NecroState): ScoreBreakdown {
 }
 
 // Fell a knight: mark it dead, count the kill, grant souls directly, and — by
-// chance — leave a gatherable soul-wisp where it fell. The single kill path, so
-// every damage source (minion swing, totem pulse, altar burst) feeds souls the
-// same way.
+// chance — leave a gatherable soul-wisp (souls) and/or a rarer death-mote (a horde
+// frenzy on pickup) where it fell. The single kill path, so every damage source
+// (minion swing, totem pulse, altar burst) feeds souls and drops the same way.
 function killKnight(s: NecroState, e: Knight): void {
   if (e.dead) return;
   e.dead = true;
@@ -814,6 +900,9 @@ function killKnight(s: NecroState, e: Knight): void {
   s.souls += SOUL_PER_KILL;
   if (Math.random() < WISP_DROP_CHANCE) {
     s.wisps.push({ x: e.x, y: e.y, until: s.elapsed + WISP_TTL_MS });
+  }
+  if (Math.random() < MOTE_DROP_CHANCE) {
+    s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
   }
 }
 
@@ -873,6 +962,26 @@ function stepRaise(s: NecroState): void {
       });
       s.raisedTotal++;
     }
+    // An overcharged sigil (the held stand past full, see stepMarch) empowers this
+    // pulse: spend extra souls to raise one CHAMPION of the rite's kind, then the
+    // overcharge is spent. Skipped silently if souls or horde room fall short — the
+    // ordinary raise still stood.
+    if (h.overcharge >= 1 && s.souls >= OVERCHARGE_EXTRA_COST && aliveMinions(s) < MINION_CAP) {
+      s.souls -= OVERCHARGE_EXTRA_COST;
+      h.overcharge = 0;
+      const chp = Math.round(hp * CHAMPION_HP_MUL);
+      const a = Math.random() * Math.PI * 2;
+      const r = MINION_RADIUS + Math.random() * 22;
+      s.minions.push({
+        x: clamp(g.x + Math.cos(a) * r, MINION_RADIUS, s.w - MINION_RADIUS),
+        y: clamp(g.y + Math.sin(a) * r, MINION_RADIUS, s.h - MINION_RADIUS),
+        vx: 0, vy: 0, hp: chp, maxHp: chp, dead: false,
+        state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: s.elapsed,
+        variant: rite.id, champion: true,
+      });
+      s.raisedTotal++;
+      s.raises.push({ x: g.x, y: g.y, r: 64, until: s.elapsed + 480 }); // a bigger burst
+    }
     s.raises.push({ x: g.x, y: g.y, r: 40, until: s.elapsed + 360 });
   }
 }
@@ -898,12 +1007,16 @@ function nearestKnight(s: NecroState, x: number, y: number, range: number): numb
 function stepMinions(s: NecroState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveKnights(s) > 0 && aliveKnights(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  // While the horde is frenzied (a gathered death-mote), every minion swings faster
+  // and bites harder for the window; Swift Dead (a perk) hastens the horde's travel.
+  const frenzied = s.elapsed < h.frenzyUntil;
   for (const m of s.minions) {
     if (m.dead) continue;
     m.attackCd = Math.max(0, m.attackCd - dt);
-    // The skeleton's kind (its raising-rite) leans its pace and bite.
+    // The skeleton's kind (its raising-rite) leans its pace and bite; a champion
+    // (overcharged raise) hits harder still.
     const def = raiseTypeById(m.variant);
-    const moveSpeed = MINION_SPEED * def.speedMul;
+    const moveSpeed = MINION_SPEED * def.speedMul * s.perkMods.minionSpeedMul;
 
     // Pick a quarry: the nearest knight in aggro range (global during cleanup).
     const ti = nearestKnight(s, m.x, m.y, cleanup ? Infinity : MINION_AGGRO);
@@ -918,8 +1031,11 @@ function stepMinions(s: NecroState, dt: number): void {
       // Swing if in reach, off cooldown.
       const reach = MINION_RADIUS + KNIGHT_RADIUS + MINION_ATTACK_REACH;
       if (dist <= reach && m.attackCd <= 0) {
-        hurtKnight(s, target, MINION_DMG * def.dmgMul);
-        m.attackCd = MINION_ATTACK_CD;
+        let dmg = MINION_DMG * def.dmgMul;
+        if (m.champion) dmg *= CHAMPION_DMG_MUL;
+        if (frenzied) dmg *= FRENZY_DMG_MUL;
+        hurtKnight(s, target, dmg);
+        m.attackCd = MINION_ATTACK_CD * (frenzied ? FRENZY_HASTE : 1);
       }
       dx /= dist; dy /= dist;
       // Separation among fellow minions so the horde packs rather than overlaps.
@@ -1259,13 +1375,14 @@ function desecrateHouse(s: NecroState, n: ArenaNode, heal: number): void {
   if (n.reconsecrated && n.reconsecrated > s.elapsed) return; // the scar still bars re-razing
   n.desecrated = true; n.desecAt = s.elapsed; n.risen = false; n.reconsecrated = 0;
   s.desecCount++;
-  s.souls += SOUL_PER_RAZE; // a razed house feeds the carrier — souls to raise more
+  s.souls += SOUL_PER_RAZE + s.perkMods.soulPerRaze; // a razed house feeds the carrier (Carrion Feast: +1)
   if (heal) {
     // The village rallies the horde only up to HEAL_CAP·maxHp; distribute the
-    // mend across living minions so razing keeps a swarm on its feet.
+    // mend across living minions so razing keeps a swarm on its feet. Carrion Feast
+    // (a perk) deepens the mend.
     const live = s.minions.filter((m) => !m.dead);
     if (live.length) {
-      const each = heal; // heal each living minion a little (clamped to its cap)
+      const each = heal * s.perkMods.desecHealMul; // heal each living minion a little (clamped to its cap)
       for (const m of live) {
         const ceil = Math.max(m.hp, m.maxHp * HEAL_CAP);
         m.hp = Math.min(ceil, m.hp + each);
@@ -1366,6 +1483,24 @@ function stepWisps(s: NecroState): void {
   s.wisps = s.wisps.filter((w) => w.until > s.elapsed);
 }
 
+// Gather any death-mote the necromancer has walked onto: it grants no souls — it
+// sets the horde alight, opening a FRENZY_MS window of haste + harder bite read in
+// stepMinions. Then retire faded (or gathered) motes. Mirror of the Vigil's ember
+// surge, inverted from a hero buff to a horde buff.
+function stepMotes(s: NecroState): void {
+  if (!s.motes.length) return;
+  const h = s.hero;
+  const rr = (HERO_RADIUS + MOTE_RADIUS) ** 2;
+  for (const m of s.motes) {
+    if (m.until <= s.elapsed) continue;
+    if ((m.x - h.x) ** 2 + (m.y - h.y) ** 2 <= rr) {
+      m.until = 0; // consumed
+      h.frenzyUntil = s.elapsed + FRENZY_MS;
+    }
+  }
+  s.motes = s.motes.filter((m) => m.until > s.elapsed);
+}
+
 // One slice of march time, analogous to pentagram's stepCombat: integrate the
 // necromancer from the input vector, raise minions at graves, move the horde, move
 // the watch, resolve the house layer and altar burst, gather wisps, and check the
@@ -1393,15 +1528,20 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   const chargeMs = PENTA_CHARGE_MS * s.rite.chargeMul; // a heavier rite inscribes slower
   if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED) {
     h.charge = Math.min(1, h.charge + dt / chargeMs);
+    // Past a full inscription, the held stand banks an overcharge — the next raise
+    // erupts as a champion (stepRaise). The deeper play is to hold the stand longer.
+    if (h.charge >= 1) h.overcharge = Math.min(1, h.overcharge + dt / PENTA_OVERCHARGE_MS);
   } else {
     h.charge = Math.max(0, h.charge - dt / chargeMs);
+    h.overcharge = 0; // marching spends the banked overcharge back to nothing
   }
   h.angle = (h.angle + dt * PENTA_SPIN) % 360;
 
   // The patient soul-seep: when the carrier has run low, the dead trickle a few
   // souls back so a grave is never permanently useless — but only up to a floor,
   // never enough to replace felling knights and razing houses.
-  if (s.souls < SOUL_REGEN_TO) {
+  const regenFloor = SOUL_REGEN_TO + s.perkMods.soulRegenTo; // Gravecaller deepens the well
+  if (s.souls < regenFloor) {
     s.soulRegen += dt;
     if (s.soulRegen >= SOUL_REGEN_MS) { s.souls += 1; s.soulRegen = 0; }
   } else {
@@ -1410,6 +1550,7 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
 
   stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
+  stepMotes(s);        // gather any death-mote underfoot (frenzies the horde)
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
   stepKnights(s, dt);  // the watch guards / engages the horde and the necromancer
   stepBolts(s, dt);    // crossbowmen's loosed bolts fly and strike (or are walled off)
@@ -1749,6 +1890,19 @@ function render(s: NecroState, layer: SVGGElement): void {
     layer.appendChild(el("circle", { cx: w.x, cy: w.y, r: 3.0, fill: "#e6fff0" }));
   }
 
+  // Death-motes — a hotter, blood-red drop than a soul-wisp; gathering one frenzies
+  // the horde. Pulse faster so they read as "grab me". Procedural only.
+  for (const m of s.motes) {
+    const life = Math.max(0, (m.until - s.elapsed) / MOTE_TTL_MS);
+    if (life <= 0) continue;
+    const pulse = 1 + 0.3 * Math.sin(s.elapsed / 90);
+    layer.appendChild(el("circle", {
+      cx: m.x, cy: m.y, r: 12 * pulse, fill: "#c41e2a",
+      opacity: Math.min(1, 0.4 + life), filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 3.2, fill: "#ffd0c0" }));
+  }
+
   // Raise-burst rings — a quick necrotic eruption where the dead clawed up (or an
   // altar burst), fading as it expands. Procedural only.
   for (const r of s.raises) {
@@ -1952,15 +2106,31 @@ function render(s: NecroState, layer: SVGGElement): void {
 
   // Minions — the horde. Small bone figures, drawn over the watch they swarm.
   const baseSkeleton = sprites.has("skeleton") ? "skeleton" : null;
+  const frenzied = s.elapsed < s.hero.frenzyUntil; // a gathered death-mote alights the horde
   for (const m of s.minions) {
     if (m.dead) continue;
     // The skeleton's raising-rite sets its art, size and bone/aura hue, so the four
     // kinds — footsoldier, brute, wight, revenant — read apart at a glance. Its own
-    // sprite is used when shipped; otherwise it falls back to the base skeleton.
+    // sprite is used when shipped; otherwise it falls back to the base skeleton. A
+    // champion (overcharged raise) stands markedly larger.
     const def = raiseTypeById(m.variant);
     const skKey = sprites.has(def.sprite) ? def.sprite : baseSkeleton;
     const flash = m.hit > s.elapsed ? Math.max(0, (m.hit - s.elapsed) / HIT_FLASH_MS) : 0;
-    const sz = def.size * (1 + flash * 0.18);
+    const sz = def.size * (m.champion ? CHAMPION_SIZE_MUL : 1) * (1 + flash * 0.18);
+    // A frenzied horde wears a hot outer ring so the buff window is legible.
+    if (frenzied) {
+      layer.appendChild(el("circle", {
+        cx: m.x, cy: m.y, r: sz * 0.5, fill: "none", stroke: "#ff5a3c",
+        "stroke-width": 2, opacity: 0.6, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
+    // A champion reads at a glance: a bold gold ward-ring over its kind's aura.
+    if (m.champion) {
+      layer.appendChild(el("circle", {
+        cx: m.x, cy: m.y, r: sz * 0.46, fill: "none", stroke: "#ffd36a",
+        "stroke-width": 2.4, opacity: 0.85, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+    }
     // A signature aura in the rite's hue rings every skeleton it raised.
     if (def.id !== "grave") {
       layer.appendChild(el("circle", {
@@ -2017,6 +2187,21 @@ function render(s: NecroState, layer: SVGGElement): void {
       cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: ring,
       "stroke-width": 1, opacity: op * 0.6,
     }));
+    // Overcharge — a held stand past a full inscription. A second gold star grows and
+    // a halo swells as the overcharge banks, telegraphing the empowered (champion)
+    // raise that is one pulse away. Pure procedural flourish over the sigil.
+    if (h.overcharge > 0.02) {
+      const oc = h.overcharge;
+      layer.appendChild(el("circle", {
+        cx: h.x, cy: h.y, r: r * (1.05 + 0.18 * oc), fill: "none", stroke: "#ffd36a",
+        "stroke-width": 1 + 2.5 * oc, opacity: 0.5 * oc, filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+      }));
+      layer.appendChild(el("path", {
+        d: pentagramPath(h.x, h.y, r * 0.92, -h.angle * 1.3),
+        fill: "none", stroke: "#fff0b0", "stroke-width": 1.6 + 1.4 * oc, "stroke-linejoin": "round",
+        opacity: 0.65 * oc, filter: "url(#glow)",
+      }));
+    }
   }
 
   // The necromancer, drawn last over everything with a necrotic aura.
@@ -2052,12 +2237,15 @@ interface NecroLegacy {
   relics: number;        // the unlock currency, banked from marches
   unlocked: string[];    // raising-rite ids the carrier owns (always includes "grave")
   equipped: string;      // the rite id currently equipped
+  perksUnlocked: string[]; // perk ids the carrier owns (always includes "none")
+  perkEquipped: string;    // the perk id currently equipped
 }
 
 function emptyNecroLegacy(): NecroLegacy {
   return {
     runs: 0, overruns: 0, best: {}, housesRazed: 0, totemsRaised: 0,
     relics: 0, unlocked: ["grave"], equipped: "grave",
+    perksUnlocked: ["none"], perkEquipped: "none",
   };
 }
 
@@ -2071,6 +2259,11 @@ function loadNecroLegacy(): NecroLegacy {
     const owned = new Set(l.unlocked && l.unlocked.length ? l.unlocked : ["grave"]);
     owned.add("grave");
     const equipped = l.equipped && owned.has(l.equipped) ? l.equipped : "grave";
+    // Perk fields default in the same way for saves from before they existed (no key
+    // bump): "none" is always owned, and an unknown/unowned equip falls back to it.
+    const perksOwned = new Set(l.perksUnlocked && l.perksUnlocked.length ? l.perksUnlocked : ["none"]);
+    perksOwned.add("none");
+    const perkEquipped = l.perkEquipped && perksOwned.has(l.perkEquipped) ? l.perkEquipped : "none";
     return {
       runs: l.runs || 0,
       overruns: l.overruns || 0,
@@ -2080,6 +2273,8 @@ function loadNecroLegacy(): NecroLegacy {
       relics: l.relics || 0,
       unlocked: [...owned],
       equipped,
+      perksUnlocked: [...perksOwned],
+      perkEquipped,
     };
   } catch { return emptyNecroLegacy(); }
 }
@@ -2130,6 +2325,27 @@ function equipRite(id: string): NecroLegacy {
   const l = loadNecroLegacy();
   if (!l.unlocked.includes(id)) return l;
   l.equipped = id;
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Buy a perk if it is unowned and affordable: deduct its relics and add it to the
+// carrier's roster. A no-op (legacy unchanged) otherwise. Mirror of unlockRite.
+function unlockPerk(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  const p = perkById(id);
+  if (p.id !== id || l.perksUnlocked.includes(id) || l.relics < p.cost) return l;
+  l.relics -= p.cost;
+  l.perksUnlocked.push(id);
+  saveNecroLegacy(l);
+  return l;
+}
+
+// Equip a perk the carrier owns. A no-op for an unowned id. Mirror of equipRite.
+function equipPerk(id: string): NecroLegacy {
+  const l = loadNecroLegacy();
+  if (!l.perksUnlocked.includes(id)) return l;
+  l.perkEquipped = id;
   saveNecroLegacy(l);
   return l;
 }
@@ -2334,10 +2550,13 @@ function start(): void {
         fill: n.risen ? "#d8ffe6" : "#7affb0", opacity: 0.9,
       }));
     }
-    // The horde.
+    // The horde (champions read larger and gold).
     for (const m of s.minions) {
       if (m.dead) continue;
-      mmEl.appendChild(el("circle", { cx: m.x * scale, cy: m.y * scale, r: 1.0, fill: "#e8efd8", opacity: 0.85 }));
+      mmEl.appendChild(el("circle", {
+        cx: m.x * scale, cy: m.y * scale, r: m.champion ? 1.7 : 1.0,
+        fill: m.champion ? "#ffd36a" : "#e8efd8", opacity: 0.9,
+      }));
     }
     // The watch that remains — the map's whole point (captains/paladins steel,
     // priests gold, crossbowmen slate, bearers amber, menders green, marshals tan —
@@ -2547,9 +2766,32 @@ function start(): void {
       else { badge = ` <span class="ptype-cost">${t.cost} relics</span>`; act = ""; disabled = true; }
       const verb = act === "equip" ? "Equip" : act === "unlock" ? "Learn" : equipped ? "Equipped" : "Locked";
       html +=
-        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${t.id}" data-kind="rite" data-act="${act}"${disabled ? " disabled" : ""}>` +
         `<span class="city-name"><span class="ptype-swatch" style="background:${t.star};box-shadow:0 0 6px ${t.ring}"></span>${t.name}${badge}</span>` +
         `<span class="city-line">${t.desc}</span>` +
+        `<span class="ptype-verb">${verb}</span></button>`;
+    }
+    html += `</div>`;
+
+    // Perks — the necromancer's craft. One passive bargain equipped per march, bought
+    // with the same relics that buy rites. Mirrors the rite shop, button for button.
+    html +=
+      `<div class="legacy"><div class="legacy-head">Perks <span class="legacy-new">one per march</span></div></div>` +
+      `<div class="ptypes">`;
+    for (const p of PERKS) {
+      const owned = l.perksUnlocked.includes(p.id);
+      const equipped = l.perkEquipped === p.id;
+      const afford = l.relics >= p.cost;
+      let badge: string, act: string, disabled = false;
+      if (equipped) { badge = ` <span class="legacy-new">equipped</span>`; act = ""; disabled = true; }
+      else if (owned) { badge = ""; act = "equip"; }
+      else if (afford) { badge = ` <span class="legacy-new">${p.cost} relics</span>`; act = "unlock"; }
+      else { badge = ` <span class="ptype-cost">${p.cost} relics</span>`; act = ""; disabled = true; }
+      const verb = act === "equip" ? "Equip" : act === "unlock" ? "Strike pact" : equipped ? "Equipped" : "Locked";
+      html +=
+        `<button class="ptype${equipped ? " sel" : ""}" data-id="${p.id}" data-kind="perk" data-act="${act}"${disabled ? " disabled" : ""}>` +
+        `<span class="city-name"><span class="ptype-swatch" style="background:#b98cff;box-shadow:0 0 6px #7a4dff"></span>${p.name}${badge}</span>` +
+        `<span class="city-line">${p.desc}</span>` +
         `<span class="ptype-verb">${verb}</span></button>`;
     }
     html += `</div>`;
@@ -2574,13 +2816,19 @@ function start(): void {
         if (lv) showPicker(lv.id);
       };
     });
-    // Learn / equip a rite, then re-render so the new ownership and equip show.
+    // Learn / equip a rite or strike / equip a perk, then re-render so the new
+    // ownership and equip show. One handler over both shops, branched on data-kind.
     overlay.querySelectorAll<HTMLButtonElement>(".ptype").forEach((b) => {
-      const id = b.dataset.id || "", act = b.dataset.act || "";
+      const id = b.dataset.id || "", act = b.dataset.act || "", kind = b.dataset.kind || "rite";
       if (!act) return;
       b.onclick = () => {
-        if (act === "unlock") { unlockRite(id); equipRite(id); }
-        else if (act === "equip") equipRite(id);
+        if (kind === "perk") {
+          if (act === "unlock") { unlockPerk(id); equipPerk(id); }
+          else if (act === "equip") equipPerk(id);
+        } else {
+          if (act === "unlock") { unlockRite(id); equipRite(id); }
+          else if (act === "equip") equipRite(id);
+        }
         showPicker(sel.id);
       };
     });
@@ -2661,7 +2909,7 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
   testGlobal.__necro = {
     generateNecroVillage, buildArena, freshNecro, stepMarch,
-    stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps,
+    stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps, stepMotes,
     killKnight, hurtKnight, desecrateHouse, reconsecrateHouse, nearScar,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
@@ -2670,11 +2918,15 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     render, scaffold, scenerySprite, spriteFor,
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,
     RAISE_TYPES, raiseTypeById, unlockRite, equipRite,
+    PERKS, perkById, perkMods, unlockPerk, equipPerk,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       SOUL_START, RAISE_COST, RAISE_MIN, RAISE_MAX, GRAVE_REACH, GRAVE_RADIUS,
       GRAVE_RAISES, GRAVE_COOLDOWN_MS, SOUL_PER_KILL,
       HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
+      PENTA_OVERCHARGE_MS, OVERCHARGE_EXTRA_COST, CHAMPION_HP_MUL, CHAMPION_DMG_MUL, CHAMPION_SIZE_MUL,
+      MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, FRENZY_MS, FRENZY_HASTE, FRENZY_DMG_MUL,
+      SOUL_PER_RAZE, SOUL_REGEN_MS, SOUL_REGEN_TO,
       RELIC_SCORE_DIV, RELIC_PER_KILL,
       WISP_DROP_CHANCE, WISP_SOULS, WISP_TTL_MS, WISP_RADIUS,
       MINION_HP, MINION_SPEED, MINION_RADIUS, MINION_DMG, MINION_ATTACK_CD,
