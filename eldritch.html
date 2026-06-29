@@ -3,44 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>The Necromancer's March — a Light-Bringer spinoff</title>
-<meta name="description" content="An action descent in the world of The Light-Bringer. Raise the dead from the village graves, lead a horde of skeletons, raze the houses to heal them, and overrun every knight of the watch.">
+<title>The Watcher at the Threshold — a Light-Bringer spinoff</title>
+<meta name="description" content="An action watch in the world of H. P. Lovecraft's mythos. Trace the Elder Sign to banish the eldritch host pouring from the rifts — but tracing frays the mind, and the host's nearness bleeds it. Keep your health and your sanity, and seal the threshold.">
 
 <!-- PWA -->
-<link rel="manifest" href="./necro.webmanifest">
-<meta name="theme-color" content="#070c0a">
-<link rel="icon" href="./icons/necro-icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="./icons/necro-icon-180.png">
+<link rel="manifest" href="./eldritch.webmanifest">
+<meta name="theme-color" content="#04080c">
+<link rel="icon" href="./icons/eldritch-icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icons/eldritch-icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="The Necromancer's March">
+<meta name="apple-mobile-web-app-title" content="The Watcher at the Threshold">
 <meta name="mobile-web-app-capable" content="yes">
 
 <style>
   :root {
-    --night: #070c0a;
-    --night-2: #0e1a14;
-    --night-3: #0a1410;
-    --ink: #c2d6c8;
-    --ink-dim: #7e9488;
-    --gold: #7affb0;
-    --gold-bright: #9dffb6;
-    --gold-core: #d8ffe6;
-    --cold: #b48cff;
-    --ember: #3cff8a;
-    --edge: #233a2e;
+    --night: #04080c;
+    --night-2: #0a141c;
+    --night-3: #06101a;
+    --ink: #c4d4dc;
+    --ink-dim: #7e909c;
+    --gold: #7ad8ff;
+    --gold-bright: #b6ecff;
+    --gold-core: #e6f6ff;
+    --cold: #c08aff;
+    --ember: #7ad8ff;
+    --san: #c08aff;
+    --edge: #233844;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; color: var(--ink); overflow: hidden;
     font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
     background:
-      radial-gradient(ellipse 80% 50% at 50% 8%, rgba(60,255,138,0.07), transparent 60%),
-      radial-gradient(ellipse 70% 45% at 50% 104%, rgba(120,90,180,0.06), transparent 60%),
-      linear-gradient(180deg, var(--night-3) 0%, var(--night) 55%, #040806 100%);
+      radial-gradient(ellipse 80% 50% at 50% 8%, rgba(122,216,255,0.07), transparent 60%),
+      radial-gradient(ellipse 70% 45% at 50% 104%, rgba(150,90,200,0.06), transparent 60%),
+      linear-gradient(180deg, var(--night-3) 0%, var(--night) 55%, #02050a 100%);
     background-attachment: fixed;
   }
 
-  /* Atmosphere overlays — grain + vignette, drawn above the village, click-through. */
+  /* Atmosphere overlays — grain + vignette, drawn above the place, click-through. */
   .grain {
     position: fixed; inset: -50%; z-index: 3; pointer-events: none; opacity: 0.05;
     mix-blend-mode: soft-light;
@@ -54,7 +55,7 @@
   }
   .vignette {
     position: fixed; inset: 0; z-index: 3; pointer-events: none;
-    background: radial-gradient(ellipse 75% 75% at 50% 46%, transparent 50%, rgba(2,6,4,0.66) 100%);
+    background: radial-gradient(ellipse 75% 75% at 50% 46%, transparent 50%, rgba(1,4,8,0.7) 100%);
   }
   .inkveil {
     position: fixed; inset: 0; z-index: 2; pointer-events: none;
@@ -66,15 +67,15 @@
   #stick {
     position: fixed; z-index: 6; display: none; width: 120px; height: 120px;
     margin-left: -60px; margin-top: -60px; border-radius: 50%;
-    border: 1.5px solid rgba(122, 255, 176, 0.35);
-    background: radial-gradient(circle, rgba(122, 255, 176, 0.07), transparent 70%);
+    border: 1.5px solid rgba(122, 216, 255, 0.35);
+    background: radial-gradient(circle, rgba(122, 216, 255, 0.07), transparent 70%);
     pointer-events: none;
   }
   #stick-knob {
     position: absolute; left: 50%; top: 50%; width: 48px; height: 48px;
     border-radius: 50%; transform: translate(-50%, -50%);
-    background: radial-gradient(circle, rgba(157, 255, 182, 0.5), rgba(60, 255, 138, 0.2));
-    border: 1.5px solid rgba(157, 255, 182, 0.6);
+    background: radial-gradient(circle, rgba(182, 236, 255, 0.5), rgba(122, 216, 255, 0.2));
+    border: 1.5px solid rgba(182, 236, 255, 0.6);
   }
 
   header {
@@ -82,31 +83,40 @@
     display: flex; align-items: center; justify-content: space-between;
     flex-wrap: wrap; column-gap: 14px; row-gap: 6px;
     padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
-    background: linear-gradient(180deg, rgba(7,12,10,0.92) 30%, rgba(7,12,10,0.4) 75%, transparent);
+    background: linear-gradient(180deg, rgba(4,8,12,0.92) 30%, rgba(4,8,12,0.4) 75%, transparent);
     pointer-events: none;
   }
   h1 {
     font-size: 12.5px; font-weight: 400; letter-spacing: 0.34em; text-transform: uppercase;
     white-space: nowrap;
-    color: var(--ember); text-shadow: 0 0 14px rgba(60,255,138,0.45);
+    color: var(--ember); text-shadow: 0 0 14px rgba(122,216,255,0.45);
   }
   .stats { display: flex; gap: 12px; font-size: 12px; letter-spacing: 0.08em;
     color: var(--ink-dim); align-items: center;
     flex-wrap: wrap; justify-content: flex-end; margin-left: auto; row-gap: 6px; }
   .stats span { white-space: nowrap; }
   #cityname { color: var(--gold-bright); letter-spacing: 0.1em; }
-  /* #foes is the win condition (overrun the knights) — primary. #souls is the
-     raise resource + horde size — the necromancer's running tally. */
+  /* #foes is the win condition (banish the host) — primary. #souls is the sanity +
+     ward readout — the Watcher's running tally. */
   #foes { color: var(--cold); font-weight: 700; }
   #souls { color: var(--gold); opacity: 0.82; font-size: 11px; }
+  /* Two stacked life-bars: health (cyan) and the mind (violet) — the spinoff's twist. */
+  .bars { display: flex; flex-direction: column; gap: 3px; }
   .hpbar {
-    width: 132px; height: 9px; border: 1px solid rgba(60,255,138,0.5);
-    border-radius: 4px; background: rgba(10,40,24,0.55); overflow: hidden;
+    width: 132px; height: 8px; border: 1px solid rgba(122,216,255,0.5);
+    border-radius: 4px; background: rgba(10,30,40,0.55); overflow: hidden;
   }
+  .hpbar.san { border-color: rgba(192,138,255,0.5); background: rgba(28,14,40,0.55); }
   #hp {
     height: 100%; width: 100%;
-    background: linear-gradient(90deg, #1cff6a, #4cff8a);
-    box-shadow: 0 0 10px rgba(60,255,138,0.5);
+    background: linear-gradient(90deg, #2ad0ff, #7ad8ff);
+    box-shadow: 0 0 10px rgba(122,216,255,0.5);
+    transition: width .14s ease;
+  }
+  #sanity {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #8a4dff, #c08aff);
+    box-shadow: 0 0 10px rgba(192,138,255,0.5);
     transition: width .14s ease;
   }
   #reset, #refresh {
@@ -128,9 +138,9 @@
   #minimap {
     position: fixed; z-index: 4; display: none; pointer-events: none;
     top: calc(50px + env(safe-area-inset-top)); left: 10px;
-    border: 1px solid rgba(60,255,138,0.4); border-radius: 3px;
-    background: rgba(7,12,10,0.55);
-    box-shadow: 0 0 14px rgba(0,0,0,0.5), inset 0 0 12px rgba(60,255,138,0.06);
+    border: 1px solid rgba(122,216,255,0.4); border-radius: 3px;
+    background: rgba(4,8,12,0.55);
+    box-shadow: 0 0 14px rgba(0,0,0,0.5), inset 0 0 12px rgba(122,216,255,0.06);
   }
 
   #citywrap { position: absolute; inset: 0; z-index: 1;
@@ -138,14 +148,14 @@
   svg { width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
 
   #toast {
-    position: fixed; top: calc(66px + env(safe-area-inset-top)); left: 50%;
+    position: fixed; top: calc(74px + env(safe-area-inset-top)); left: 50%;
     transform: translateX(-50%) translateY(-8px); z-index: 6;
     max-width: 86%; text-align: center; font-style: italic; font-size: 14px;
     line-height: 1.55; color: var(--gold-bright); letter-spacing: 0.02em;
     padding: 12px 22px; border-radius: 2px;
-    background: linear-gradient(180deg, rgba(14,26,20,0.92), rgba(7,12,10,0.92));
-    border: 1px solid rgba(60,255,138,0.3);
-    box-shadow: 0 0 30px rgba(60,255,138,0.14);
+    background: linear-gradient(180deg, rgba(10,20,28,0.92), rgba(4,8,12,0.92));
+    border: 1px solid rgba(122,216,255,0.3);
+    box-shadow: 0 0 30px rgba(122,216,255,0.14);
     opacity: 0; pointer-events: none; transition: opacity .5s ease, transform .5s ease;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -164,17 +174,17 @@
     overflow-y: auto; -webkit-overflow-scrolling: touch;
     gap: 20px; padding: 32px; text-align: center;
     background:
-      radial-gradient(ellipse 70% 78% at 50% 46%, rgba(5,10,8,0.5), rgba(3,7,5,0.74)),
+      radial-gradient(ellipse 70% 78% at 50% 46%, rgba(3,7,11,0.5), rgba(2,5,9,0.76)),
       url("./art/title-backdrop.jpg") center/cover no-repeat,
-      #040806;
+      #02050a;
   }
   #overlay.hidden { display: none; }
   #ov-panel {
     max-width: 520px; padding: 34px 30px; position: relative; overflow: hidden;
     margin: auto 0; flex-shrink: 0;
-    background: linear-gradient(180deg, rgba(14,26,20,0.6), rgba(7,12,10,0.6));
-    border: 1px solid rgba(60,255,138,0.28);
-    box-shadow: 0 0 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(60,255,138,0.04);
+    background: linear-gradient(180deg, rgba(10,20,28,0.6), rgba(4,8,12,0.6));
+    border: 1px solid rgba(122,216,255,0.28);
+    box-shadow: 0 0 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(122,216,255,0.04);
   }
   #ov-panel > * { position: relative; z-index: 1; }
   #ov-panel::after {
@@ -183,7 +193,7 @@
     opacity: 0.22; mix-blend-mode: overlay;
   }
   #ov-title { font-size: 23px; font-weight: 400; letter-spacing: 0.14em; color: var(--ember);
-    text-shadow: 0 0 18px rgba(60,255,138,0.4); margin-bottom: 16px; }
+    text-shadow: 0 0 18px rgba(122,216,255,0.4); margin-bottom: 16px; }
   #ov-body { line-height: 1.7; font-size: 15.5px; color: var(--ink); }
   #ov-body em { color: var(--gold-bright); font-style: italic; }
   #ov-body .lede { font-style: italic; color: var(--ink-dim); margin: 2px 0 6px; }
@@ -193,18 +203,18 @@
   }
   #ov-body .city {
     display: block; width: 100%; padding: 10px 13px; cursor: pointer;
-    border: 1px solid rgba(60,255,138,0.22); border-radius: 6px;
-    background: rgba(60,255,138,0.03); font: inherit; color: var(--ink);
+    border: 1px solid rgba(122,216,255,0.22); border-radius: 6px;
+    background: rgba(122,216,255,0.03); font: inherit; color: var(--ink);
     transition: border-color 0.15s, background 0.15s;
   }
-  #ov-body .city:hover { border-color: rgba(60,255,138,0.5); background: rgba(60,255,138,0.08); }
+  #ov-body .city:hover { border-color: rgba(122,216,255,0.5); background: rgba(122,216,255,0.08); }
   #ov-body .city.sel {
-    border-color: rgba(60,255,138,0.7); background: rgba(60,255,138,0.12);
+    border-color: rgba(122,216,255,0.7); background: rgba(122,216,255,0.12);
   }
-  #ov-body .city.sel .city-name { text-shadow: 0 0 14px rgba(60,255,138,0.45); }
+  #ov-body .city.sel .city-name { text-shadow: 0 0 14px rgba(122,216,255,0.45); }
   #ov-body .city-art {
     display: block; width: 100%; max-width: 440px; margin: 0 auto 16px;
-    border: 1px solid rgba(60,255,138,0.22); border-radius: 4px;
+    border: 1px solid rgba(122,216,255,0.22); border-radius: 4px;
     aspect-ratio: 16 / 9; object-fit: cover;
     filter: drop-shadow(0 0 18px rgba(0,0,0,0.5));
   }
@@ -217,7 +227,7 @@
   }
   #ov-body .legacy {
     margin: 20px auto 0; max-width: 340px; padding-top: 16px;
-    border-top: 1px solid rgba(60,255,138,0.22);
+    border-top: 1px solid rgba(122,216,255,0.22);
   }
   #ov-body .legacy-head {
     font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
@@ -234,23 +244,23 @@
     font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--cold); margin-left: 7px; font-style: normal;
   }
-  /* Raising-rites shop — reuses the .city card styling, with a swatch, a verb
-     button, and a dimmed cost for the rites you can't yet afford. */
+  /* Sign shop — reuses the .city card styling, with a swatch, a verb button, and a
+     dimmed cost for the Signs you can't yet afford. */
   #ov-body .ptypes {
     display: flex; flex-direction: column; gap: 8px;
     margin: 9px auto 6px; max-width: 400px; text-align: left;
   }
   #ov-body .ptype {
     position: relative; display: block; width: 100%; padding: 10px 13px;
-    cursor: pointer; border: 1px solid rgba(60,255,138,0.22); border-radius: 6px;
-    background: rgba(60,255,138,0.03); font: inherit; color: var(--ink);
+    cursor: pointer; border: 1px solid rgba(122,216,255,0.22); border-radius: 6px;
+    background: rgba(122,216,255,0.03); font: inherit; color: var(--ink);
     transition: border-color 0.15s, background 0.15s;
   }
   #ov-body .ptype:hover:not([disabled]) {
-    border-color: rgba(60,255,138,0.5); background: rgba(60,255,138,0.08);
+    border-color: rgba(122,216,255,0.5); background: rgba(122,216,255,0.08);
   }
   #ov-body .ptype.sel {
-    border-color: rgba(60,255,138,0.7); background: rgba(60,255,138,0.12);
+    border-color: rgba(122,216,255,0.7); background: rgba(122,216,255,0.12);
   }
   #ov-body .ptype[disabled]:not(.sel) { opacity: 0.55; cursor: default; }
   #ov-body .ptype-swatch {
@@ -269,7 +279,7 @@
   /* Title screen — logo + epigraph + share row. */
   #ov-body .start-logo {
     display: block; width: 150px; height: 150px; margin: 0 auto 14px;
-    filter: drop-shadow(0 0 26px rgba(60,255,138,0.35));
+    filter: drop-shadow(0 0 26px rgba(122,216,255,0.35));
   }
   #ov-body .frx-quote {
     max-width: 380px; margin: 0 auto 18px; font-style: italic;
@@ -278,22 +288,22 @@
   #ov-body .start-share { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
   #ov-body .start-act {
     font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
-    padding: 9px 14px; border: 1px solid rgba(122,255,176,0.35); border-radius: 6px;
-    background: rgba(122,255,176,0.04); color: var(--gold-bright); cursor: pointer;
+    padding: 9px 14px; border: 1px solid rgba(122,216,255,0.35); border-radius: 6px;
+    background: rgba(122,216,255,0.04); color: var(--gold-bright); cursor: pointer;
   }
-  #ov-body .start-act:hover { border-color: rgba(122,255,176,0.6); background: rgba(122,255,176,0.09); }
+  #ov-body .start-act:hover { border-color: rgba(122,216,255,0.6); background: rgba(122,216,255,0.09); }
   .ov-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
   button {
     font-family: inherit; font-size: 12.5px; letter-spacing: 0.16em; text-transform: uppercase;
     padding: 13px 22px; border-radius: 2px; cursor: pointer; position: relative;
     color: var(--ink-dim); border: 1px solid var(--edge);
-    background: linear-gradient(180deg, #122018, #0a1410);
+    background: linear-gradient(180deg, rgba(18,30,38,1), rgba(8,16,22,1));
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 8px rgba(0,0,0,0.4);
     transition: color .25s ease, border-color .25s ease, box-shadow .25s ease;
   }
   button:active { transform: translateY(1px); }
-  #ov-btn, #ov-btn2 { border-color: rgba(60,255,138,0.55); color: var(--ember);
-    box-shadow: inset 0 0 14px rgba(60,255,138,0.1), 0 0 16px rgba(60,255,138,0.18); }
+  #ov-btn, #ov-btn2 { border-color: rgba(122,216,255,0.55); color: var(--ember);
+    box-shadow: inset 0 0 14px rgba(122,216,255,0.1), 0 0 16px rgba(122,216,255,0.18); }
 
   @media (max-width: 480px) {
     header { column-gap: 8px; padding-left: 12px; padding-right: 12px; }
@@ -309,16 +319,19 @@
 </head>
 <body>
   <header>
-    <h1>The Necromancer's March</h1>
+    <h1>The Watcher at the Threshold</h1>
     <div class="stats">
       <span id="cityname"></span>
       <span id="foes"></span>
       <span id="souls"></span>
-      <div class="hpbar"><div id="hp"></div></div>
-      <button id="reset" title="Return to the village select">Choose village</button>
+      <div class="bars">
+        <div class="hpbar"><div id="hp"></div></div>
+        <div class="hpbar san"><div id="sanity"></div></div>
+      </div>
+      <button id="reset" title="Return to the place select">Choose place</button>
       <a class="xlink" id="origin-link" href="./index.html?classic" title="The Light-Bringer — the original contemplative game in this world" style="color:#9fb0d0;">The Light-Bringer</a>
       <a class="xlink" id="vigil-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="color:#ff6a3c;">The Burning Vigil</a>
-      <a class="xlink" id="watcher-link" href="./eldritch.html" title="The Watcher at the Threshold — the Lovecraftian game in this world" style="color:#7ad8ff;">The Watcher at the Threshold</a>
+      <a class="xlink" id="necro-link" href="./necro.html" title="The Necromancer's March — the inversion game in this world" style="color:#3cff8a;">The Necromancer's March</a>
       <button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button>
     </div>
   </header>
@@ -327,9 +340,9 @@
     <svg id="city"></svg>
   </div>
 
-  <!-- Glanceable overview of the arena you can't see all at once: the watch that
-       remains (knights), razed houses, the horde, the necromancer, and the camera's
-       window. Drawn by minimap() each march frame; hidden in the picker. -->
+  <!-- Glanceable overview of the arena you can't see all at once: the host that
+       remains, the sealed wards, the Watcher, and the camera's window. Drawn by
+       minimap() each watch frame; hidden in the picker. -->
   <svg id="minimap" aria-hidden="true"></svg>
 
   <div class="inkveil"></div>
@@ -340,7 +353,7 @@
 
   <div id="toast"></div>
 
-  <div id="help">Move with the joystick or WASD to march and weave around the wells and altars. March onto an open grave to raise skeletons (they cost souls); they hunt the nearest knight on their own. Raze the houses to heal the horde, and gather the soul-wisps the fallen leave. Overrun every knight to take the village.</div>
+  <div id="help">Move with the joystick or WASD to walk and weave around the menhirs. Stand STILL to trace the Elder Sign — a sigil that banishes the host around you; move to dodge and it fades. But tracing frays your MIND, and the host's nearness bleeds it — seal the ward-stones and gather the clue-motes to steady your sanity. Banish every horror to seal the threshold; lose your health and you are slain, lose your sanity and you go mad.</div>
 
   <div id="overlay" class="hidden">
     <div id="ov-panel">
@@ -353,6 +366,6 @@
     </div>
   </div>
 
-  <script type="module" src="./necro.js"></script>
+  <script type="module" src="./eldritch.js"></script>
 </body>
 </html>

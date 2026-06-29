@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v93";
+const CACHE = "lightbringer-v94";
 
 const ASSETS = [
   "./",
@@ -19,6 +19,15 @@ const ASSETS = [
   "./necro.html",
   "./necro.js",
   "./necro.webmanifest",
+  // The Watcher at the Threshold — the fourth sibling spinoff (Lovecraftian), its own
+  // page + module. Shell only (network-first via isShell): it ships fully procedural,
+  // with zero PNGs of its own, so no art is listed here yet (the Watcher/host/ward
+  // sprites and PWA icons render from vector primitives until the art ships — add
+  // them to this list AND bump CACHE when it does). The webmanifest's referenced
+  // icons are fetched by the browser, not addAll(), so a missing icon is harmless.
+  "./eldritch.html",
+  "./eldritch.js",
+  "./eldritch.webmanifest",
   // Necro sprites (gemini-prompts/necro/*). Universal village fabric: four house
   // states, well, altar, grave + spent, the necromancer, both knight faces, the
   // skeleton minion, and the tiled barricade/causeway terrain. ground.png is
@@ -179,7 +188,8 @@ function isShell(url) {
   return url.pathname === "/" || url.pathname.endsWith("/") ||
     url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js") ||
     url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
-    url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js");
+    url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
+    url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js");
 }
 
 self.addEventListener("fetch", (event) => {
