@@ -125,10 +125,12 @@ run(sHold, 1400, still);
 ok(sHold.hero.charge >= K.SIGN_BANISH_AT, `holding still traces the Sign (${sHold.hero.charge.toFixed(2)})`);
 ok(sHold.horrors[0].dead || sHold.horrors[0].hp < holdHp0, "a traced Sign banishes the host that stands in it");
 
-// 3c. The pentagram geometry: five points, closed path.
+// 3c. The Sign geometry: the Necronomicon Sigil of the Gateway — a ring (arcs)
+//     enclosing a straight-line lattice plus three binding loops, closed.
 const pp = eld.pentagramPath(100, 100, 50, 0);
 ok(pp.startsWith("M") && pp.trimEnd().endsWith("Z"), "pentagramPath is a closed path");
-ok((pp.match(/L/g) || []).length === 4, "pentagramPath strings the five star points");
+ok((pp.match(/A/g) || []).length >= 8, "pentagramPath arcs the ring and the binding loops");
+ok((pp.match(/L/g) || []).length >= 9, "pentagramPath strings the gateway lattice");
 
 // 4. Banishing — hurtHorror drives a horror to 0 and banish counts it; a dead horror
 //    is inert; clearedPct tracks.
