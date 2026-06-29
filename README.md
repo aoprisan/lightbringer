@@ -22,6 +22,16 @@ by a **grave** to raise skeletons (they cost *souls*); your horde auto-fights th
 knight to overrun the village; lose your own health and you fall. ([more
 below](#the-necromancers-march--the-inversion-spinoff))
 
+### 👁 [**Play the spinoff → The Watcher at the Threshold**](https://aoprisan.github.io/lightbringer/eldritch.html)
+
+A **Lovecraftian** sibling spinoff. You are an **investigator** who stands
+still to trace the **Elder Sign** — a sigil that **banishes** the eldritch host
+pouring from the rifts. The twist is **Sanity**, a second life-bar: tracing the
+Sign *and* the host's nearness both drain it. Seal the **ward-stones** and gather
+the **clue-motes** the banished leave to steady your mind. Banish every horror to
+seal the threshold — lose your health and you are *slain*, lose your sanity and
+you go *mad*. ([more below](#the-watcher-at-the-threshold--the-lovecraftian-spinoff))
+
 ### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
 
 
@@ -115,6 +125,24 @@ ends. It shares the world, the cities (re-themed as villages), and the art syste
 before any of its PNGs exist**. Like the others it is its own installable PWA page
 with its own legacy key (villages overrun, best clear time, houses razed).
 
+## The Watcher at the Threshold — the Lovecraftian spinoff
+
+[**The Watcher at the Threshold**](https://aoprisan.github.io/lightbringer/eldritch.html)
+is a fourth sibling game (`eldritch.ts` / `eldritch.html`), set in **H. P.
+Lovecraft's mythos**. It reuses the Burning Vigil's "you *are* the weapon, stand
+still" core, re-themed: you walk an **investigator** through a doomed place and
+**stand still to trace the Elder Sign** — a sigil that **banishes** the eldritch
+host (Deep Ones, Byakhee, Star-Spawn, Nightgaunts, cultists) pouring from the
+rifts. Clear the finite host to **seal the threshold**. The defining twist is
+**Sanity**, a second life-bar nothing else here has: tracing the Sign frays the
+mind, the host's nearness bleeds it (dread), and a Nightgaunt's gaze lances it at
+range — restore it at **sealed ward-stones** and from **clue-motes**. Lose your
+health and you are **slain**; lose your sanity and you go **mad** — two different
+ends. Four places (Innsmouth, Dunwich, Kingsport, R'lyeh), an unlockable **Sign**
+shop (Elder / Yellow / Voorish / Naacal) bought with *lore*, and its own legacy
+key. Like the others it ships as its own installable PWA page, **fully playable
+before any of its PNGs exist** — every sprite has a procedural SVG fallback.
+
 ## Tech
 
 A single TypeScript module rendering layered SVG (deep indigo world, light in
@@ -130,15 +158,18 @@ a bounded "while you were away" catch-up.
 | `pentagram.html` | The Burning Vigil page shell |
 | `necro.ts` | **The Necromancer's March** spinoff — march sim + rendering — compiles to `necro.js` |
 | `necro.html` | The Necromancer's March page shell |
+| `eldritch.ts` | **The Watcher at the Threshold** spinoff — watch sim + rendering — compiles to `eldritch.js` |
+| `eldritch.html` | The Watcher at the Threshold page shell |
 | `app.ts` | The original Light-Bringer — game logic + rendering — compiles to `app.js` |
 | `index.html` | Original Light-Bringer shell, styling, PWA tags |
-| `sw.js` | Service worker — offline app-shell cache (all three games) |
-| `pentagram.webmanifest`, `necro.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / the original) |
+| `sw.js` | Service worker — offline app-shell cache (all four games) |
+| `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / the original) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
 | `gemini-prompts/` | All self-contained Gemini ("Nano Banana") image-generation prompts (icons, frescoes, city cards, scenery + `base/` original-game sprites, `necro/` undead + village art, and the per-city sprite folders) |
 | `art-prompts-output/` | Raw multi-megabyte PNGs emitted by Gemini, before optimizing into `art/` (e.g. `tools/process-city-sprites.py`) |
 | `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
 | `tools/necro-test.mjs` | Headless march test for The Necromancer's March (`npm test`) |
+| `tools/eldritch-test.mjs` | Headless watch test for The Watcher at the Threshold (`npm test`) |
 | `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
@@ -166,8 +197,8 @@ npm run typecheck           # type-check without emitting
 
 The site is the repository root. A workflow at
 `.github/workflows/deploy.yml` installs deps, compiles the TypeScript
-(`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`),
-and publishes on every push to `main`.
+(`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`,
+`eldritch.ts` → `eldritch.js`), and publishes on every push to `main`.
 
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via
