@@ -1021,18 +1021,54 @@ function spriteImage(key: string, x: number, y: number, size: number, opacity: n
   });
 }
 
-// The Elder Sign's five-pointed star, as an SVG path centred on (cx,cy). Pure
-// geometry (mirrors the siblings', but this module shares nothing with them): five
-// rim points stepped by 72°, joined in the 0-2-4-1-3 star order and closed.
+// The Watcher's Sign is the Necronomicon "Sigil of the Gateway" — the Lovecraftian
+// gate the investigator traces, in place of the siblings' five-pointed star. Pure
+// geometry: an outer ring enclosing an interlaced lattice (a top apex fanning rays
+// down, two chords, a woven base) with three small binding loops. Authored in a
+// unit circle, then scaled to r, rotated by rotDeg and centred on (cx,cy). Returns
+// one multi-subpath `d` string — stroked, never filled — and closes (ends in "Z")
+// so it reads as a single sealed sign.
 function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): string {
-  const pts: [number, number][] = [];
-  for (let i = 0; i < 5; i++) {
-    const a = ((-90 + rotDeg + i * 72) * Math.PI) / 180;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  const order = [0, 2, 4, 1, 3];
-  let d = `M${pts[order[0]][0].toFixed(1)} ${pts[order[0]][1].toFixed(1)} `;
-  for (let i = 1; i < 5; i++) d += `L${pts[order[i]][0].toFixed(1)} ${pts[order[i]][1].toFixed(1)} `;
+  const rot = (rotDeg * Math.PI) / 180;
+  const cosR = Math.cos(rot), sinR = Math.sin(rot);
+  const f = (n: number) => n.toFixed(1);
+  // Map a unit-circle point (rotation about centre, y down) into world space.
+  const P = (ux: number, uy: number): [number, number] => {
+    const x = ux * r, y = uy * r;
+    return [cx + x * cosR - y * sinR, cy + x * sinR + y * cosR];
+  };
+  // A straight polyline through unit points.
+  const seg = (pts: [number, number][]): string => {
+    const w = pts.map(([ux, uy]) => P(ux, uy));
+    let s = `M${f(w[0][0])} ${f(w[0][1])}`;
+    for (let i = 1; i < w.length; i++) s += `L${f(w[i][0])} ${f(w[i][1])}`;
+    return s;
+  };
+  // A small binding loop (full circle of unit-radius lr, centred on unit (ux,uy)).
+  const loop = (ux: number, uy: number, lr: number): string => {
+    const [tx, ty] = P(ux, uy - lr);
+    const [bx, by] = P(ux, uy + lr);
+    const wr = lr * r;
+    return `M${f(tx)} ${f(ty)}A${f(wr)} ${f(wr)} 0 1 1 ${f(bx)} ${f(by)}A${f(wr)} ${f(wr)} 0 1 1 ${f(tx)} ${f(ty)}`;
+  };
+  // The enclosing ring (drawn as two arcs from top to bottom and back).
+  const [topx, topy] = P(0, -1), [botx, boty] = P(0, 1);
+  let d = `M${f(topx)} ${f(topy)}A${f(r)} ${f(r)} 0 1 1 ${f(botx)} ${f(boty)}A${f(r)} ${f(r)} 0 1 1 ${f(topx)} ${f(topy)}`;
+  // The interlaced lattice (straight chords).
+  const T: [number, number] = [0, -0.9]; // top apex
+  d += seg([T, [-0.66, 0.55]]);          // apex rays, fanning down
+  d += seg([T, [0.66, 0.55]]);
+  d += seg([T, [-0.28, 0.78]]);
+  d += seg([T, [0.30, 0.77]]);
+  d += seg([[-0.88, -0.30], [0.88, -0.30]]); // upper chord
+  d += seg([[-0.82, 0.12], [0.86, -0.04]]);  // lower (tilted) chord
+  d += seg([[-0.66, 0.55], [0.30, 0.77]]);   // woven base
+  d += seg([[0.66, 0.55], [-0.28, 0.78]]);
+  d += seg([[-0.66, 0.55], [0.66, 0.55]]);   // base chord
+  // Three binding loops (upper-right, left, base).
+  d += loop(0.52, -0.52, 0.1);
+  d += loop(-0.78, 0.04, 0.1);
+  d += loop(-0.02, 0.82, 0.1);
   return d + "Z";
 }
 
