@@ -32,6 +32,17 @@ the **clue-motes** the banished leave to steady your mind. Banish every horror t
 seal the threshold — lose your health and you are *slain*, lose your sanity and
 you go *mad*. ([more below](#the-watcher-at-the-threshold--the-lovecraftian-spinoff))
 
+### 🌑 [**Play the spinoff → The Moon's Hunger**](https://aoprisan.github.io/lightbringer/werewolf.html)
+
+A **werewolf** sibling spinoff in a misty 13th-century Britain. You are a **cursed
+soul**: stand still to **bay at the moon** and stoke your **Fury**. The twist is a
+living **day/night moon cycle** that drives your **Form** — by moonlight fury swells
+until you **turn beast** (the only shape that can fight: stand still as the wolf to
+trace a blood-moon **maw** that rends the village watch), and by daylight it bleeds
+you back to a hunted man. Feed to hold the change, dodge the huntsmen's silver bolts,
+and cut down every soul to claim the village. ([more
+below](#the-moons-hunger--the-werewolf-spinoff))
+
 ### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
 
 
@@ -143,6 +154,29 @@ shop (Elder / Yellow / Voorish / Naacal) bought with *lore*, and its own legacy
 key. Like the others it ships as its own installable PWA page, **fully playable
 before any of its PNGs exist** — every sprite has a procedural SVG fallback.
 
+## The Moon's Hunger — the werewolf spinoff
+
+[**The Moon's Hunger**](https://aoprisan.github.io/lightbringer/werewolf.html)
+is a fifth sibling game (`werewolf.ts` / `werewolf.html`), set in a misty,
+fog-bound **13th-century Britain** of thatch villages and standing stones. It
+reuses the Burning Vigil's "you *are* the weapon, stand still" core, re-themed
+onto the **lycanthrope's curse**: you walk a cursed soul through a sleeping
+village and cut down the watch (villagers, hounds, men-at-arms, huntsmen, friars)
+to **claim the village**. The defining twist is the **moon** — a living day/night
+cycle nothing else here has: it drives your **Fury**, and fury drives your
+**Form**. You begin a **man**, frail and unable to fight; stand still to **bay at
+the moon** and, under moonlight, fury swells until you **turn beast**. As the
+**wolf** you stand still to trace a blood-moon **maw** that rends the watch — the
+only shape that can attack. Feed (kill) to hold the change; daylight bleeds it
+back to a hunted man. Innovations make the twist spatial: **moonwells** (pools
+where the moon always reaches, so you can turn even by day) and drifting **mist
+banks** (the wolf's cover — huntsmen can't see you, the watch is slow to rouse).
+Four villages (Thornwick, Greymoor, Hollowby, Wulfmere), an unlockable **pelt**
+shop (Grey / Dire / Fell / Black) bought with *moonstones*, and its own legacy
+key. Ships as its own installable PWA page with a generated full-moon icon,
+**fully playable before any of its gameplay PNGs exist** — every sprite has a
+procedural SVG fallback.
+
 ## Tech
 
 A single TypeScript module rendering layered SVG (deep indigo world, light in
@@ -160,16 +194,19 @@ a bounded "while you were away" catch-up.
 | `necro.html` | The Necromancer's March page shell |
 | `eldritch.ts` | **The Watcher at the Threshold** spinoff — watch sim + rendering — compiles to `eldritch.js` |
 | `eldritch.html` | The Watcher at the Threshold page shell |
+| `werewolf.ts` | **The Moon's Hunger** spinoff — hunt sim + rendering — compiles to `werewolf.js` |
+| `werewolf.html` | The Moon's Hunger page shell |
 | `app.ts` | The original Light-Bringer — game logic + rendering — compiles to `app.js` |
 | `index.html` | Original Light-Bringer shell, styling, PWA tags |
-| `sw.js` | Service worker — offline app-shell cache (all four games) |
-| `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / the original) |
+| `sw.js` | Service worker — offline app-shell cache (all five games) |
+| `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `werewolf.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / The Moon's Hunger / the original) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
 | `gemini-prompts/` | All self-contained Gemini ("Nano Banana") image-generation prompts (icons, frescoes, city cards, scenery + `base/` original-game sprites, `necro/` undead + village art, and the per-city sprite folders) |
 | `art-prompts-output/` | Raw multi-megabyte PNGs emitted by Gemini, before optimizing into `art/` (e.g. `tools/process-city-sprites.py`) |
 | `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
 | `tools/necro-test.mjs` | Headless march test for The Necromancer's March (`npm test`) |
 | `tools/eldritch-test.mjs` | Headless watch test for The Watcher at the Threshold (`npm test`) |
+| `tools/werewolf-test.mjs` | Headless hunt test for The Moon's Hunger (`npm test`) |
 | `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
@@ -188,7 +225,8 @@ npm run build && python3 -m http.server 8000
 ### Regenerate icons / run tests
 
 ```sh
-node tools/gen-icons.mjs    # rewrite icons/*.png
+node tools/gen-icons.mjs    # rewrite the parent icons/*.png
+node tools/gen-ww-icons.mjs # rewrite the werewolf icons/werewolf-*.png
 npm test                    # compile, then exercise the simulation headlessly
 npm run typecheck           # type-check without emitting
 ```
@@ -198,7 +236,8 @@ npm run typecheck           # type-check without emitting
 The site is the repository root. A workflow at
 `.github/workflows/deploy.yml` installs deps, compiles the TypeScript
 (`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`,
-`eldritch.ts` → `eldritch.js`), and publishes on every push to `main`.
+`eldritch.ts` → `eldritch.js`, `werewolf.ts` → `werewolf.js`), and publishes on
+every push to `main`.
 
 One-time setup: **Settings → Pages → Build and deployment → Source:
 "GitHub Actions"**. Then merge to `main` (or run the workflow manually via
