@@ -28,6 +28,20 @@ const ASSETS = [
   "./eldritch.html",
   "./eldritch.js",
   "./eldritch.webmanifest",
+  // The Moon's Hunger — the fifth sibling spinoff (werewolf), its own page + module.
+  // Shell only (network-first via isShell): it ships fully procedural, with zero
+  // gameplay PNGs of its own, so no art is listed here yet (the wolf/watch/cairn
+  // sprites render from vector primitives until that art ships — add them to this list
+  // AND bump CACHE when it does). Its generated PWA icons DO ship (below).
+  "./werewolf.html",
+  "./werewolf.js",
+  "./werewolf.webmanifest",
+  // Werewolf branding — PWA icons (a blood-clawed full moon), generated zero-dep by
+  // tools/gen-ww-icons.mjs. Maskable variant for adaptive launchers.
+  "./icons/werewolf-icon-192.png",
+  "./icons/werewolf-icon-512.png",
+  "./icons/werewolf-icon-180.png",
+  "./icons/werewolf-maskable-512.png",
   // Necro sprites (gemini-prompts/necro/*). Universal village fabric: four house
   // states, well, altar, grave + spent, the necromancer, both knight faces, the
   // skeleton minion, and the tiled barricade/causeway terrain. ground.png is
@@ -189,7 +203,8 @@ function isShell(url) {
     url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js") ||
     url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
     url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
-    url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js");
+    url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js") ||
+    url.pathname.endsWith("/werewolf.html") || url.pathname.endsWith("/werewolf.js");
 }
 
 self.addEventListener("fetch", (event) => {

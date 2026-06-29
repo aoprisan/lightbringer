@@ -5,6 +5,7 @@ node_modules/
 /pentagram.js
 /necro.js
 /eldritch.js
+/werewolf.js
 
 # Dev-only map previews (tools/preview-city.mjs) — local artifacts, never shipped.
 /*-preview.png
