@@ -1,0 +1,18 @@
+{
+  "name": "The Moon's Hunger — a Light-Bringer spinoff",
+  "short_name": "Moon's Hunger",
+  "description": "An action hunt in a misty 13th-century Britain. You are a cursed soul: stand still to bay at the moon and stoke your fury until you turn beast, then rend the village watch around you. Feed to hold the change; daylight bleeds it. Claim every village.",
+  "start_url": "./werewolf.html",
+  "id": "./werewolf.html",
+  "scope": "./werewolf.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0d14",
+  "theme_color": "#d7dbe8",
+  "categories": ["games"],
+  "icons": [
+    { "src": "./icons/werewolf-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/werewolf-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/werewolf-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
