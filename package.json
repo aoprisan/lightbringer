@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && node tools/smoke-test.mjs && node tools/pentagram-test.mjs && node tools/necro-test.mjs",
+    "test": "tsc && node tools/smoke-test.mjs && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs",
     "icons": "node tools/gen-icons.mjs",
     "start": "tsc && python3 -m http.server 8000"
   },

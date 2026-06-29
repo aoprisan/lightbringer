@@ -1,0 +1,18 @@
+{
+  "name": "The Watcher at the Threshold — a Light-Bringer spinoff",
+  "short_name": "The Watcher",
+  "description": "An action watch in the world of H. P. Lovecraft's mythos. Trace the Elder Sign to banish the eldritch host pouring from the rifts — but tracing frays the mind, and the host's nearness bleeds it. Keep your health and your sanity, and seal the threshold.",
+  "start_url": "./eldritch.html",
+  "id": "./eldritch.html",
+  "scope": "./eldritch.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#04080c",
+  "theme_color": "#7ad8ff",
+  "categories": ["games"],
+  "icons": [
+    { "src": "./icons/eldritch-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/eldritch-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/eldritch-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
