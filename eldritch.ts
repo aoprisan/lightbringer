@@ -87,6 +87,9 @@ interface Horror {
 // Mote is a clue a banished horror drops (gather it to steady the mind).
 interface Pulse { x: number; y: number; r: number; until: number }
 interface Mote { x: number; y: number; until: number }
+// A body of water — purely atmospheric (no collision), seeded per place to give each
+// threshold its own drowned, fog-bound, or swampy character. Drawn beneath the world.
+interface Pool { x: number; y: number; rx: number; ry: number; seed: number }
 
 interface EldState {
   level: LevelDef;
@@ -96,6 +99,7 @@ interface EldState {
   wards: ArenaNode[];    // cached ward-stones (the seal sites)
   walls: Segment[];      // crumbled walls the bodies must weave around (and break a gaze)
   paths: Segment[];      // old roads the Watcher runs swift along
+  pools: Pool[];         // atmospheric water bodies (cosmetic; the place's signature)
   hero: Hero;            // the Watcher
   sign: SignType;        // the equipped Elder Sign variant (resolved from the legacy at build)
   horrors: Horror[];
@@ -137,7 +141,7 @@ const HERO_KNOCKBACK = 56;       // units the Watcher is shoved back by a blow
 const HERO_STILL_MAXSPEED = 40;  // travel slower than this (units/s) to trace
 const SIGN_CHARGE_MS = 440;      // time stationary to fully trace (and to fade)
 const SIGN_BANISH_AT = 0.6;      // the Sign banishes once at least this traced
-const SIGN_RADIUS = 132;         // the banishing reach around the Watcher
+const SIGN_RADIUS = 172;         // the banishing reach around the Watcher (a broad Elder Sign)
 const SIGN_PULSE_MS = 520;       // ms between banishing pulses while the Sign holds
 const SIGN_DMG = 17;             // damage a pulse deals to every horror in reach
 const SIGN_SANITY_COST = 2.4;    // sanity each pulse costs (tracing forbidden geometry)
@@ -333,10 +337,27 @@ const ELD_LEGACY_KEY = "eldritch.legacy.v1";
 // how many nodes, how dense, how many menhirs/wards (the seal sites), and how many
 // rifts (each musters a wave of the host — the host gate). A watch has no flame to
 // spend and no dawn to reach.
+// A place's visual signature — the palette and atmosphere that make each threshold
+// read as a distinct world even in pure-vector (zero-PNG) mode. Pure data; render
+// reads it. Each LevelDef carries one.
+interface EldTheme {
+  ground: string;        // the floor's base tint (under any ground.png overlay)
+  stone: string;         // vector ruin/menhir fill (the built world's stone)
+  stoneEdge: string;     // …its edge stroke
+  water: string;         // a water body's core fill
+  waterEdge: string;     // …its shoreline/foam stroke
+  waterCount: number;    // how many water bodies the place floods in
+  haze: string;          // an atmospheric fog/miasma wash over the whole arena
+  hazeOpacity: number;   // …its strength (0 = clear air)
+  particle: "rain" | "spore" | "bubble" | "ash" | "none"; // drifting ambient motes
+  particleColor: string; // …their hue
+}
+
 interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
+  theme: EldTheme;
   art?: string;          // optional establishing image (art/place-*.jpg); silent-fail
   nodeCount: number;
   minDist: number;
@@ -359,6 +380,12 @@ const LEVELS: LevelDef[] = [
     name: "Innsmouth",
     epigraph: "A shunned fishing port, its people gone strange and gilled. The host is thin here, the threshold shallow. A fair first watch.",
     art: "art/place-innsmouth.jpg",
+    // A rotting harbour town — brackish green tide-pools, salt-rain, kelp-dark stone.
+    theme: {
+      ground: "#0a1512", stone: "#1b2a26", stoneEdge: "#34564a",
+      water: "#123a36", waterEdge: "#3f7a64", waterCount: 6,
+      haze: "#13241f", hazeOpacity: 0.22, particle: "rain", particleColor: "#9fc4bf",
+    },
     nodeCount: 110, minDist: 72,
     menhirCount: 5, wardCount: 6, riftCount: 5, riftSpacing: 360,
     wallCount: 7, pathCount: 6, sizeScale: 0.9,
@@ -368,6 +395,12 @@ const LEVELS: LevelDef[] = [
     name: "Dunwich",
     epigraph: "Decayed hill-country under whippoorwill skies. The old blood runs thick and the things it calls run faster. Darters haunt the gambrel roofs.",
     art: "art/place-dunwich.jpg",
+    // Sour back-country — a sluggish brown creek, fungal spores adrift, sallow stone.
+    theme: {
+      ground: "#13110a", stone: "#2a2417", stoneEdge: "#56492a",
+      water: "#1d2614", waterEdge: "#4d5a2c", waterCount: 3,
+      haze: "#171208", hazeOpacity: 0.18, particle: "spore", particleColor: "#9fc06a",
+    },
     nodeCount: 122, minDist: 66,
     menhirCount: 6, wardCount: 7, riftCount: 7, riftSpacing: 320,
     wallCount: 6, pathCount: 9, darterCount: 3, gazerCount: 1, acolyteCount: 1, sizeScale: 1.0,
@@ -377,6 +410,12 @@ const LEVELS: LevelDef[] = [
     name: "Kingsport",
     epigraph: "A queer old town of terrible high houses and sea-fog. The faithful of strange churches keep their rites — and mend their own.",
     art: "art/place-kingsport.jpg",
+    // Cliff-town drowned in sea-fog — cold steel harbour, thick haze, pale ash-mist.
+    theme: {
+      ground: "#0a0e15", stone: "#1c2430", stoneEdge: "#3c5070",
+      water: "#15293f", waterEdge: "#3f6390", waterCount: 4,
+      haze: "#1b2433", hazeOpacity: 0.4, particle: "ash", particleColor: "#bcc8d6",
+    },
     nodeCount: 116, minDist: 70,
     menhirCount: 8, wardCount: 5, riftCount: 8, riftSpacing: 280,
     wallCount: 12, pathCount: 5, darterCount: 3, bruteCount: 2, gazerCount: 3, acolyteCount: 2, sizeScale: 1.1,
@@ -386,6 +425,13 @@ const LEVELS: LevelDef[] = [
     name: "R'lyeh",
     epigraph: "The drowned city risen, its geometry all wrong. Here the star-spawn wade and the great gazers watch. In his house the dreamer waits.",
     art: "art/place-rlyeh.jpg",
+    // The corpse-city under the waves — luminous abyssal water everywhere, rising
+    // bubbles, basalt gone green with aeons. The most flooded threshold of all.
+    theme: {
+      ground: "#04110f", stone: "#0c2220", stoneEdge: "#1f6a64",
+      water: "#0a3036", waterEdge: "#27a09a", waterCount: 8,
+      haze: "#04181a", hazeOpacity: 0.3, particle: "bubble", particleColor: "#7ad8ff",
+    },
     nodeCount: 104, minDist: 84,
     menhirCount: 10, wardCount: 4, riftCount: 9, riftSpacing: 300,
     wallCount: 10, pathCount: 3, darterCount: 2, bruteCount: 4, gazerCount: 4, acolyteCount: 2, sizeScale: 1.18,
@@ -567,6 +613,18 @@ function buildArena(level: LevelDef): EldState {
       attackCd: 0, hit: 0, bornAt: 0,
     });
   };
+  // Water bodies — atmospheric only (no collision), seeded clear of the Watcher's
+  // central spawn so the opening read is dry ground. Each place floods in its own.
+  const pools: Pool[] = [];
+  let pg = 0;
+  while (pools.length < level.theme.waterCount && pg++ < 600) {
+    const rx = 78 + Math.random() * 150;
+    const ry = rx * (0.55 + Math.random() * 0.5);
+    const x = clamp(40 + Math.random() * (w - 80), rx, w - rx);
+    const y = clamp(40 + Math.random() * (h - 80), ry, h - ry);
+    if ((x - w / 2) ** 2 + (y - h / 2) ** 2 < 220 ** 2) continue;
+    pools.push({ x, y, rx, ry, seed: Math.floor(Math.random() * 1000) });
+  }
   rifts.forEach((rift, ri) => {
     for (let j = 0; j < HORROR_PER_RIFT; j++) {
       // The 2nd body of a rift is a fast darter on the first `darterCount` rifts.
@@ -584,7 +642,7 @@ function buildArena(level: LevelDef): EldState {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     wards: scenery.filter((n) => n.kind === "ward"),
-    walls, paths,
+    walls, paths, pools,
     hero, sign, horrors,
     pulses: [], motes: [],
     elapsed: 0, banished: 0, hits: 0, total: horrors.length,
@@ -1087,6 +1145,13 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
     <filter id="bloom" x="-200%" y="-200%" width="500%" height="500%">
       <feGaussianBlur stdDeviation="11"/>
     </filter>
+    <filter id="waterRipple" x="-25%" y="-25%" width="150%" height="150%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.014 0.022" numOctaves="2" seed="11" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="30" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="hazeBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
     <radialGradient id="signGlow">
       <stop offset="0%" stop-color="#e6f6ff" stop-opacity="1"/>
       <stop offset="30%" stop-color="#7ad8ff" stop-opacity="0.5"/>
@@ -1144,12 +1209,41 @@ const HORROR_HUE: Record<HorrorKind, string> = {
 function render(s: EldState, layer: SVGGElement): void {
   layer.innerHTML = "";
 
-  // Ground — the place's floor (or solid gloom if the art isn't loaded).
+  // Ground — the place's floor, tinted to its theme so each threshold reads as its
+  // own world even with no art loaded; the shared ground.png washes over the tint.
+  const th = s.level.theme;
   const hasGround = sprites.has("ground");
-  layer.appendChild(el("rect", {
-    x: 0, y: 0, width: s.w, height: s.h,
-    fill: hasGround ? "url(#groundPat)" : "#070b10", opacity: hasGround ? 0.5 : 1,
-  }));
+  layer.appendChild(el("rect", { x: 0, y: 0, width: s.w, height: s.h, fill: th.ground }));
+  if (hasGround) {
+    layer.appendChild(el("rect", { x: 0, y: 0, width: s.w, height: s.h, fill: "url(#groundPat)", opacity: 0.34 }));
+  }
+
+  // Water — the place's signature element: drowned plazas, brackish tide-pools, a
+  // sour creek. Cosmetic (bodies wade through). Organic shorelines via turbulence,
+  // with a slow animated shimmer and drifting ripple rings keyed off elapsed time.
+  for (const p of s.pools) {
+    const g = el("g", { filter: "url(#waterRipple)" });
+    g.appendChild(el("ellipse", { cx: p.x, cy: p.y, rx: p.rx, ry: p.ry, fill: th.water, opacity: 0.92 }));
+    g.appendChild(el("ellipse", {
+      cx: p.x, cy: p.y, rx: p.rx, ry: p.ry,
+      fill: "none", stroke: th.waterEdge, "stroke-width": 3, opacity: 0.55,
+    }));
+    // Surface highlight — a soft offset disc that catches the abyssal light.
+    g.appendChild(el("ellipse", {
+      cx: p.x - p.rx * 0.16, cy: p.y - p.ry * 0.2, rx: p.rx * 0.5, ry: p.ry * 0.42,
+      fill: th.waterEdge, opacity: 0.12,
+    }));
+    layer.appendChild(g);
+    // Two expanding ripple rings, phased by the pool's seed (drawn crisp, unfiltered).
+    for (let i = 0; i < 2; i++) {
+      const ph = ((s.elapsed * 0.00018) + p.seed * 0.31 + i * 0.5) % 1;
+      layer.appendChild(el("ellipse", {
+        cx: p.x, cy: p.y, rx: p.rx * (0.25 + ph * 0.7), ry: p.ry * (0.25 + ph * 0.7),
+        fill: "none", stroke: th.waterEdge, "stroke-width": 1.4,
+        opacity: (1 - ph) * 0.3, "pointer-events": "none",
+      }));
+    }
+  }
 
   // Paths — old roads beneath the built world.
   for (const p of s.paths) {
@@ -1201,7 +1295,7 @@ function render(s: EldState, layer: SVGGElement): void {
     if (n.kind === "menhir") {
       layer.appendChild(el("rect", {
         x: n.x - 9, y: n.y - 20, width: 18, height: 40, rx: 5,
-        fill: "#2a3038", stroke: "#454f5a", "stroke-width": 1.5,
+        fill: th.stone, stroke: th.stoneEdge, "stroke-width": 1.5,
       }));
     } else if (n.kind === "ward") {
       const sealed = n.lit;
@@ -1218,7 +1312,7 @@ function render(s: EldState, layer: SVGGElement): void {
     } else {
       layer.appendChild(el("rect", {
         x: n.x - 13, y: n.y - 10, width: 26, height: 20, rx: 3,
-        fill: "#141c22", stroke: "#2a3a44", "stroke-width": 1.2, opacity: 0.85,
+        fill: th.stone, stroke: th.stoneEdge, "stroke-width": 1.2, opacity: 0.85,
       }));
     }
   }
@@ -1308,12 +1402,81 @@ function render(s: EldState, layer: SVGGElement): void {
     layer.appendChild(el("circle", { cx: h.x, cy: h.y - 4, r: 4, fill: "#1a2730" }));
   }
 
+  // Atmosphere — the place's haze and its drifting ambient motes (salt-rain over
+  // Innsmouth, spores over Dunwich, sea-fog ash over Kingsport, rising deep-bubbles
+  // in R'lyeh). Cosmetic, deterministic from elapsed, drawn over the world.
+  renderAtmosphere(s, layer);
+
   // Dread vignette — deepens as sanity falls (cosmetic; centred on the Watcher).
   if (h.sanity < PANIC_SANITY) {
     const k = 1 - h.sanity / PANIC_SANITY;
     layer.appendChild(el("circle", {
       cx: h.x, cy: h.y, r: Math.max(s.w, s.h),
       fill: "url(#dread)", opacity: 0.3 + 0.5 * k, "pointer-events": "none",
+    }));
+  }
+}
+
+// A cheap deterministic hash in [0,1) — lets the ambient layer scatter motes without
+// state (no per-particle objects to persist), reproducible frame to frame.
+function hash01(i: number): number {
+  const v = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+// The place's haze + drifting ambient motes. Pure cosmetic, read off s.elapsed so it
+// animates with the sim clock and stays deterministic (no allocation between frames).
+function renderAtmosphere(s: EldState, layer: SVGGElement): void {
+  const th = s.level.theme;
+  // Haze — a flat wash plus a few large, slow, blurred banks of fog drifting across.
+  if (th.hazeOpacity > 0) {
+    layer.appendChild(el("rect", {
+      x: 0, y: 0, width: s.w, height: s.h, fill: th.haze,
+      opacity: th.hazeOpacity * 0.6, "pointer-events": "none",
+    }));
+    for (let i = 0; i < 3; i++) {
+      const drift = (s.elapsed * 0.012 * (i % 2 ? 1 : -1) + i * 530) % (s.w + 400);
+      const cx = (i % 2 ? drift : s.w + 200 - drift) - 200;
+      layer.appendChild(el("ellipse", {
+        cx, cy: s.h * (0.2 + 0.3 * i), rx: 360, ry: 200,
+        fill: th.haze, opacity: th.hazeOpacity * 0.5,
+        filter: "url(#hazeBlur)", "pointer-events": "none",
+      }));
+    }
+  }
+  // Ambient motes — kind sets the motion: rain streaks fall slanted, ash drifts down,
+  // spores bob, bubbles rise. ~44 of them, scattered by hash, animated off elapsed.
+  if (th.particle === "none") return;
+  const N = 44;
+  const t = s.elapsed;
+  for (let i = 0; i < N; i++) {
+    const bx = hash01(i) * s.w;
+    const by = hash01(i + 99);
+    let x = bx, y = 0, op = 0.4, kind = th.particle;
+    if (kind === "rain") {
+      x = (bx + t * 0.05) % s.w;
+      y = (by * s.h + t * 0.95) % s.h;
+      layer.appendChild(el("line", {
+        x1: x, y1: y, x2: x - 4, y2: y + 16,
+        stroke: th.particleColor, "stroke-width": 1.4, opacity: 0.35, "pointer-events": "none",
+      }));
+      continue;
+    } else if (kind === "ash") {
+      x = bx + Math.sin(t * 0.0006 + i) * 26;
+      y = (by * s.h + t * 0.12) % s.h;
+      op = 0.3;
+    } else if (kind === "spore") {
+      x = bx + Math.sin(t * 0.0009 + i * 1.7) * 34;
+      y = (by * s.h + Math.cos(t * 0.0007 + i) * 22 + t * 0.03) % s.h;
+      op = 0.4;
+    } else { // bubble — rises
+      x = bx + Math.sin(t * 0.0011 + i * 2.1) * 16;
+      y = (by * s.h - t * 0.16 + s.h) % s.h;
+      op = 0.45;
+    }
+    const rr = 1.3 + hash01(i + 7) * 2.2;
+    layer.appendChild(el("circle", {
+      cx: x, cy: y, r: rr, fill: th.particleColor, opacity: op, "pointer-events": "none",
     }));
   }
 }
