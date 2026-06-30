@@ -1762,7 +1762,7 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
 }
 
 const SCENERY_SIZE: Record<NodeKind, number> = {
-  field: 40, stone: 48, cottage: 56, cairn: 44, moonwell: 60,
+  field: 40, stone: 48, cottage: 76, cairn: 44, moonwell: 60,
   pyre: 72, dolmen: 80, gibbet: 52, cart: 44,
   wisp: 44, marshfire: 60, bog: 60, bramble: 60, glade: 60,
   spring: 56, geyser: 56, gale: 56, wolfsbane: 52, hoard: 44, woods: 96,
@@ -1802,12 +1802,14 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
   const solidRing = () => layer.appendChild(el("circle", {
     cx: n.x, cy: n.y, r: R, fill: "none", stroke: "#2c2a22", "stroke-width": 1.4, opacity: 0.4,
   }));
-  // A single tree — a brown trunk and a layered green canopy — offset from the node
-  // centre, so a stand of woods can cluster several into a thicket.
+  // A single tree — a thick brown trunk and a layered, brightly-lit green canopy —
+  // offset from the node centre, so a stand of woods can cluster several into a thicket.
+  // Drawn big and high-contrast so the woods read clearly against the gloom.
   const tree = (dx: number, dy: number, cr: number) => {
-    layer.appendChild(el("rect", { x: n.x + dx - 1.8, y: n.y + dy, width: 3.6, height: cr, fill: "#2e2114", opacity: 0.95 }));
-    layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#16301a", opacity: 0.96 }));
-    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.28, cy: n.y + dy - cr * 0.28, r: cr * 0.55, fill: "#234a27", opacity: 0.92 }));
+    layer.appendChild(el("rect", { x: n.x + dx - 3, y: n.y + dy, width: 6, height: cr * 1.5, rx: 1.5, fill: "#3a2a18", opacity: 0.98 }));
+    layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#1d3f22", stroke: "#08160a", "stroke-width": 1.6, opacity: 0.98 }));
+    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.26, cy: n.y + dy - cr * 0.30, r: cr * 0.6, fill: "#347a3a", opacity: 0.96 }));
+    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.34, cy: n.y + dy - cr * 0.40, r: cr * 0.3, fill: "#5aac5e", opacity: 0.88 }));
   };
   const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
   switch (n.kind) {
@@ -1850,10 +1852,10 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
       return true;
     }
     case "woods": { // a stand of trees — concealing cover (hide + dull aggro)
-      aura(WOODS_AURA, "#2f5a34", 0.18, "5 12");
-      disc(WOODS_AURA, "#0b160c", 0.15); // forest shade pool out to the conceal radius
-      tree(-30, 8, 17); tree(26, 16, 19); tree(2, -26, 18); tree(-14, 36, 14); tree(36, -20, 15);
-      tree(-62, -10, 13); tree(60, 38, 14); tree(-44, 54, 12); tree(54, -48, 13); tree(8, 70, 12);
+      aura(WOODS_AURA, "#3a7040", 0.26, "5 12");
+      disc(WOODS_AURA, "#0b160c", 0.2); // forest shade pool out to the conceal radius
+      tree(-34, 10, 24); tree(30, 20, 27); tree(2, -30, 26); tree(-16, 42, 20); tree(42, -24, 21);
+      tree(-66, -12, 19); tree(64, 44, 20); tree(-48, 60, 18); tree(58, -52, 19); tree(10, 78, 18);
       return true;
     }
     default: return false;
@@ -1932,13 +1934,19 @@ function render(s: WwState, layer: SVGGElement): void {
         fill: "#3a3f48", stroke: "#565f6a", "stroke-width": 1.5,
       }));
     } else if (n.kind === "cottage") {
+      // Body and roof span the collision radius (≈30) so the cottage reads as big as it
+      // blocks; brighter timber + a lit window make it legible in the night gloom.
       layer.appendChild(el("rect", {
-        x: n.x - 18, y: n.y - 12, width: 36, height: 24, rx: 2,
-        fill: "#3a2c20", stroke: "#5a4632", "stroke-width": 1.5,
+        x: n.x - 26, y: n.y - 14, width: 52, height: 34, rx: 2,
+        fill: "#4a3829", stroke: "#7a5e42", "stroke-width": 2.5,
       }));
       layer.appendChild(el("path", {
-        d: `M${n.x - 22} ${n.y - 10}L${n.x} ${n.y - 26}L${n.x + 22} ${n.y - 10}Z`,
-        fill: "#4a3a28", stroke: "#5a4632", "stroke-width": 1.5,
+        d: `M${n.x - 32} ${n.y - 11}L${n.x} ${n.y - 38}L${n.x + 32} ${n.y - 11}Z`,
+        fill: "#5e4830", stroke: "#7a5e42", "stroke-width": 2.5,
+      }));
+      layer.appendChild(el("rect", {
+        x: n.x - 6, y: n.y - 4, width: 12, height: 15, rx: 1,
+        fill: "#ffcf7a", opacity: 0.9, filter: "url(#glow)",
       }));
     } else if (n.kind === "moonwell") {
       layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 16, fill: "#1a2438", stroke: "#7e98d0", "stroke-width": 2 }));
