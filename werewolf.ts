@@ -46,7 +46,8 @@ type NodeKind =
   | "geyser"    // a hot spring: erupts a scalding burst on its own cadence
   | "gale"      // a moor-wind: shoves the watch away (the hero, anchored, is unmoved)
   | "wolfsbane" // a patch of the bane-herb: bleeds the hero's fury while he stands in it
-  | "hoard";    // a barrow-hoard: first-footing it stokes the curse, once
+  | "hoard"     // a barrow-hoard: first-footing it stokes the curse, once
+  | "woods";    // a stand of trees: concealing cover — the wolf melts into it (hidden from the watch, dulled aggro)
 type Phase = "hunt" | "won" | "lost";
 
 // A foe lurks near its green until the wolf (or a marked cairn) draws it, then hunts.
@@ -416,6 +417,14 @@ const WOLFSBANE_DRAIN = 0.16;    // fury/sec bled while standing in it
 const HOARD_REACH = 30;          // hero centre within this (+the hero radius) cracks it
 const HOARD_FURY = 0.22;         // fury the curse surges when a hoard is cracked
 
+// Woods — a dense stand of trees, the forest the wolf was born to. Concealing cover
+// (the static cousin of mist, and the most thematic terrain of the hunt): a hero
+// under the boughs is HIDDEN from the watch's huntsmen (they lose the line and hold
+// fire) and the watch is slower to rouse (the same STEALTH_AGGRO_MUL that mist and
+// a man's shape earn). The tactical heart of the expanded maps — slip into the trees
+// to break a standoff or vanish from a swarm. Passable.
+const WOODS_AURA = 150;          // radius of a stand's concealing canopy
+
 // Cairns — marking one (with the maw, as a wolf) lights it: its aura GRANTS fury and
 // RENDS the host that strays in. A foe brushing a marked cairn CLEANSES it (dark
 // again, and a scar bars re-marking). All live-play, never persisted.
@@ -489,6 +498,7 @@ interface LevelDef {
   galeCount?: number;     // moor-winds — shove the watch away
   wolfsbaneCount?: number;// bane-patches — bleed the hero's fury
   hoardCount?: number;    // barrow-hoards — first-footing surges the curse
+  woodsCount?: number;    // stands of trees — concealing cover (hide + dull aggro), the static cousin of mist
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -501,7 +511,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 110, minDist: 72,
     stoneCount: 4, cottageCount: 7, cairnCount: 6, moonwellCount: 2,
     greenCount: 5, greenSpacing: 360,
-    wallCount: 7, pathCount: 6, mistCount: 3, sizeScale: 0.9,
+    wallCount: 7, pathCount: 6, mistCount: 3, woodsCount: 3, sizeScale: 0.9,
   },
   {
     id: "greymoor",
@@ -511,7 +521,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 122, minDist: 66,
     stoneCount: 8, cottageCount: 5, cairnCount: 7, moonwellCount: 2,
     greenCount: 7, greenSpacing: 320,
-    wallCount: 6, pathCount: 9, mistCount: 4, houndCount: 3, huntsmanCount: 2, sizeScale: 1.0,
+    wallCount: 6, pathCount: 9, mistCount: 4, woodsCount: 4, houndCount: 3, huntsmanCount: 2, sizeScale: 1.0,
   },
   {
     id: "hollowby",
@@ -521,7 +531,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 116, minDist: 70,
     stoneCount: 6, cottageCount: 10, cairnCount: 5, moonwellCount: 1,
     greenCount: 8, greenSpacing: 280,
-    wallCount: 12, pathCount: 5, mistCount: 2,
+    wallCount: 12, pathCount: 5, mistCount: 2, woodsCount: 2,
     houndCount: 3, knightCount: 2, huntsmanCount: 3, friarCount: 2, sizeScale: 1.1,
   },
   {
@@ -532,7 +542,7 @@ const LEVELS: LevelDef[] = [
     nodeCount: 104, minDist: 84,
     stoneCount: 10, cottageCount: 4, cairnCount: 4, moonwellCount: 3,
     greenCount: 9, greenSpacing: 300,
-    wallCount: 10, pathCount: 3, mistCount: 5,
+    wallCount: 10, pathCount: 3, mistCount: 5, woodsCount: 4,
     houndCount: 2, knightCount: 4, huntsmanCount: 4, friarCount: 2, sizeScale: 1.18,
   },
   // ---- The Outlands (the maps' expansion: four further hunts) ----
@@ -546,7 +556,7 @@ const LEVELS: LevelDef[] = [
     stoneCount: 4, cottageCount: 6, cairnCount: 6, moonwellCount: 2,
     greenCount: 6, greenSpacing: 330,
     wallCount: 6, pathCount: 6, mistCount: 3,
-    pyreCount: 3, marshfireCount: 4, brambleCount: 4, gibbetCount: 3, wispCount: 2,
+    pyreCount: 3, marshfireCount: 4, brambleCount: 4, gibbetCount: 3, wispCount: 2, woodsCount: 5,
     houndCount: 3, huntsmanCount: 2, sizeScale: 1.0,
   },
   {
@@ -557,7 +567,7 @@ const LEVELS: LevelDef[] = [
     stoneCount: 5, cottageCount: 4, cairnCount: 6, moonwellCount: 2,
     greenCount: 7, greenSpacing: 310,
     wallCount: 5, pathCount: 4, mistCount: 5,
-    bogCount: 5, wolfsbaneCount: 4, springCount: 3, wispCount: 3, dolmenCount: 3,
+    bogCount: 5, wolfsbaneCount: 4, springCount: 3, wispCount: 3, dolmenCount: 3, woodsCount: 3,
     houndCount: 2, huntsmanCount: 3, friarCount: 2, sizeScale: 1.08,
   },
   {
@@ -568,7 +578,7 @@ const LEVELS: LevelDef[] = [
     stoneCount: 6, cottageCount: 3, cairnCount: 5, moonwellCount: 2,
     greenCount: 8, greenSpacing: 295,
     wallCount: 4, pathCount: 6, mistCount: 3,
-    galeCount: 5, gladeCount: 4, geyserCount: 3, cartCount: 5, hoardCount: 3,
+    galeCount: 5, gladeCount: 4, geyserCount: 3, cartCount: 5, hoardCount: 3, woodsCount: 2,
     houndCount: 3, knightCount: 2, huntsmanCount: 2, sizeScale: 1.12,
   },
   {
@@ -580,7 +590,7 @@ const LEVELS: LevelDef[] = [
     greenCount: 9, greenSpacing: 280,
     wallCount: 8, pathCount: 5, mistCount: 4,
     pyreCount: 3, wispCount: 2, marshfireCount: 2, geyserCount: 3, galeCount: 2,
-    gladeCount: 3, springCount: 2, wolfsbaneCount: 2, dolmenCount: 2, hoardCount: 2,
+    gladeCount: 3, springCount: 2, wolfsbaneCount: 2, dolmenCount: 2, hoardCount: 2, woodsCount: 4,
     houndCount: 3, knightCount: 3, huntsmanCount: 4, friarCount: 3, sizeScale: 1.22,
   },
 ];
@@ -633,6 +643,7 @@ function generateWerewolf(
     ["glade", level.gladeCount ?? 0], ["spring", level.springCount ?? 0],
     ["geyser", level.geyserCount ?? 0], ["gale", level.galeCount ?? 0],
     ["wolfsbane", level.wolfsbaneCount ?? 0], ["hoard", level.hoardCount ?? 0],
+    ["woods", level.woodsCount ?? 0],
   ];
   for (const [kind, n] of extraKinds) take(n).forEach((node) => (node.kind = kind));
 
@@ -954,6 +965,13 @@ function inGlade(s: WwState, x: number, y: number): boolean {
   return inNodeAura(s, x, y, "glade", GLADE_AURA);
 }
 
+// Is the point under a stand of woods? Concealing cover (the static cousin of mist):
+// the wolf melts into the trees — hidden from the watch's huntsmen, and rousing the
+// watch from a shrunken aggro range (see stepFoes).
+function inWoods(s: WwState, x: number, y: number): boolean {
+  return inNodeAura(s, x, y, "woods", WOODS_AURA);
+}
+
 // The terrain speed multiplier for a body at a point: a bog slows EVERY body (hero
 // and watch); a bramble snares only the watch. Multiplicative, worst-case compounds;
 // 1 on open ground. Pure geometry, read in stepHunt (hero) and moveBody (foes).
@@ -1115,8 +1133,8 @@ function separate(s: WwState, e: Foe): { x: number; y: number } {
 function stepFoes(s: WwState, dt: number): void {
   const h = s.hero;
   const fewLeft = aliveFoes(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
-  // The watch is slower to rouse to a man, or to a beast lost in the fog.
-  const stealthy = h.form === "human" || inMist(s, h.x, h.y);
+  // The watch is slower to rouse to a man, or to a beast lost in the fog or the trees.
+  const stealthy = h.form === "human" || inMist(s, h.x, h.y) || inWoods(s, h.x, h.y);
   const aggro = FOE_AGGRO * (stealthy ? STEALTH_AGGRO_MUL : 1);
   for (const e of s.foes) {
     if (e.dead) continue;
@@ -1152,7 +1170,8 @@ function stepFoes(s: WwState, dt: number): void {
       else if (dh > HUNTSMAN_RANGE) { dirx = dxh / dh; diry = dyh / dh; }   // close in
       moveBody(s, e, dirx * speed + sep.x, diry * speed + sep.y, dt, FOE_RADIUS);
       if (e.shootCd > 0) e.shootCd -= dt;
-      const canSee = dh <= HUNTSMAN_RANGE && !wallBetween(s, e.x, e.y, h.x, h.y) && !inMist(s, h.x, h.y);
+      const canSee = dh <= HUNTSMAN_RANGE && !wallBetween(s, e.x, e.y, h.x, h.y)
+        && !inMist(s, h.x, h.y) && !inWoods(s, h.x, h.y);
       if (canSee && e.shootCd <= 0) {
         e.shootCd = HUNTSMAN_SHOOT_CD;
         e.aiming = true;
@@ -1547,7 +1566,7 @@ const SCENERY_SIZE: Record<NodeKind, number> = {
   field: 40, stone: 48, cottage: 56, cairn: 44, moonwell: 60,
   pyre: 72, dolmen: 80, gibbet: 52, cart: 44,
   wisp: 44, marshfire: 60, bog: 60, bramble: 60, glade: 60,
-  spring: 56, geyser: 56, gale: 56, wolfsbane: 52, hoard: 44,
+  spring: 56, geyser: 56, gale: 56, wolfsbane: 52, hoard: 44, woods: 96,
 };
 
 // Resolve a node's sprite name from its live state.
@@ -1578,17 +1597,35 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
     }));
   const disc = (r: number, fill: string, op = 1) =>
     layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill, opacity: op }));
+  // A solid's drawn body matches its collision radius (OBSTACLE_RADIUS), so what you
+  // see is what blocks you — the size audit's rule for every body-blocker.
+  const R = OBSTACLE_RADIUS[n.kind] || 0;
+  const solidRing = () => layer.appendChild(el("circle", {
+    cx: n.x, cy: n.y, r: R, fill: "none", stroke: "#2c2a22", "stroke-width": 1.4, opacity: 0.4,
+  }));
+  // A single tree — a brown trunk and a layered green canopy — offset from the node
+  // centre, so a stand of woods can cluster several into a thicket.
+  const tree = (dx: number, dy: number, cr: number) => {
+    layer.appendChild(el("rect", { x: n.x + dx - 1.8, y: n.y + dy, width: 3.6, height: cr, fill: "#2e2114", opacity: 0.95 }));
+    layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#16301a", opacity: 0.96 }));
+    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.28, cy: n.y + dy - cr * 0.28, r: cr * 0.55, fill: "#234a27", opacity: 0.92 }));
+  };
   const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
   switch (n.kind) {
-    case "pyre": { // solid pyre + permanent burn aura
+    case "pyre": { // solid pyre + permanent burn aura (body fills its collision)
       aura(PYRE_AURA * pulse, "#ff9a3a", 0.22, "2 8");
       disc(PYRE_AURA, "#3a1606", 0.1);
-      disc(15, "#3a1606"); disc(10, "#ff6a1e", 0.95); disc(5, "#ffe6a0");
-      return true;
+      disc(R * 0.72, "#3a1606"); disc(R * 0.5, "#ff6a1e", 0.95); disc(R * 0.28, "#ffe6a0");
+      solidRing(); return true;
     }
-    case "dolmen": { disc(24, "#2c303a"); disc(16, "#3a3f48", 0.95); disc(8, "#565f6a", 0.9); return true; }
-    case "gibbet": { disc(13, "#241c14"); disc(8, "#3a2c20", 0.9); return true; }
-    case "cart": { disc(12, "#2a2118"); disc(7, "#3a2c20", 0.9); return true; }
+    case "dolmen": { disc(R, "#2c303a"); disc(R * 0.62, "#3a3f48", 0.95); disc(R * 0.3, "#565f6a", 0.9); solidRing(); return true; }
+    case "gibbet": { // a gallows-post: an upright and a crossarm within the collision
+      disc(R, "#241c14", 0.5);
+      layer.appendChild(el("rect", { x: n.x - 2, y: n.y - R, width: 4, height: R * 2, fill: "#3a2c20" }));
+      layer.appendChild(el("rect", { x: n.x - R * 0.7, y: n.y - R, width: R * 0.9, height: 4, fill: "#3a2c20" }));
+      solidRing(); return true;
+    }
+    case "cart": { disc(R, "#2a2118"); disc(R * 0.6, "#3a2c20", 0.9); solidRing(); return true; }
     case "wisp": { // passable corpse-candle emitter
       aura(WISP_AURA * pulse, "#9fe0c0", 0.2, "2 8");
       disc(7, "#13261c"); disc(4, "#bfffe0", 0.95);
@@ -1611,6 +1648,13 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
       const op = n.spent ? 0.3 : 1;
       disc(11, "#2a2208", op); disc(7, n.spent ? "#5a4a20" : "#ffcf5a", op);
       if (!n.spent) disc(3, "#fff4c8");
+      return true;
+    }
+    case "woods": { // a stand of trees — concealing cover (hide + dull aggro)
+      aura(WOODS_AURA, "#2f5a34", 0.18, "5 12");
+      disc(WOODS_AURA, "#0b160c", 0.15); // forest shade pool out to the conceal radius
+      tree(-30, 8, 17); tree(26, 16, 19); tree(2, -26, 18); tree(-14, 36, 14); tree(36, -20, 15);
+      tree(-62, -10, 13); tree(60, 38, 14); tree(-44, 54, 12); tree(54, -48, 13); tree(8, 70, 12);
       return true;
     }
     default: return false;
@@ -2445,7 +2489,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
   testGlobal.__ww = {
     generateWerewolf, buildArena, freshHunt, stepHunt,
     stepMaw, firePulse, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
-    stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, terrainSpeedMul,
+    stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, inWoods, terrainSpeedMul,
     slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,
@@ -2477,7 +2521,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       BOG_AURA, BOG_SLOW, BRAMBLE_AURA, BRAMBLE_SLOW, GLADE_AURA,
       SPRING_AURA, SPRING_HEAL_DPS, SPRING_HEAL_CAP,
       GEYSER_CD, GEYSER_RADIUS, GEYSER_DMG, GALE_AURA, GALE_PUSH,
-      WOLFSBANE_AURA, WOLFSBANE_DRAIN, HOARD_REACH, HOARD_FURY,
+      WOLFSBANE_AURA, WOLFSBANE_DRAIN, HOARD_REACH, HOARD_FURY, WOODS_AURA,
       SCORE_PER_KILL, SCORE_SURVIVAL_MAX, SCORE_UNTOUCHED,
       MOONSTONE_SCORE_DIV, MOONSTONE_PER_KILL,
     },

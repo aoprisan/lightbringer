@@ -169,7 +169,7 @@ ok(wellFury > sCtl.hero.fury + 0.05, `a moonwell stokes fury at noon (${sCtl.her
 //    strike sets i-frames, counts the hit, knocks back. Aggro is wider for the beast.
 const s4 = ww.buildArena(ww.levelById(id));
 stowAll(s4);
-s4.mists = []; // isolate aggro: a drifting bank over the spawn would read the wolf as hidden
+s4.mists = []; s4.scenery = []; // isolate aggro: mist OR a woods node over the spawn would read the wolf as hidden
 beast(s4); // a wolf draws full aggro
 const eNear = s4.foes[0], eFar = s4.foes[1];
 park(eNear, s4.hero.x + K.FOE_AGGRO - 40, s4.hero.y);
@@ -208,7 +208,7 @@ ok(s5.hero.hp === hp2, "i-frames spare the hero an immediate second strike");
 //     silver bolts with line of sight; a wall stops the bolt; MIST hides the hero.
 const sH = ww.buildArena(ww.levelById("greymoor"));
 ok(sH.foes.some((e) => e.variant === "huntsman"), "greymoor musters a huntsman");
-stowAll(sH); sH.solids = []; sH.walls = []; sH.cairns = []; sH.mists = [];
+stowAll(sH); sH.solids = []; sH.walls = []; sH.cairns = []; sH.mists = []; sH.scenery = []; // woods would hide the hero too
 const hunter = sH.foes.find((e) => e.variant === "huntsman") ?? sH.foes[0];
 hunter.variant = "huntsman"; wake(hunter); hunter.x = 800; hunter.y = 800; hunter.shootCd = 0;
 sH.hero.x = 800 + (K.HUNTSMAN_RANGE - 40); sH.hero.y = 800;
@@ -690,6 +690,32 @@ let ntThrew = false;
 try { ww.render(ww.buildArena(ww.levelById("direhollow")), makeNode()); }
 catch (err) { ntThrew = true; console.error(err); }
 ok(!ntThrew, "render draws the new terrain/obstacles headlessly with zero sprites");
+
+// N11. Woods — concealing cover (the static cousin of mist): the wolf melts into
+//      the trees — huntsmen hold fire, and the watch is slower to rouse.
+const ntWd = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntWd); ntWd.solids = []; ntWd.walls = []; ntWd.paths = []; ntWd.mists = [];
+ntWd.scenery = [{ x: ntWd.hero.x, y: ntWd.hero.y, kind: "woods" }];
+beast(ntWd); // a wolf is normally NOT stealthy — the woods hide it anyway
+ok(ww.inWoods(ntWd, ntWd.hero.x, ntWd.hero.y), "inWoods reports the canopy");
+ok(!ww.inWoods(ntWd, ntWd.hero.x + K.WOODS_AURA + 40, ntWd.hero.y), "a stand of woods is finite");
+const wdH = ntWd.foes[0];
+wdH.variant = "huntsman"; wdH.dead = false; wdH.shootCd = 0; wdH.hp = Math.round(K.FOE_HP * K.HUNTSMAN_HP_MUL);
+wdH.x = ntWd.hero.x + (K.HUNTSMAN_RANGE - 40); wdH.y = ntWd.hero.y; wdH.state = "hunt";
+wdH.homeX = wdH.x; wdH.homeY = wdH.y;
+const wdHp0 = ntWd.hero.hp;
+run(ntWd, K.HUNTSMAN_SHOOT_CD * 2 + 200, still);
+ok(ntWd.bolts.length === 0 && ntWd.hero.hp === wdHp0, "a huntsman holds fire while the wolf hides in the woods");
+const ntWd2 = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntWd2); ntWd2.mists = [];
+beast(ntWd2); // full beast aggro
+const wdW = ntWd2.foes[0];
+park(wdW, ntWd2.hero.x + K.FOE_AGGRO * 0.8, ntWd2.hero.y); // inside full aggro, outside the woods-dulled one
+ntWd2.scenery = [{ x: ntWd2.hero.x, y: ntWd2.hero.y, kind: "woods" }];
+ww.stepFoes(ntWd2, 16);
+ok(wdW.state === "lurk", "the woods dull aggro — a foe that would rouse stays lurking");
+ok(ww.buildArena(ww.levelById("ashthorn")).scenery.some((n) => n.kind === "woods"),
+  "Ashthorn is forested (woods seed as tactical cover)");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

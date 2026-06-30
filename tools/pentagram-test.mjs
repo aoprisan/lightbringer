@@ -142,6 +142,7 @@ ok(d1 < d0, `a roused shade closes on the hero (${d0 | 0} -> ${d1 | 0})`);
 
 // 8b. Aggro is proximity-driven and sticky.
 const sa = pg.buildArena(pg.levelById("old-city"));
+sa.scenery = []; sa.mists = []; // isolate aggro: a grove/mist over the spawn would dull it
 for (const e of sa.shades) park(e, 5, 5);
 const near = sa.shades[0], outside = sa.shades[1];
 park(near, sa.hero.x + K.AGGRO_RADIUS - 40, sa.hero.y);    // just inside aggro
@@ -858,6 +859,7 @@ ok(!spr2.scenery[0].spent, "a press needs a FULL inscription to fire");
 //     hero, and those bolts are stopped by fences (cover). A moving hero dodges.
 const sspit = pg.buildArena(pg.levelById("old-city"));
 sspit.fences = []; sspit.solids = []; sspit.veils = []; sspit.pathways = [];
+sspit.scenery = []; sspit.mists = []; // a grove/mist over the hero would make the spitter hold fire
 // One spitter due east of the hero, just inside its lob range; park the rest away.
 const spit = sspit.shades[0];
 spit.spitter = true; spit.elite = false; spit.shielded = false; spit.darter = false;
@@ -1070,6 +1072,7 @@ ok(!pg.inConsecration(scrF, 100, 100), "expired warded ground no longer protects
 const sco = pg.buildArena(pg.levelById("old-city"));
 const clink = sco.conduitLinks[0];
 ok(clink && clink.dwellings.length >= 2, "a city fuses at least one constellation");
+sco.conduitLinks = [clink]; // isolate this fuse: overlapping links could complete a *different* constellation
 for (const d of clink.dwellings) { d.lit = false; d.awoke = false; d.veil = 0; }
 sco.litCount = 0; sco.constellations = 0; sco.hero.hp = 1; // dark start, room to heal
 for (let i = 0; i < clink.dwellings.length - 1; i++) pg.kindleDwelling(sco, clink.dwellings[i], 0);
@@ -1367,6 +1370,33 @@ ok(sca.penta.charge >= 1 - 1e-6 && sca.surgeUntil > sca.elapsed, "a cracked cach
 sca.penta.charge = 0;
 pg.stepCaches(sca);
 ok(sca.penta.charge === 0, "a spent cache grants nothing more");
+
+// 52. Groves — concealing cover (the static cousin of mist): a hero under the
+//     canopy is hidden from the ranged watch (spitters hold fire) and dulls aggro.
+const sgr = pg.buildArena(pg.levelById("old-city"));
+for (const e of sgr.shades) park(e, 5, 5);
+sgr.scenery = [{ x: sgr.hero.x, y: sgr.hero.y, kind: "grove" }];
+sgr.solids = []; sgr.fences = []; sgr.pathways = []; sgr.veils = []; sgr.mists = [];
+ok(pg.inGrove(sgr, sgr.hero.x, sgr.hero.y), "inGrove reports the canopy");
+ok(!pg.inGrove(sgr, sgr.hero.x + K.GROVE_AURA + 40, sgr.hero.y), "a grove's canopy is finite");
+const grSpit = sgr.shades[0];
+grSpit.spitter = true; grSpit.elite = false; grSpit.shielded = false; grSpit.darter = false; grSpit.healer = false;
+grSpit.cooldown = 0; grSpit.hp = K.SPITTER_HP; grSpit.maxHp = K.SPITTER_HP;
+grSpit.x = sgr.hero.x + K.SPITTER_STANDOFF; grSpit.y = sgr.hero.y; wake(grSpit);
+grSpit.homeX = grSpit.x; grSpit.homeY = grSpit.y;
+const grHp0 = sgr.hero.hp;
+run(sgr, K.SPITTER_COOLDOWN_MS * 2 + 200, still);
+ok(sgr.hero.hp === grHp0, "a spitter holds fire while the hero hides in a grove");
+const sgr2 = pg.buildArena(pg.levelById("old-city"));
+for (const e of sgr2.shades) park(e, 5, 5);
+const grW = sgr2.shades[0];
+park(grW, sgr2.hero.x + K.AGGRO_RADIUS * 0.7, sgr2.hero.y); // inside full aggro, outside the grove-dulled one
+sgr2.scenery = [{ x: sgr2.hero.x, y: sgr2.hero.y, kind: "grove" }]; sgr2.mists = [];
+for (let t = 0; t < 400; t += 16) pg.stepShades(sgr2, 16);
+ok(grW.state === "wander", "a grove dulls aggro — a shade that would rouse stays lurking");
+ok(K.GROVE_AGGRO_MUL < 1, "a grove's aggro dulling is real (mul < 1)");
+ok(pg.buildArena(pg.levelById("emberwood")).scenery.some((n) => n.kind === "grove"),
+  "the Emberwood is wooded (groves seed as tactical cover)");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

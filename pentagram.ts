@@ -37,7 +37,8 @@ type NodeKind =
   | "cache"     // a relic cache: first-footing it grants an ember surge, once
   | "spring"    // a healing spring: an aura that slowly mends the hero
   | "vent"      // an ember vent: erupts a damaging burst on its own cadence
-  | "gust";     // a wind-vent: an aura that shoves shades away (not the hero)
+  | "gust"      // a wind-vent: an aura that shoves shades away (not the hero)
+  | "grove";    // a copse of trees: concealing cover — hides the hero from the ranged watch and dulls aggro
 // "boss" is the turn-based finger-traced duel that follows clearing the host.
 type Phase = "fight" | "boss" | "won" | "lost";
 
@@ -519,6 +520,14 @@ const MIST_RADIUS = 150;         // a fog bank's reach
 const MIST_DRIFT = 20;           // units/s a bank wanders
 const MIST_AGGRO_MUL = 0.45;     // a hero in mist is roused-at from only this fraction of AGGRO_RADIUS
 
+// Groves — a copse of trees, the cover the cursed city kept. Concealing terrain
+// (the static cousin of mist): a hero standing in a grove's canopy is HIDDEN from
+// the ranged watch (spitters hold fire — no line of sight through the boughs) and
+// rouses wandering shades from a shrunken aggro range. The tactical heart of the
+// expanded maps — duck into the trees to break a standoff or slip a swarm. Passable.
+const GROVE_AURA = 150;          // radius of a grove's concealing canopy
+const GROVE_AGGRO_MUL = 0.5;     // a hero under the boughs is roused-at from only this fraction of AGGRO_RADIUS
+
 // Scoring — a clear banks a score (and embers, the unlock currency). Tuned for
 // relationships, not magnitudes: faster pays, a relit/unscathed city pays, and a
 // harder city multiplies it all. These are the design surface for the economy.
@@ -678,6 +687,7 @@ interface LevelDef {
   ventCount?: number;    // ember vents — erupt a burst on a cadence
   gustCount?: number;    // wind-vents — shove shades away
   mistCount?: number;    // drifting fog banks — hide the hero from the ranged watch
+  groveCount?: number;   // copses of trees — concealing cover (hide + dull aggro), the static cousin of mist
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
   frescoes?: number[]; // FRESCO indices this city can surface — its signature
                        // subset. The union across LEVELS must cover every index
@@ -718,7 +728,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.16, pressCount: 4, shrineCount: 4,
     fontCount: 1, // a single lightwell teaches the burn-on-the-run early — still fair
     keeperCount: 6, keeperSpacing: 360,
-    fenceCount: 3, pathwayCount: 0, sizeScale: 0.9, // kept fair: no veils/elites; map has no interior walls
+    fenceCount: 3, pathwayCount: 0, groveCount: 1, sizeScale: 0.9, // kept fair: no veils/elites; map has no interior walls
     frescoes: [0, 6, 8, 15], // the foundational creed
     // The Old City map (art/city-old.jpg) reads as a symmetric four-quarter
     // town: a central bonfire — the hero's spawn — at the crossing of the radial
@@ -775,7 +785,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.26, pressCount: 6, shrineCount: 3,
     fontCount: 2, // dry-tinder city of motion — lightwells reward the constant kite
     keeperCount: 7, keeperSpacing: 320,
-    fenceCount: 4, pathwayCount: 0, veilCount: 2, eliteCount: 2, darterCount: 3, sizeScale: 1.0,
+    fenceCount: 4, pathwayCount: 0, veilCount: 2, eliteCount: 2, darterCount: 3, groveCount: 2, sizeScale: 1.0,
     frescoes: [4, 9, 11], // fire and the spoken word
     // The Ashfold map (art/city-ashfold.jpg) reads as a WEB, not a star: a ring
     // of circular plazas ("running lanes" linking them) around a scorched centre.
@@ -825,7 +835,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.10, pressCount: 2, shrineCount: 6,
     obeliskCount: 1, // a lone ward-stone on the sparse, patient map — a deliberate detour
     keeperCount: 4, keeperSpacing: 420,
-    fenceCount: 3, pathwayCount: 0, veilCount: 4, eliteCount: 1, spitterCount: 2, sizeScale: 1.15,
+    fenceCount: 3, pathwayCount: 0, veilCount: 4, eliteCount: 1, spitterCount: 2, groveCount: 2, sizeScale: 1.15,
     frescoes: [1, 3, 10], // mercy, the veil, the patient morning
     districts: [
       { name: "Tidewall",          fx: 0.42, fy: 0.15, weight: 1.0 },
@@ -865,7 +875,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.14, pressCount: 3, shrineCount: 8,
     fontCount: 1, obeliskCount: 2, // ward-stones harden the packed watch; one well to keep the flame moving
     keeperCount: 9, keeperSpacing: 270,
-    fenceCount: 12, pathwayCount: 6, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, sizeScale: 1.0,
+    fenceCount: 12, pathwayCount: 6, veilCount: 2, eliteCount: 3, darterCount: 4, spitterCount: 2, groveCount: 3, sizeScale: 1.0,
     frescoes: [7, 13, 14], // seeing clearly, scratching the whitewash
     districts: [
       { name: "The Kilns",        fx: 0.22, fy: 0.20, weight: 1.0 },
@@ -896,7 +906,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.08, pressCount: 3, shrineCount: 4,
     fontCount: 1, obeliskCount: 2, // the faithful keep the watch warded; one well is the only mercy
     keeperCount: 11, keeperSpacing: 250,
-    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, sizeScale: 1.1,
+    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 3, darterCount: 3, groveCount: 3, sizeScale: 1.1,
     frescoes: [2, 5, 12, 16], // the faithful's quarter
     districts: [
       { name: "The Cloisters",  fx: 0.25, fy: 0.16, weight: 1.0 },
@@ -939,7 +949,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.20, pressCount: 5, shrineCount: 3,
     fontCount: 7, // its signature: lightwells you inscribe beside while moving
     keeperCount: 8, keeperSpacing: 300,
-    fenceCount: 5, pathwayCount: 0, veilCount: 2, darterCount: 4, healerCount: 3, sizeScale: 1.0,
+    fenceCount: 5, pathwayCount: 0, veilCount: 2, darterCount: 4, healerCount: 3, groveCount: 2, sizeScale: 1.0,
     frescoes: [17, 18, 19], // the wells, the wellspring, the mould
     districts: [
       { name: "The Upper Moulds", fx: 0.22, fy: 0.16, weight: 1.0 },
@@ -985,7 +995,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.10, pressCount: 3, shrineCount: 5,
     obeliskCount: 5, // its signature: ward-obelisks that shield the watch until cracked
     keeperCount: 11, keeperSpacing: 255,
-    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 2, healerCount: 4, sizeScale: 1.15,
+    fenceCount: 6, pathwayCount: 0, veilCount: 3, eliteCount: 4, spitterCount: 2, healerCount: 4, groveCount: 3, sizeScale: 1.15,
     frescoes: [20, 21, 22], // the ward, the acolyte, the cracking
     districts: [ // the quincunx; the centre court sits just off the heart (hero spawn)
       { name: "The North Ravelin", fx: 0.28, fy: 0.24, weight: 1.0 },
@@ -1035,7 +1045,7 @@ const LEVELS: LevelDef[] = [
     // its signature cinder-ground and thickets thick among barrow-mounds and bonfires.
     nodeCount: 170, minDist: 52, plazaRadius: 110, districtRadius: 300,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 2,
-    cinderCount: 5, thicketCount: 5, bonfireCount: 3, barrowCount: 4, ventCount: 2,
+    cinderCount: 5, thicketCount: 5, bonfireCount: 3, barrowCount: 4, ventCount: 2, groveCount: 5,
     keeperCount: 8, keeperSpacing: 320,
     fenceCount: 4, pathwayCount: 4, veilCount: 2, darterCount: 4, sizeScale: 1.05,
   },
@@ -1053,7 +1063,7 @@ const LEVELS: LevelDef[] = [
     // dot it. Sparse and patient, with the ranged watch the mist is the answer to.
     nodeCount: 180, minDist: 48, plazaRadius: 104, districtRadius: 300,
     conduitFrac: 0.10, pressCount: 2, shrineCount: 3,
-    mireCount: 5, mistCount: 5, springCount: 3, statueCount: 4, lanternCount: 3,
+    mireCount: 5, mistCount: 5, springCount: 3, statueCount: 4, lanternCount: 3, groveCount: 3,
     keeperCount: 9, keeperSpacing: 300,
     fenceCount: 4, pathwayCount: 3, veilCount: 2, spitterCount: 4, healerCount: 2, sizeScale: 1.1,
   },
@@ -1071,7 +1081,7 @@ const LEVELS: LevelDef[] = [
     // vents and caches scattered. Open ground rewards the burn-on-the-run hallows.
     nodeCount: 175, minDist: 50, plazaRadius: 106, districtRadius: 300,
     conduitFrac: 0.08, pressCount: 3, shrineCount: 2,
-    gustCount: 5, hallowCount: 4, pillarCount: 6, ventCount: 3, cacheCount: 3, lanternCount: 2,
+    gustCount: 5, hallowCount: 4, pillarCount: 6, ventCount: 3, cacheCount: 3, lanternCount: 2, groveCount: 2,
     keeperCount: 10, keeperSpacing: 290,
     fenceCount: 3, pathwayCount: 5, veilCount: 3, eliteCount: 3, darterCount: 3, sizeScale: 1.15,
   },
@@ -1093,7 +1103,7 @@ const LEVELS: LevelDef[] = [
     conduitFrac: 0.10, pressCount: 3, shrineCount: 3,
     obeliskCount: 3, fontCount: 2,
     bonfireCount: 3, lanternCount: 3, hallowCount: 3, springCount: 2,
-    cinderCount: 3, ventCount: 3, gustCount: 2, statueCount: 3, mistCount: 2,
+    cinderCount: 3, ventCount: 3, gustCount: 2, statueCount: 3, mistCount: 2, groveCount: 3,
     keeperCount: 11, keeperSpacing: 250,
     fenceCount: 6, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, healerCount: 3, darterCount: 2, sizeScale: 1.2,
   },
@@ -1275,7 +1285,7 @@ function generateCity(
     ["thicket", level.thicketCount ?? 0], ["hallow", level.hallowCount ?? 0],
     ["lantern", level.lanternCount ?? 0], ["cache", level.cacheCount ?? 0],
     ["spring", level.springCount ?? 0], ["vent", level.ventCount ?? 0],
-    ["gust", level.gustCount ?? 0],
+    ["gust", level.gustCount ?? 0], ["grove", level.groveCount ?? 0],
   ];
   for (const [kind, n] of extraKinds) {
     if (n > 0) shuffled.slice(cut, cut + n).forEach((node) => (node.kind = kind));
@@ -1694,6 +1704,12 @@ function inMist(s: PgState, x: number, y: number): boolean {
   return s.mists.some((m) => (x - m.x) ** 2 + (y - m.y) ** 2 <= m.r ** 2);
 }
 
+// Is the point under a grove's canopy? Concealing cover, the static cousin of mist:
+// a hero here is hidden from the ranged watch and dulls the host's aggro.
+function inGrove(s: PgState, x: number, y: number): boolean {
+  return inNodeAura(s, x, y, "grove", GROVE_AURA);
+}
+
 // The terrain speed multiplier for a body at a point: a mire bogs EVERY body
 // (hero and shades); a thicket snares only the shades. Multiplicative, so the
 // worst of overlapping fields compounds. 1 on open ground. Pure geometry.
@@ -1947,10 +1963,16 @@ function stepCaches(s: PgState): void {
 function stepShades(s: PgState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveShades(s) <= s.total * CLEANUP_AGGRO_FRAC;
-  // A hero standing in mist is harder to find: wandering shades rouse from a
-  // shrunken aggro range, and the ranged watch holds fire (checked per-spitter).
-  const heroHidden = inMist(s, h.x, h.y);
-  const aggro2 = (AGGRO_RADIUS * (heroHidden ? MIST_AGGRO_MUL : 1)) ** 2;
+  // A hero in concealing cover — drifting mist OR a grove's canopy — is harder to
+  // find: wandering shades rouse from a shrunken aggro range (the most concealing
+  // cover wins), and the ranged watch holds fire (checked per-spitter).
+  const inMistNow = inMist(s, h.x, h.y);
+  const inGroveNow = inGrove(s, h.x, h.y);
+  const heroHidden = inMistNow || inGroveNow;
+  let aggroMul = 1;
+  if (inMistNow) aggroMul = Math.min(aggroMul, MIST_AGGRO_MUL);
+  if (inGroveNow) aggroMul = Math.min(aggroMul, GROVE_AGGRO_MUL);
+  const aggro2 = (AGGRO_RADIUS * aggroMul) ** 2;
   for (const e of s.shades) {
     if (e.dead) continue;
 
@@ -2971,12 +2993,13 @@ const SCENERY_SPRITE: Record<NodeKind, string> = {
   bonfire: "bonfire", pillar: "pillar", statue: "statue", barrow: "barrow",
   cinder: "cinder", mire: "mire", thicket: "thicket", hallow: "hallow",
   lantern: "lantern", cache: "cache", spring: "spring", vent: "vent", gust: "gust",
+  grove: "grove",
 };
 const SCENERY_SIZE: Record<NodeKind, number> = {
   dwelling: 64, conduit: 56, press: 78, shrine: 70, keeper: 0, font: 68, obelisk: 76,
   bonfire: 72, pillar: 44, statue: 60, barrow: 80,
   cinder: 60, mire: 60, thicket: 60, hallow: 60,
-  lantern: 48, cache: 44, spring: 56, vent: 56, gust: 56,
+  lantern: 48, cache: 44, spring: 56, vent: 56, gust: 56, grove: 96,
 };
 
 // Resolve a node's sprite name from its live state: a dwelling shows its dark/
@@ -3192,21 +3215,35 @@ function renderNewTerrain(s: PgState, n: ArenaNode, layer: SVGGElement): boolean
     }));
   const disc = (r: number, fill: string, op = 1) =>
     layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill, opacity: op }));
+  // A solid's drawn body matches its collision radius (OBSTACLE_RADIUS), so what you
+  // see is what blocks you — the size audit's rule for every body-blocker.
+  const R = OBSTACLE_RADIUS[n.kind] || 0;
   const solidRing = () => layer.appendChild(el("circle", {
-    cx: n.x, cy: n.y, r: OBSTACLE_RADIUS[n.kind] || 0, fill: "none",
+    cx: n.x, cy: n.y, r: R, fill: "none",
     stroke: "#3a3050", "stroke-width": 1.5, opacity: 0.4,
   }));
+  // A single tree — a brown trunk and a layered green canopy — offset from the node
+  // centre, so a grove can cluster several into a copse.
+  const tree = (dx: number, dy: number, cr: number) => {
+    layer.appendChild(el("rect", { x: n.x + dx - 1.8, y: n.y + dy, width: 3.6, height: cr, fill: "#3a2a18", opacity: 0.95 }));
+    layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#1f3a22", opacity: 0.96 }));
+    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.28, cy: n.y + dy - cr * 0.28, r: cr * 0.55, fill: "#2c5230", opacity: 0.92 }));
+  };
   const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
   switch (n.kind) {
-    case "bonfire": { // solid pyre + permanent burn aura
+    case "bonfire": { // solid pyre + permanent burn aura (body fills its collision)
       aura(BONFIRE_AURA * pulse, "#ffb24a", 0.22, "2 8");
       disc(BONFIRE_AURA, "url(#haloAwake)", 0.1);
-      disc(16, "#3a1606"); disc(11, "#ff7a1e", 0.95); disc(6, "#ffe6a0");
+      disc(R * 0.72, "#3a1606"); disc(R * 0.5, "#ff7a1e", 0.95); disc(R * 0.28, "#ffe6a0");
       solidRing(); return true;
     }
-    case "pillar": { disc(12, "#2a2740"); disc(8, "#454063", 0.9); solidRing(); return true; }
-    case "statue": { disc(16, "#23263a"); disc(11, "#3c4258", 0.9); solidRing(); return true; }
-    case "barrow": { disc(24, "#1c160f"); disc(16, "#2e2417", 0.95); disc(8, "#3d3120", 0.9); solidRing(); return true; }
+    case "pillar": { disc(R, "#2a2740"); disc(R * 0.6, "#454063", 0.9); solidRing(); return true; }
+    case "statue": { // a plinth-disc, a torso, and a head, all within the collision
+      disc(R, "#23263a"); disc(R * 0.62, "#3c4258", 0.92);
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y - R * 0.7, r: R * 0.3, fill: "#3c4258", opacity: 0.92 }));
+      solidRing(); return true;
+    }
+    case "barrow": { disc(R, "#1c160f"); disc(R * 0.66, "#2e2417", 0.95); disc(R * 0.33, "#3d3120", 0.9); solidRing(); return true; }
     case "cinder": { // burning ground — scorches shades
       aura(CINDER_AURA, "#ff7a2e", 0.22, "3 7");
       disc(CINDER_AURA, "#3a1404", 0.12);
@@ -3248,6 +3285,14 @@ function renderNewTerrain(s: PgState, n: ArenaNode, layer: SVGGElement): boolean
       aura(GUST_AURA * pulse, "#bcd6ff", 0.2, "6 10");
       aura(GUST_AURA * 0.6, "#bcd6ff", 0.14, "6 10");
       disc(7, "#2a3242", 0.9); return true;
+    }
+    case "grove": { // a copse of trees — concealing cover (hide + dull aggro)
+      aura(GROVE_AURA, "#3a6a3e", 0.18, "5 12");
+      disc(GROVE_AURA, "#0e1a0e", 0.14); // soft shade pool out to the conceal radius
+      // a stand of trees filling the copse (fixed offsets so it never jitters)
+      tree(-30, 8, 17); tree(26, 16, 19); tree(2, -26, 18); tree(-14, 36, 14); tree(36, -20, 15);
+      tree(-62, -10, 13); tree(60, 38, 14); tree(-44, 54, 12); tree(54, -48, 13); tree(8, 70, 12);
+      return true;
     }
     default: return false;
   }
@@ -5008,7 +5053,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, resolveDistricts, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
     stepVeils, inVeil, stepMotes, killShade, weaveVeils, weaveMists,
-    stepMists, inMist, inHallow, inNodeAura, terrainSpeedMul, stepFields, stepVents, stepCaches,
+    stepMists, inMist, inGrove, inHallow, inNodeAura, terrainSpeedMul, stepFields, stepVents, stepCaches,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
     stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
@@ -5047,7 +5092,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       CINDER_AURA, CINDER_DPS, MIRE_AURA, MIRE_SLOW, THICKET_AURA, THICKET_SLOW,
       HALLOW_AURA, SPRING_AURA, SPRING_HEAL_DPS, CACHE_REACH,
       VENT_CD, VENT_RADIUS, VENT_DMG, GUST_AURA, GUST_PUSH,
-      MIST_RADIUS, MIST_DRIFT, MIST_AGGRO_MUL,
+      MIST_RADIUS, MIST_DRIFT, MIST_AGGRO_MUL, GROVE_AURA, GROVE_AGGRO_MUL,
       BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG, BOSS_BITE_RAMP, BOSS_KEY_COST,
       BOSS_VEILS_BASE, BOSS_VEILS_DIFF, BOSS_VEIL_R, BOSS_VEIL_DRIFT, BOSS_VEIL_UNRAVEL,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS, TRACE_FLASH_MS,

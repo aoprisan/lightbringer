@@ -307,7 +307,12 @@ not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune
   - **Caches** (`CACHE_REACH`, `stepCaches`) — first-footing one grants the mote **surge** once, then `n.spent`.
   - **Mist** (`Mist`, `s.mists`, `MIST_*`, `weaveMists`/`stepMists`/`inMist`) — drifting fog (the only new
     non-node field): a hero inside is hidden from spitters (hold fire) and rouses wanderers from a shrunken
-    aggro range (`MIST_AGGRO_MUL`). New kinds render procedurally (`renderNewTerrain`); no PNGs ship yet.
+    aggro range (`MIST_AGGRO_MUL`).
+  - **Groves** (`GROVE_AURA`/`GROVE_AGGRO_MUL`, `inGrove`) — **concealing cover**, the static cousin of mist
+    and the maps' tactical heart: a hero under a copse's canopy is hidden from spitters **and** dulls the
+    host's aggro (the most-concealing cover wins, in `stepShades`). Seeded in every city (`groveCount`).
+    New kinds render procedurally (`renderNewTerrain`, trees drawn via a `tree()` helper; solids draw their
+    body at the **collision radius** so visual == hitbox); no PNGs ship yet.
 - **Frescoes & the reliquary** — the hero's *first-footing* (`FRESCO_REACH`, `node.seen`) reveals painted
   fragments (`maybeFresco`; the shell's `revealFresco` shows them non-modally so the swarm is never paused).
   Frescoes are a lifetime collection: `PgLegacy.frescoesFound`, folded in at each run-end by
@@ -696,8 +701,13 @@ obstacles** (solids in `OBSTACLE_KINDS`): **pyre** (also a permanent foe-emitter
 - **Gales** (`GALE_*`, `stepGale`) — shove the watch out of the aura each frame (the hero is unmoved).
 - **Wolfsbane** (`WOLFSBANE_*`) — the one hazard to the hero: **bleeds his fury** while he stands in it
   (the friar's drain, made ground — it can tip a wolf back to a man).
+- **Woods** (`WOODS_AURA`, `inWoods`) — **concealing cover**, the static cousin of mist and the most thematic
+  terrain of the hunt: the wolf melts into the trees — huntsmen hold fire (no line through the boughs) and the
+  watch is slower to rouse (`STEALTH_AGGRO_MUL`, folded into `stepFoes`'s `stealthy`). Seeded in every village
+  (`woodsCount`).
 - (Plus **barrow-hoards** — `HOARD_*`/`stepHoards`: first-footing one **surges the curse** once, then
-  `n.spent`; the Vigil's relic-cache re-themed.) New kinds render procedurally (`renderNewTerrain`); no PNGs.
+  `n.spent`; the Vigil's relic-cache re-themed.) New kinds render procedurally (`renderNewTerrain`, trees via
+  a `tree()` helper; solids draw their body at the **collision radius** so visual == hitbox); no PNGs.
 
 ### Villages (eight) & sim loop
 
