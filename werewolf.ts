@@ -29,7 +29,24 @@
 
 // GREENS (the village gathering-grounds the watch musters from) are a placement
 // role, NOT a node kind — so the kinds are the pure built fabric of the place.
-type NodeKind = "field" | "stone" | "cottage" | "cairn" | "moonwell";
+type NodeKind =
+  | "field" | "stone" | "cottage" | "cairn" | "moonwell"
+  // New obstacles (solid, body-blocking — see OBSTACLE_KINDS):
+  | "pyre"     // a great funeral pyre: a solid, ever-burning hazard to the watch
+  | "dolmen"   // a broad capstone dolmen: broad solid cover
+  | "gibbet"   // a gallows-post: medium solid cover
+  | "cart"     // an abandoned wain: small solid cover
+  // New terrain (passable zones/emitters/pickups, woven off the node geometry):
+  | "wisp"      // a corpse-candle: a passable hazard that burns the watch in its aura
+  | "marshfire" // burning marsh-gas ground: scorches the watch that crosses it
+  | "bog"       // boggy ground: slows every body (hero and watch)
+  | "bramble"   // briar-choked ground: slows only the watch
+  | "glade"     // a moonlit glade: trace the maw even while loping (the moonwell's gift, smaller)
+  | "spring"    // a clear spring: slowly mends the hero in its aura
+  | "geyser"    // a hot spring: erupts a scalding burst on its own cadence
+  | "gale"      // a moor-wind: shoves the watch away (the hero, anchored, is unmoved)
+  | "wolfsbane" // a patch of the bane-herb: bleeds the hero's fury while he stands in it
+  | "hoard";    // a barrow-hoard: first-footing it stokes the curse, once
 type Phase = "hunt" | "won" | "lost";
 
 // A foe lurks near its green until the wolf (or a marked cairn) draws it, then hunts.
@@ -52,6 +69,8 @@ interface ArenaNode {
   lit?: boolean;      // a cairn marked by the wolf (an ally emitter)
   litAt?: number;     // s.elapsed when it was marked (for the bloom flourish)
   cleansed?: number;  // s.elapsed a cleansed cairn's scar bars re-marking to (0/undef = clean)
+  spent?: boolean;    // a barrow-hoard the hero has already cracked open
+  geyserAt?: number;  // a geyser's next eruption time (s.elapsed); lazily seeded
 }
 
 // A line segment. Walls — hedgerows & palisades — block bodies (capsule collision)
@@ -301,8 +320,16 @@ const MOONBLOOD_FURY = 0.12;
 
 // Stones & cottages — the place's solids; bodies weave around them. Fields and cairns
 // and moonwells are passable (you pass the first, mark the cairn, wade the well).
-const OBSTACLE_KINDS = new Set<NodeKind>(["stone", "cottage"]);
-const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { stone: 24, cottage: 30 };
+const OBSTACLE_KINDS = new Set<NodeKind>([
+  "stone", "cottage",
+  // The new solids: a pyre, a dolmen, a gibbet, an abandoned cart. Like every
+  // obstacle they block bodies (pushOut); the pyre also burns the watch (stepFields).
+  "pyre", "dolmen", "gibbet", "cart",
+]);
+const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = {
+  stone: 24, cottage: 30,
+  pyre: 26, dolmen: 30, gibbet: 18, cart: 16,
+};
 
 // Walls — hedgerows & palisades strung between neighbours. They block movement (a
 // capsule: the segment plus this half-thickness) for every body, AND stop a
@@ -323,6 +350,71 @@ const MOONWELL_AURA = 150;       // a moonwell's radius of moonlight
 // Within a bank, a huntsman cannot see the hero (holds fire) and the watch is slower
 // to rouse (STEALTH_AGGRO_MUL). Pure FX-like state, drifting in stepMists.
 const MIST_DRIFT = 18;           // a fog bank's drift, units/s
+
+// ---- New terrain & obstacles (the maps' expanded vocabulary) ----
+// All below are pure functions of node geometry, woven at build and held on the
+// scenery — live-play terrain, never persisted, in the cairns/mist ethos. Per-place
+// counts are LevelDef dials, all defaulting to none so the four original villages
+// are untouched. (Mist already exists — these are ten kinds new to the hunt.)
+
+// Pyres — a great solid funeral pyre that never goes out. A permanent hazard: it
+// burns every foe within its aura (stepFields), the way a marked cairn rends the
+// host, but from the start and indestructible — a body-blocking pillar of fire.
+const PYRE_AURA = 132;           // radius the pyre scorches the watch within
+const PYRE_DPS = 24;             // damage/sec to a foe standing in the aura
+
+// Corpse-candles (wisps) — a passable will-o'-the-wisp that lures and burns the
+// watch in its aura. A weaker pyre that is NOT solid (the hero wades it).
+const WISP_AURA = 92;            // radius the candle burns the watch within
+const WISP_DPS = 13;             // damage/sec to a foe in the aura
+
+// Marsh-fire — burning marsh-gas underfoot. Passable for the hero, but it scorches
+// any foe that crosses it: a pre-placed snare to herd the watch across.
+const MARSHFIRE_AURA = 102;      // radius of the burning ground
+const MARSHFIRE_DPS = 18;        // damage/sec to a foe on it
+
+// Bog — boggy, sucking ground. Slows every body inside (hero AND watch): a neutral
+// mire that bogs a chase and pins a careless hero alike.
+const BOG_AURA = 118;            // radius of the slowing bog
+const BOG_SLOW = 0.55;           // speed multiplier for any body in the bog
+
+// Bramble — briar-choked thorns. Slows ONLY the watch (the lithe wolf slips
+// through): a defensive snare to lead the host into.
+const BRAMBLE_AURA = 114;        // radius of the snaring briars
+const BRAMBLE_SLOW = 0.5;        // speed multiplier for a foe in the bramble
+
+// Glades — small moonlit clearings. Within the aura the hero traces the maw EVEN
+// WHILE LOPING (like a moonwell's gift, but only the moving-trace half), a place to
+// keep the rending alive on the run.
+const GLADE_AURA = 120;          // radius within which the hero traces while moving
+
+// Springs — a clear, cold spring. Standing in the aura slowly mends the hero,
+// gated by a cap so it tops you up but can't facetank the watch.
+const SPRING_AURA = 110;         // radius of the spring's mending water
+const SPRING_HEAL_DPS = 10;      // hero HP restored per second standing in it
+const SPRING_HEAL_CAP = 0.6;     // …but only up to this fraction of maxHp
+
+// Geysers — a scalding hot spring that erupts on its own cadence: a rhythmic burst
+// that burns the watch in reach, charge-independent. A timed hazard to lure them on.
+const GEYSER_CD = 2400;          // ms between a geyser's eruptions
+const GEYSER_RADIUS = 128;       // the eruption's reach
+const GEYSER_DMG = 28;           // damage to each foe caught in an eruption
+
+// Gales — a hard moor-wind that shoves the watch out of its aura each frame (the
+// hero, anchored by the curse, is unmoved): a repel field that opens a no-go lane.
+const GALE_AURA = 136;           // radius of the gale's push
+const GALE_PUSH = 58;            // units/s a foe is shoved outward while inside
+
+// Wolfsbane — a patch of the bane-herb. While the hero stands in the aura it BLEEDS
+// his fury (the curse-meter), threatening to tip a wolf back to a man — the hunt's
+// one terrain hazard to the hero himself (the friar's drain, made ground).
+const WOLFSBANE_AURA = 104;      // radius of the bane-patch
+const WOLFSBANE_DRAIN = 0.16;    // fury/sec bled while standing in it
+
+// Barrow-hoards — a grave-hoard the watch never found. The hero's body reaching one
+// cracks it open for a surge of the curse (a fury jolt), then it is spent and inert.
+const HOARD_REACH = 30;          // hero centre within this (+the hero radius) cracks it
+const HOARD_FURY = 0.22;         // fury the curse surges when a hoard is cracked
 
 // Cairns — marking one (with the maw, as a wolf) lights it: its aura GRANTS fury and
 // RENDS the host that strays in. A foe brushing a marked cairn CLEANSES it (dark
@@ -379,6 +471,24 @@ interface LevelDef {
   knightCount?: number;   // greens that muster an extra heavy knight (default 0)
   huntsmanCount?: number; // greens that muster an extra ranged huntsman (default 0)
   friarCount?: number;    // greens that muster an extra consecrating friar (default 0)
+  // ---- New terrain & obstacle dials (the expanded maps' vocabulary) ----
+  // Each carves that many nodes from the field pool (like stone/cottage counts), all
+  // defaulting to 0 so the four original villages are untouched. The four solids
+  // (pyre/dolmen/gibbet/cart) join s.solids automatically (OBSTACLE_KINDS).
+  pyreCount?: number;     // great pyres — solid, ever-burning hazards to the watch
+  dolmenCount?: number;   // capstone dolmens — broad solid cover
+  gibbetCount?: number;   // gallows-posts — medium solid cover
+  cartCount?: number;     // abandoned wains — small solid cover
+  wispCount?: number;     // corpse-candles — passable burning hazards
+  marshfireCount?: number;// burning marsh-gas — scorches the watch that crosses it
+  bogCount?: number;      // boggy ground — slows every body
+  brambleCount?: number;  // briars — slow only the watch
+  gladeCount?: number;    // moonlit glades — trace the maw while loping
+  springCount?: number;   // springs — slowly mend the hero
+  geyserCount?: number;   // hot springs — erupt a scalding burst on a cadence
+  galeCount?: number;     // moor-winds — shove the watch away
+  wolfsbaneCount?: number;// bane-patches — bleed the hero's fury
+  hoardCount?: number;    // barrow-hoards — first-footing surges the curse
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
 }
 
@@ -425,6 +535,54 @@ const LEVELS: LevelDef[] = [
     wallCount: 10, pathCount: 3, mistCount: 5,
     houndCount: 2, knightCount: 4, huntsmanCount: 4, friarCount: 2, sizeScale: 1.18,
   },
+  // ---- The Outlands (the maps' expansion: four further hunts) ----
+  // Villages beyond the dale, each carrying the expanded terrain vocabulary — burned
+  // holts, sucking fens, wind-scoured heads, and the last hollow where the curse ends.
+  {
+    id: "ashthorn",
+    name: "Ashthorn",
+    epigraph: "A holt the fire took and never left. The pyres still burn — and the watch fears them more than you.",
+    nodeCount: 140, minDist: 64,
+    stoneCount: 4, cottageCount: 6, cairnCount: 6, moonwellCount: 2,
+    greenCount: 6, greenSpacing: 330,
+    wallCount: 6, pathCount: 6, mistCount: 3,
+    pyreCount: 3, marshfireCount: 4, brambleCount: 4, gibbetCount: 3, wispCount: 2,
+    houndCount: 3, huntsmanCount: 2, sizeScale: 1.0,
+  },
+  {
+    id: "mirefen",
+    name: "Mirefen",
+    epigraph: "Black water and bane-herb under a drowned moon. The bog holds them; the wolfsbane bleeds you — find the springs.",
+    nodeCount: 150, minDist: 62,
+    stoneCount: 5, cottageCount: 4, cairnCount: 6, moonwellCount: 2,
+    greenCount: 7, greenSpacing: 310,
+    wallCount: 5, pathCount: 4, mistCount: 5,
+    bogCount: 5, wolfsbaneCount: 4, springCount: 3, wispCount: 3, dolmenCount: 3,
+    houndCount: 2, huntsmanCount: 3, friarCount: 2, sizeScale: 1.08,
+  },
+  {
+    id: "galehead",
+    name: "Galehead",
+    epigraph: "A bare, wind-scoured headland where hot springs steam and the gale holds the watch off the open stone.",
+    nodeCount: 145, minDist: 64,
+    stoneCount: 6, cottageCount: 3, cairnCount: 5, moonwellCount: 2,
+    greenCount: 8, greenSpacing: 295,
+    wallCount: 4, pathCount: 6, mistCount: 3,
+    galeCount: 5, gladeCount: 4, geyserCount: 3, cartCount: 5, hoardCount: 3,
+    houndCount: 3, knightCount: 2, huntsmanCount: 2, sizeScale: 1.12,
+  },
+  {
+    id: "direhollow",
+    name: "Direhollow",
+    epigraph: "The last hollow, where every soul of the watch has cornered itself for one final night. Everything you have learned, turned on them.",
+    nodeCount: 160, minDist: 60,
+    stoneCount: 6, cottageCount: 6, cairnCount: 5, moonwellCount: 3,
+    greenCount: 9, greenSpacing: 280,
+    wallCount: 8, pathCount: 5, mistCount: 4,
+    pyreCount: 3, wispCount: 2, marshfireCount: 2, geyserCount: 3, galeCount: 2,
+    gladeCount: 3, springCount: 2, wolfsbaneCount: 2, dolmenCount: 2, hoardCount: 2,
+    houndCount: 3, knightCount: 3, huntsmanCount: 4, friarCount: 3, sizeScale: 1.22,
+  },
 ];
 
 function levelById(id: string): LevelDef | undefined {
@@ -463,6 +621,20 @@ function generateWerewolf(
   take(level.cottageCount).forEach((n) => (n.kind = "cottage"));
   take(level.cairnCount).forEach((n) => { n.kind = "cairn"; n.lit = false; });
   take(level.moonwellCount).forEach((n) => (n.kind = "moonwell"));
+  // The expanded maps' new terrain & obstacles — carved from the same field pool,
+  // each by its own per-place dial (default 0, so the four original villages carve
+  // none). The four solids join s.solids in buildArena via OBSTACLE_KINDS; the rest
+  // are passable zones/emitters/pickups resolved by node geometry.
+  const extraKinds: [NodeKind, number][] = [
+    ["pyre", level.pyreCount ?? 0], ["dolmen", level.dolmenCount ?? 0],
+    ["gibbet", level.gibbetCount ?? 0], ["cart", level.cartCount ?? 0],
+    ["wisp", level.wispCount ?? 0], ["marshfire", level.marshfireCount ?? 0],
+    ["bog", level.bogCount ?? 0], ["bramble", level.brambleCount ?? 0],
+    ["glade", level.gladeCount ?? 0], ["spring", level.springCount ?? 0],
+    ["geyser", level.geyserCount ?? 0], ["gale", level.galeCount ?? 0],
+    ["wolfsbane", level.wolfsbaneCount ?? 0], ["hoard", level.hoardCount ?? 0],
+  ];
+  for (const [kind, n] of extraKinds) take(n).forEach((node) => (node.kind = kind));
 
   // Greens — placed on still-field nodes, spaced apart so waves don't stack.
   const greens: { x: number; y: number }[] = [];
@@ -766,6 +938,105 @@ function inMoonwell(s: WwState, x: number, y: number): boolean {
   return false;
 }
 
+// Generic: is the point within `aura` of any node of `kind`? The workhorse for the
+// new passable-terrain auras (glade/spring/bog/…), so each reads one line.
+function inNodeAura(s: WwState, x: number, y: number, kind: NodeKind, aura: number): boolean {
+  for (const n of s.scenery) {
+    if (n.kind !== kind) continue;
+    if ((x - n.x) ** 2 + (y - n.y) ** 2 <= aura * aura) return true;
+  }
+  return false;
+}
+
+// Is the point in a moonlit glade? Here the hero traces the maw even while loping
+// (the moonwell's moving-trace gift, on a smaller patch).
+function inGlade(s: WwState, x: number, y: number): boolean {
+  return inNodeAura(s, x, y, "glade", GLADE_AURA);
+}
+
+// The terrain speed multiplier for a body at a point: a bog slows EVERY body (hero
+// and watch); a bramble snares only the watch. Multiplicative, worst-case compounds;
+// 1 on open ground. Pure geometry, read in stepHunt (hero) and moveBody (foes).
+function terrainSpeedMul(s: WwState, x: number, y: number, isFoe: boolean): number {
+  let mul = 1;
+  if (inNodeAura(s, x, y, "bog", BOG_AURA)) mul *= BOG_SLOW;
+  if (isFoe && inNodeAura(s, x, y, "bramble", BRAMBLE_AURA)) mul *= BRAMBLE_SLOW;
+  return mul;
+}
+
+// Continuous hazard ground (the marked-cairn ethos, made fixed terrain): pyres,
+// corpse-candles and marsh-fire all burn the watch standing in their aura every
+// frame, charge-independent. The single emitter path, so all three read the same.
+function stepFields(s: WwState, dt: number): void {
+  const EMITTERS: [NodeKind, number, number][] = [
+    ["pyre", PYRE_AURA, PYRE_DPS],
+    ["wisp", WISP_AURA, WISP_DPS],
+    ["marshfire", MARSHFIRE_AURA, MARSHFIRE_DPS],
+  ];
+  for (const [kind, aura, dps] of EMITTERS) {
+    const a2 = aura * aura, dmg = (dps * dt) / 1000;
+    for (const n of s.scenery) {
+      if (n.kind !== kind) continue;
+      for (const e of s.foes) {
+        if (e.dead) continue;
+        if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= a2) hurtFoe(s, e, dmg);
+      }
+    }
+  }
+}
+
+// Geysers erupt on their own cadence: every GEYSER_CD a scalding burst burns every
+// foe within GEYSER_RADIUS (charge-independent). Each seeds its own clock the first
+// time it is stepped, so they don't all fire in lockstep.
+function stepGeysers(s: WwState, dt: number): void {
+  void dt; // cadence is read off s.elapsed, not accumulated here
+  for (const n of s.scenery) {
+    if (n.kind !== "geyser") continue;
+    if (n.geyserAt === undefined) { n.geyserAt = s.elapsed + GEYSER_CD; continue; }
+    if (s.elapsed < n.geyserAt) continue;
+    n.geyserAt = s.elapsed + GEYSER_CD;
+    const gr2 = GEYSER_RADIUS ** 2;
+    for (const e of s.foes) {
+      if (e.dead) continue;
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= gr2) hurtFoe(s, e, GEYSER_DMG);
+    }
+    s.pulses.push({ x: n.x, y: n.y, r: GEYSER_RADIUS, until: s.elapsed + PULSE_FX_MS });
+  }
+}
+
+// Gales shove every foe steadily out of their aura (the hero, anchored by the curse,
+// is unmoved). Opens a no-go lane in the watch. A separate pass so it fires whatever
+// the foe's state (lurk or hunt).
+function stepGale(s: WwState, dt: number): void {
+  for (const n of s.scenery) {
+    if (n.kind !== "gale") continue;
+    for (const e of s.foes) {
+      if (e.dead) continue;
+      const gx = e.x - n.x, gy = e.y - n.y, gd = Math.hypot(gx, gy);
+      if (gd > 0 && gd < GALE_AURA) {
+        const push = (GALE_PUSH * dt) / 1000;
+        const p = pushOut(s, e.x + (gx / gd) * push, e.y + (gy / gd) * push, FOE_RADIUS);
+        e.x = p.x; e.y = p.y;
+      }
+    }
+  }
+}
+
+// Barrow-hoards — the hero's body reaching an un-cracked hoard breaks it open for a
+// surge of the curse (a fury jolt), then the hoard is spent. The blood-mote reward,
+// placed on the map (the Vigil's relic-cache, re-themed to the curse).
+function stepHoards(s: WwState): void {
+  const h = s.hero;
+  const rr = (HERO_RADIUS + HOARD_REACH) ** 2;
+  for (const n of s.scenery) {
+    if (n.kind !== "hoard" || n.spent) continue;
+    if ((n.x - h.x) ** 2 + (n.y - h.y) ** 2 <= rr) {
+      n.spent = true;
+      h.fury = clamp(h.fury + HOARD_FURY, 0, h.maxFury);
+    }
+  }
+}
+
 // Fire one rending pulse from the wolf — AoE damage to the watch in reach, marking
 // any dark cairn caught, the pelt's power, a fury cost, and an empowered erupt if an
 // overcharge is banked. The deterministic heart of the weapon; stepMaw gates and
@@ -816,6 +1087,9 @@ function stepMaw(s: WwState, dt = 16): void {
 // Move a body by a desired velocity for dt, then push it out of terrain. Shared by
 // every foe kind so collision is uniform.
 function moveBody(s: WwState, e: Foe, vx: number, vy: number, dt: number, radius: number): void {
+  // Terrain bogs the step: a bog slows every body, a bramble snares the watch.
+  const tmul = terrainSpeedMul(s, e.x, e.y, true);
+  vx *= tmul; vy *= tmul;
   e.vx = vx; e.vy = vy;
   const p = pushOut(s, e.x + (vx * dt) / 1000, e.y + (vy * dt) / 1000, radius);
   e.x = p.x; e.y = p.y;
@@ -1032,7 +1306,9 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= PATH_HALF,
   );
   const baseSpeed = h.form === "wolf" ? HERO_SPEED_WOLF : HERO_SPEED_HUMAN;
-  const speed = baseSpeed * (onPath ? PATH_BOOST : 1);
+  // A lane speeds the hero; a bog bogs him (terrainSpeedMul, hero = not a foe, so a
+  // bramble leaves him be). The two compose — a boosted lane through a bog.
+  const speed = baseSpeed * (onPath ? PATH_BOOST : 1) * terrainSpeedMul(s, h.x, h.y, false);
   h.vx = move.x * speed;
   h.vy = move.y * speed;
   {
@@ -1051,14 +1327,27 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
   // (As a man this stand instead bays at the moon — see the fury swell below.)
   const chargeMs = CHARGE_MS * s.pelt.chargeMul;
   const still = Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED;
-  if (still) {
+  // A moonlit glade lets the maw trace even while loping (like a moonwell's gift).
+  const tracing = still || inGlade(s, h.x, h.y);
+  if (tracing) {
     h.charge = Math.min(1, h.charge + (dt / chargeMs) * (0.35 + 0.9 * ml));
-    if (h.charge >= 1) h.overcharge = Math.min(1, h.overcharge + dt / OVERCHARGE_MS);
   } else {
     h.charge = Math.max(0, h.charge - dt / chargeMs);
-    h.overcharge = 0; // moving spends the banked overcharge back to nothing
   }
+  // Overcharge banks only on a true held STAND; loping (even in a glade) spends it.
+  if (still && h.charge >= 1) h.overcharge = Math.min(1, h.overcharge + dt / OVERCHARGE_MS);
+  else if (!still) h.overcharge = 0;
   h.angle = (h.angle + dt * SIGIL_SPIN) % 360;
+
+  // A bane-patch (wolfsbane) bleeds the hero's fury while he stands in it; a clear
+  // spring slowly mends his wounds (gated by a cap, so it can't facetank the watch).
+  if (inNodeAura(s, h.x, h.y, "wolfsbane", WOLFSBANE_AURA)) {
+    h.fury = clamp(h.fury - (WOLFSBANE_DRAIN * dt) / 1000, 0, h.maxFury);
+  }
+  if (inNodeAura(s, h.x, h.y, "spring", SPRING_AURA)) {
+    const ceil = Math.max(h.hp, h.maxHp * SPRING_HEAL_CAP);
+    h.hp = Math.min(ceil, h.hp + (SPRING_HEAL_DPS * dt) / 1000);
+  }
 
   // THE SHAPE — the moon drives the fury, the fury drives the form. A man's fury
   // swells under moonlight (faster as he bays — stands and charges); at the crest he
@@ -1075,8 +1364,12 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
   stepFoes(s, dt);    // the watch lurks / hunts the hero, strikes, looses bolts, consecrates
   stepBolts(s, dt);   // silver bolts in flight
   stepCairns(s, dt);  // marked cairns grant fury and rend the host in their aura
+  stepFields(s, dt);  // pyre/wisp/marsh-fire emitters burn the watch in their auras
+  stepGeysers(s, dt); // hot springs erupt a burst on their cadence
+  stepGale(s, dt);    // moor-winds shove the watch out of their auras
   stepMists(s, dt);   // drift the fog banks
   stepMotes(s);       // gather any blood-mote underfoot (stokes the curse)
+  stepHoards(s);      // crack a barrow-hoard the hero stands on (a fury surge)
 
   // Retire spent FX (cheap; only when any are live).
   if (s.pulses.length) s.pulses = s.pulses.filter((p) => p.until > s.elapsed);
@@ -1250,7 +1543,12 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
   return cam;
 }
 
-const SCENERY_SIZE: Record<NodeKind, number> = { field: 40, stone: 48, cottage: 56, cairn: 44, moonwell: 60 };
+const SCENERY_SIZE: Record<NodeKind, number> = {
+  field: 40, stone: 48, cottage: 56, cairn: 44, moonwell: 60,
+  pyre: 72, dolmen: 80, gibbet: 52, cart: 44,
+  wisp: 44, marshfire: 60, bog: 60, bramble: 60, glade: 60,
+  spring: 56, geyser: 56, gale: 56, wolfsbane: 52, hoard: 44,
+};
 
 // Resolve a node's sprite name from its live state.
 function scenerySprite(s: WwState, n: ArenaNode): string {
@@ -1267,6 +1565,57 @@ function scenerySprite(s: WwState, n: ArenaNode): string {
 const FOE_HUE: Record<FoeKind, string> = {
   villager: "#9a8a6a", hound: "#7a6a4a", knight: "#8a909a", huntsman: "#6a8a5a", friar: "#b0a890",
 };
+
+// Draw one of the expanded maps' new terrain/obstacle nodes procedurally. Returns
+// true when it handled `n` (so the scenery loop skips its generic path). No PNGs
+// ship for these yet — each reads as a coloured aura (where it has a reach) plus a
+// distinct body, so the new vocabulary is legible without art. Pure render.
+function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean {
+  const aura = (r: number, color: string, op: number, dash = "4 10") =>
+    layer.appendChild(el("circle", {
+      cx: n.x, cy: n.y, r, fill: "none", stroke: color,
+      "stroke-width": 1.4, "stroke-dasharray": dash, opacity: op,
+    }));
+  const disc = (r: number, fill: string, op = 1) =>
+    layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill, opacity: op }));
+  const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
+  switch (n.kind) {
+    case "pyre": { // solid pyre + permanent burn aura
+      aura(PYRE_AURA * pulse, "#ff9a3a", 0.22, "2 8");
+      disc(PYRE_AURA, "#3a1606", 0.1);
+      disc(15, "#3a1606"); disc(10, "#ff6a1e", 0.95); disc(5, "#ffe6a0");
+      return true;
+    }
+    case "dolmen": { disc(24, "#2c303a"); disc(16, "#3a3f48", 0.95); disc(8, "#565f6a", 0.9); return true; }
+    case "gibbet": { disc(13, "#241c14"); disc(8, "#3a2c20", 0.9); return true; }
+    case "cart": { disc(12, "#2a2118"); disc(7, "#3a2c20", 0.9); return true; }
+    case "wisp": { // passable corpse-candle emitter
+      aura(WISP_AURA * pulse, "#9fe0c0", 0.2, "2 8");
+      disc(7, "#13261c"); disc(4, "#bfffe0", 0.95);
+      return true;
+    }
+    case "marshfire": { aura(MARSHFIRE_AURA, "#ff7a3a", 0.22, "3 7"); disc(MARSHFIRE_AURA, "#2a1404", 0.1); disc(8, "#ff6a1e", 0.9); return true; }
+    case "bog": { disc(BOG_AURA, "#17210f", 0.24); aura(BOG_AURA, "#4a5a2a", 0.2, "2 10"); disc(8, "#243017", 0.9); return true; }
+    case "bramble": { aura(BRAMBLE_AURA, "#5a9a4a", 0.22, "5 8"); disc(BRAMBLE_AURA, "#0f1d0b", 0.1); disc(8, "#1f3e18", 0.9); return true; }
+    case "glade": { aura(GLADE_AURA, "#cfe0ff", 0.2, "2 9"); aura(GLADE_AURA * 0.7, "#9fb8e8", 0.14, "4 10"); disc(8, "#3a4458", 0.85); return true; }
+    case "spring": { aura(SPRING_AURA, "#7ad0ff", 0.22, "3 9"); disc(SPRING_AURA, "#0c1c2a", 0.12); disc(9, "#173247", 0.9); disc(5, "#9fe0ff", 0.9); return true; }
+    case "geyser": {
+      const due = n.geyserAt !== undefined ? clamp((n.geyserAt - s.elapsed) / GEYSER_CD, 0, 1) : 1;
+      aura(GEYSER_RADIUS, "#7fd6ff", 0.14 + 0.2 * (1 - due), "4 6");
+      disc(9, "#0c1c2a"); disc(5, "#bfe8ff", 0.95);
+      return true;
+    }
+    case "gale": { aura(GALE_AURA * pulse, "#cdd9ec", 0.2, "6 10"); aura(GALE_AURA * 0.6, "#cdd9ec", 0.14, "6 10"); disc(7, "#2c3340", 0.9); return true; }
+    case "wolfsbane": { aura(WOLFSBANE_AURA, "#b08fd0", 0.22, "3 7"); disc(WOLFSBANE_AURA, "#1a1226", 0.1); disc(8, "#3a2a52", 0.9); disc(4, "#c9a8e8", 0.9); return true; }
+    case "hoard": {
+      const op = n.spent ? 0.3 : 1;
+      disc(11, "#2a2208", op); disc(7, n.spent ? "#5a4a20" : "#ffcf5a", op);
+      if (!n.spent) disc(3, "#fff4c8");
+      return true;
+    }
+    default: return false;
+  }
+}
 
 function render(s: WwState, layer: SVGGElement): void {
   layer.innerHTML = "";
@@ -1332,6 +1681,8 @@ function render(s: WwState, layer: SVGGElement): void {
     const size = SCENERY_SIZE[n.kind];
     const key = spriteFor(s.level, scenerySprite(s, n));
     if (key) { layer.appendChild(spriteImage(key, n.x, n.y, size, 0.96)); continue; }
+    // The expanded maps' new terrain & obstacles — drawn procedurally (no PNGs ship).
+    if (renderNewTerrain(s, n, layer)) continue;
     if (n.kind === "stone") {
       layer.appendChild(el("rect", {
         x: n.x - 10, y: n.y - 22, width: 20, height: 44, rx: 6,
@@ -2094,6 +2445,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
   testGlobal.__ww = {
     generateWerewolf, buildArena, freshHunt, stepHunt,
     stepMaw, firePulse, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
+    stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, terrainSpeedMul,
     slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,
@@ -2121,6 +2473,11 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       OBSTACLE_RADIUS, WALL_HALF, PATH_HALF, PATH_BOOST, MOONWELL_AURA, MIST_DRIFT,
       CAIRN_MARK_REACH, CAIRN_MARK_FURY, CAIRN_AURA, CAIRN_FURY_PER_SEC, CAIRN_DMG,
       CLEANSE_REACH, CLEANSE_MS, SCAR_RADIUS,
+      PYRE_AURA, PYRE_DPS, WISP_AURA, WISP_DPS, MARSHFIRE_AURA, MARSHFIRE_DPS,
+      BOG_AURA, BOG_SLOW, BRAMBLE_AURA, BRAMBLE_SLOW, GLADE_AURA,
+      SPRING_AURA, SPRING_HEAL_DPS, SPRING_HEAL_CAP,
+      GEYSER_CD, GEYSER_RADIUS, GEYSER_DMG, GALE_AURA, GALE_PUSH,
+      WOLFSBANE_AURA, WOLFSBANE_DRAIN, HOARD_REACH, HOARD_FURY,
       SCORE_PER_KILL, SCORE_SURVIVAL_MAX, SCORE_UNTOUCHED,
       MOONSTONE_SCORE_DIV, MOONSTONE_PER_KILL,
     },
