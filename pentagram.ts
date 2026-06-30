@@ -21,7 +21,23 @@
 
 // ---------- Types ----------
 
-type NodeKind = "dwelling" | "conduit" | "press" | "shrine" | "keeper" | "font" | "obelisk";
+type NodeKind =
+  | "dwelling" | "conduit" | "press" | "shrine" | "keeper" | "font" | "obelisk"
+  // New obstacles (solid, body-blocking — see OBSTACLE_KINDS):
+  | "bonfire"   // a great lit pyre: a solid, indestructible ally emitter
+  | "pillar"    // a stone column: small solid cover
+  | "statue"    // a saint's statue: medium solid cover
+  | "barrow"    // a collapsed rubble mound: broad solid cover
+  // New terrain (passable zones/emitters/pickups, woven off the node geometry):
+  | "cinder"    // burning cinder-ground: an aura that scorches shades (not the hero)
+  | "mire"      // boggy ground: an aura that slows every body (hero and shades)
+  | "thicket"   // thorned ground: an aura that slows only the shades
+  | "hallow"    // consecrated tiles: inscribe while moving AND on veiled/scarred ground
+  | "lantern"   // a surviving city lamp: a passable, permanent ally emitter
+  | "cache"     // a relic cache: first-footing it grants an ember surge, once
+  | "spring"    // a healing spring: an aura that slowly mends the hero
+  | "vent"      // an ember vent: erupts a damaging burst on its own cadence
+  | "gust";     // a wind-vent: an aura that shoves shades away (not the hero)
 // "boss" is the turn-based finger-traced duel that follows clearing the host.
 type Phase = "fight" | "boss" | "won" | "lost";
 
@@ -64,6 +80,13 @@ interface Veil { x: number; y: number; vx: number; vy: number; r: number }
 // Live-play, never persisted.
 interface Mote { x: number; y: number; until: number }
 
+// A mist bank — a drifting fog the cursed quarter never burned off. While the
+// hero stands inside one, the watch's ranged spitters lose sight of them (hold
+// fire) and wandering shades are slower to rouse (a stealth cover, the mirror of
+// a veil's menace). Woven at build from the city's mistCount, drifts and bounces
+// off the world edge like a veil pool. Live-play terrain — never persisted.
+interface Mist { x: number; y: number; vx: number; vy: number; r: number }
+
 // Transient signature effects, drawn then faded — never persisted (no mid-combat
 // save anyway). An Arc is the Pyre's chain spark hopping from a kill to a nearby
 // shade; a Nova is the Wrath's expanding eruption ring on a full inscription.
@@ -83,8 +106,9 @@ interface ArenaNode {
   litAt?: number;  // s.elapsed when it was kindled (ages toward awakening)
   awoke?: boolean; // a lit dwelling that held long enough — now pulses the dark
   veil?: number;   // a snuffed dwelling's scar: s.elapsed time it damps relighting to
-  spent?: boolean; // a press whose one-shot cascade has fired
+  spent?: boolean; // a press whose one-shot cascade has fired (also: a gathered cache)
   seen?: boolean;  // the hero's body has reached it (fresco first-footing)
+  ventAt?: number; // an ember vent's next eruption time (s.elapsed); lazily seeded
 }
 
 // A line segment strung between two posts. Fences are low walls (they block the
@@ -202,6 +226,7 @@ interface PgState {
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
   rings: Ring[];         // consecration rings — warded ground a full inscription seared
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
+  mists: Mist[];         // drifting fog banks that hide the hero from the ranged watch
   motes: Mote[];         // gatherable ember sparks dropped by slain shades
   bolts: Bolt[];         // spitters' in-flight bolts (live FX, not persisted)
   surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
@@ -272,8 +297,17 @@ const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a clear a
 // Obstacles — the city's built structures stand solid; the hero and shades must
 // weave around them. Only presses and shrines block; dwellings/conduits are
 // passable (you light the former). Radii are roughly the sprite's footprint.
-const OBSTACLE_KINDS = new Set<NodeKind>(["press", "shrine", "obelisk"]);
-const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = { press: 24, shrine: 20, obelisk: 22 };
+const OBSTACLE_KINDS = new Set<NodeKind>([
+  "press", "shrine", "obelisk",
+  // The new solids: a great pyre, a column, a statue, a rubble barrow. Like every
+  // obstacle they block bodies (pushOut) AND the watch's bolts (stepBolts), and
+  // stand full-opacity so they read as cover; the flame burns straight over them.
+  "bonfire", "pillar", "statue", "barrow",
+]);
+const OBSTACLE_RADIUS: Partial<Record<NodeKind, number>> = {
+  press: 24, shrine: 20, obelisk: 22,
+  bonfire: 26, pillar: 15, statue: 20, barrow: 30,
+};
 
 // Fences — low walls strung between neighbouring posts. They block movement (a
 // capsule: the segment plus this half-thickness) for both the hero and the
@@ -413,6 +447,78 @@ const FONT_AURA = 130;           // radius within which the hero inscribes while
 const OBELISK_AURA = 165;        // shades within this of a STANDING obelisk are warded
 const OBELISK_REACH = 50;        // hero centre within this (+the obelisk radius) cracks it
 
+// ---- New terrain & obstacles (the maps' expanded vocabulary) ----
+// All of the below are pure functions of node geometry (or, for mist, a drifting
+// field), woven at build and held on s.* — live-play terrain, never persisted, in
+// the same decoys/fences ethos. Per-city counts are LevelDef dials, all defaulting
+// to none so the seven original cities are untouched.
+
+// Bonfires — a great solid pyre that never goes out. A permanent ally emitter: it
+// burns every shade within its aura, charge-independent (it answers no one), the
+// way an awakened dwelling does but from the start and indestructible. A hot,
+// body-blocking pillar of safety to fight beside.
+const BONFIRE_AURA = 132;        // radius the pyre scorches the dark within
+const BONFIRE_DPS = 26;          // damage per second to shades standing in the aura
+
+// Lanterns — a surviving city lamp, passable (you stand on it). A weaker, smaller
+// bonfire: a permanent ally emitter that is NOT solid, so it lights a lane rather
+// than walls one off.
+const LANTERN_AURA = 96;         // radius the lamp scorches the dark within
+const LANTERN_DPS = 14;          // damage per second to shades in the aura
+
+// Cinder-ground — a patch of still-burning cinders. Passable for the hero (the
+// flame-bearer walks unharmed) but it scorches any shade that crosses it: a
+// pre-placed offensive zone to herd the host across (the parent's scorch made
+// terrain). A still-shielded elite shrugs it off, like every ground burn.
+const CINDER_AURA = 104;         // radius of the burning ground
+const CINDER_DPS = 20;           // damage per second to shades on it
+
+// Mires — boggy, flooded ground. Every body inside (hero AND shades) is slowed:
+// a neutral chokepoint that bogs a chase but also pins a careless carrier.
+const MIRE_AURA = 120;           // radius of the slowing bog
+const MIRE_SLOW = 0.55;          // speed multiplier for any body in the mire
+
+// Thickets — thorned, briar-choked ground. Slows ONLY the shades (the lithe
+// flame-bearer slips through): a defensive snare to kite a swarm into.
+const THICKET_AURA = 116;        // radius of the snaring briars
+const THICKET_SLOW = 0.5;        // speed multiplier for a shade in the thicket
+
+// Hallows — consecrated tiles, the faithful's small mercies. Within the aura the
+// hero inscribes EVEN WHILE MOVING (like a font) AND on veiled/scarred ground
+// (like a shrine): the burn-on-the-run zone and the safe-stand zone in one.
+const HALLOW_AURA = 122;         // radius of the consecrated ground
+
+// Springs — a clear healing spring. Standing in the aura slowly mends the hero
+// (gated by the same HEAL_CAP as relighting, so it can't facetank a swarm): a
+// place to catch your breath, not a fortress.
+const SPRING_AURA = 110;         // radius of the spring's mending water
+const SPRING_HEAL_DPS = 10;      // hero HP restored per second standing in the aura
+
+// Relic caches — a hoard the watch never found. The hero's body reaching one
+// breaks it open for an ember SURGE (snap the sigil full, open a damage window —
+// the mote payoff, made a place on the map); then it is spent and inert.
+const CACHE_REACH = 30;          // hero centre within this (+the hero radius) cracks it
+
+// Vents — an ember vent that erupts on its own cadence: a rhythmic burst that
+// burns every unshielded shade in reach, charge-independent. A timed hazard for
+// the host you can lure them onto.
+const VENT_CD = 2400;            // ms between a vent's eruptions
+const VENT_RADIUS = 130;         // the eruption's reach
+const VENT_DMG = 30;             // damage to each shade caught in an eruption
+
+// Gusts — a wind-vent that shoves shades steadily away from it (the hero, anchored
+// by the flame, is unmoved): a repel field that opens a no-go lane in the host.
+const GUST_AURA = 138;           // radius of the gust's push
+const GUST_PUSH = 60;            // units/s a shade is shoved outward while inside
+
+// Mist — drifting fog banks. A still or moving hero standing inside one is hidden
+// from the watch's ranged spitters (they hold fire) and rouses wandering shades
+// more slowly (aggro range shrinks): the cursed quarter's fog made cover. Drifts
+// and bounces off the world edge like a veil pool.
+const MIST_RADIUS = 150;         // a fog bank's reach
+const MIST_DRIFT = 20;           // units/s a bank wanders
+const MIST_AGGRO_MUL = 0.45;     // a hero in mist is roused-at from only this fraction of AGGRO_RADIUS
+
 // Scoring — a clear banks a score (and embers, the unlock currency). Tuned for
 // relationships, not magnitudes: faster pays, a relit/unscathed city pays, and a
 // harder city multiplies it all. These are the design surface for the economy.
@@ -522,7 +628,7 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
-  // The descent's story. The seven cities are one journey — the carrier of the
+  // The descent's story. The cities are one journey — the carrier of the
   // stolen flame giving the city back its mornings a quarter at a time. Each
   // `story` is a chapter that names where you have come from and where the trail
   // leads next, so cleansing one city literally opens the road to the following
@@ -554,6 +660,24 @@ interface LevelDef {
   spitterCount?: number; // keeper-posts whose wave includes a ranged spitter (default 0)
   darterCount?: number;  // keeper-posts whose wave includes a quick darter (default 0)
   healerCount?: number;  // keeper-posts whose wave includes a warden-acolyte mender (default 0)
+  // ---- New terrain & obstacle dials (the expanded maps' vocabulary) ----
+  // Each carves that many nodes from the dwelling pool (like fontCount/obeliskCount),
+  // all defaulting to 0 so the seven original cities are untouched. The four solids
+  // (bonfire/pillar/statue/barrow) join s.solids automatically (OBSTACLE_KINDS).
+  bonfireCount?: number; // great pyres — solid, permanent ally emitters
+  pillarCount?: number;  // stone columns — small solid cover
+  statueCount?: number;  // saints' statues — medium solid cover
+  barrowCount?: number;  // rubble barrows — broad solid cover
+  cinderCount?: number;  // burning cinder-ground — scorches shades that cross it
+  mireCount?: number;    // boggy ground — slows every body
+  thicketCount?: number; // thorned ground — slows only the shades
+  hallowCount?: number;  // consecrated tiles — inscribe on the move and on dark ground
+  lanternCount?: number; // surviving lamps — passable, permanent ally emitters
+  cacheCount?: number;   // relic caches — first-footing grants an ember surge
+  springCount?: number;  // healing springs — slowly mend the hero in their aura
+  ventCount?: number;    // ember vents — erupt a burst on a cadence
+  gustCount?: number;    // wind-vents — shove shades away
+  mistCount?: number;    // drifting fog banks — hide the hero from the ranged watch
   sizeScale?: number;  // arena size = W/H × this (default 1); leans the difficulty
   frescoes?: number[]; // FRESCO indices this city can surface — its signature
                        // subset. The union across LEVELS must cover every index
@@ -846,8 +970,10 @@ const LEVELS: LevelDef[] = [
     story: "The Pale Bastion is where the watch made its dark immortal: five " +
       "ward-stones to keep the host from falling, acolytes to keep it whole. This " +
       "is the heart that taught the lie that light burns. Crack the last stone, " +
-      "kill the last kindness, and the city has nothing left to hold the morning " +
-      "out — and the long night ends.",
+      "kill the last kindness, and the city's heart is cleansed. But the dark does " +
+      "not simply die: its last shades flee the broken Bastion outward, past the " +
+      "walls, into the half-burned trees at the city's edge — and the smoke leads " +
+      "you on, to The Emberwood.",
     art: "art/city-bastion.jpg",
     // The Pale Bastion map: a walled fortress, five ward-obelisks each glowing at
     // the heart of its own court (a quincunx), white streets radiating between,
@@ -891,6 +1017,86 @@ const LEVELS: LevelDef[] = [
       { x1: 0.975, y1: 0.56, x2: 0.975, y2: 0.975 },
     ],
   },
+  // ---- The Edge-Lands (the maps' expansion: four further descents) ----
+  // The dark, broken at the Bastion, flees to the city's outlying quarters. These
+  // four cities carry the expanded terrain vocabulary — burning woods, fog-fens,
+  // wind terraces, and the last hold — and chain on from the Bastion to the end.
+  {
+    id: "emberwood",
+    name: "The Emberwood",
+    epigraph: "The wood the fire took and the dark kept. Burn through the briars — the cinders are on your side.",
+    story: "The Emberwood is the wood the great fire took and the dark crept back " +
+      "into: black trunks, briar-choked floors, and old cinders that never fully " +
+      "cooled. The host fled here from the Bastion to hide among the thickets — but " +
+      "the cinders burn shades, not the flame-bearer, and a great pyre still stands " +
+      "in every clearing. Burn the wood clean, and follow the trail down into the " +
+      "fog where the river meets the road: The Mistmarket.",
+    // A wood, not a city block: sparse, broad clearings (low node count, big minDist),
+    // its signature cinder-ground and thickets thick among barrow-mounds and bonfires.
+    nodeCount: 170, minDist: 52, plazaRadius: 110, districtRadius: 300,
+    conduitFrac: 0.10, pressCount: 2, shrineCount: 2,
+    cinderCount: 5, thicketCount: 5, bonfireCount: 3, barrowCount: 4, ventCount: 2,
+    keeperCount: 8, keeperSpacing: 320,
+    fenceCount: 4, pathwayCount: 4, veilCount: 2, darterCount: 4, sizeScale: 1.05,
+  },
+  {
+    id: "mistmarket",
+    name: "The Mistmarket",
+    epigraph: "Fog on the fen and bog underfoot. Lose the watch in the mist; mind the mire.",
+    story: "The Mistmarket sank into the fen long ago — a drowned market of rotted " +
+      "stalls on bog and standing water, wrapped in a fog that never lifts. The " +
+      "watch's snipers wait on the dry stones, but the mist hides you from their " +
+      "bolts and the mire bogs any chase, friend or foe. Find the clear springs to " +
+      "catch your breath. Clear the fen, and climb out of the fog onto the " +
+      "wind-scoured terraces above: Windward Heights.",
+    // A fen: boggy mires and drifting mist dominate; springs and statues (dry stone)
+    // dot it. Sparse and patient, with the ranged watch the mist is the answer to.
+    nodeCount: 180, minDist: 48, plazaRadius: 104, districtRadius: 300,
+    conduitFrac: 0.10, pressCount: 2, shrineCount: 3,
+    mireCount: 5, mistCount: 5, springCount: 3, statueCount: 4, lanternCount: 3,
+    keeperCount: 9, keeperSpacing: 300,
+    fenceCount: 4, pathwayCount: 3, veilCount: 2, spitterCount: 4, healerCount: 2, sizeScale: 1.1,
+  },
+  {
+    id: "windward",
+    name: "Windward Heights",
+    epigraph: "High, bare, and wind-scoured. The gusts hold the host off — keep the flame lit on the run.",
+    story: "Windward Heights is the high terrace above the fog, bare and " +
+      "wind-scoured, its colonnades long fallen to stumps of pillar. The wind here " +
+      "is a wall: its gusts shove the host back off the open stone, and the old " +
+      "hallowed tiles let you keep the sigil lit even on the move. Ember vents " +
+      "breathe fire from the rock. Sweep the heights, and descend at last to where " +
+      "the dark has made its final stand: The Last Vigil.",
+    // A bare, open terrace: gusts and hallows define it, broken pillars for cover,
+    // vents and caches scattered. Open ground rewards the burn-on-the-run hallows.
+    nodeCount: 175, minDist: 50, plazaRadius: 106, districtRadius: 300,
+    conduitFrac: 0.08, pressCount: 3, shrineCount: 2,
+    gustCount: 5, hallowCount: 4, pillarCount: 6, ventCount: 3, cacheCount: 3, lanternCount: 2,
+    keeperCount: 10, keeperSpacing: 290,
+    fenceCount: 3, pathwayCount: 5, veilCount: 3, eliteCount: 3, darterCount: 3, sizeScale: 1.15,
+  },
+  {
+    id: "last-vigil",
+    name: "The Last Vigil",
+    epigraph: "Every dark thing, cornered in one hold. Every terrain you have learned, turned against it.",
+    story: "The Last Vigil is the final hold, where every shade the city had left " +
+      "has cornered itself behind ward-stones and acolytes for one last night. Here " +
+      "is all you have learned at once — bonfires and lanterns to fight beside, " +
+      "hallowed ground and springs to hold, cinders and vents and gusts to turn the " +
+      "host against itself. Light this last hold, and there is no dark left in the " +
+      "city to hold the morning out. Keep the vigil to its end.",
+    // The culmination: a dense hold that gathers the whole vocabulary — its own
+    // ward-obelisks and acolytes, plus bonfires/lanterns/hallows/springs/cinders/
+    // vents/gusts — and the broadest, hardest ground (capped at the ceiling).
+    nodeCount: 260, minDist: 44, plazaRadius: 110, districtRadius: 150,
+    plazaKind: "obelisk",
+    conduitFrac: 0.10, pressCount: 3, shrineCount: 3,
+    obeliskCount: 3, fontCount: 2,
+    bonfireCount: 3, lanternCount: 3, hallowCount: 3, springCount: 2,
+    cinderCount: 3, ventCount: 3, gustCount: 2, statueCount: 3, mistCount: 2,
+    keeperCount: 11, keeperSpacing: 250,
+    fenceCount: 6, pathwayCount: 4, veilCount: 3, eliteCount: 4, spitterCount: 3, healerCount: 3, darterCount: 2, sizeScale: 1.2,
+  },
 ];
 
 function levelById(id: string): LevelDef | undefined {
@@ -898,7 +1104,7 @@ function levelById(id: string): LevelDef | undefined {
 }
 
 // ---------- The story (the descent as one journey) ----------
-// The seven cities are a single arc, told in order: the carrier of the stolen
+// The cities are a single arc, told in order: the carrier of the stolen
 // flame walking the city quarter by quarter to give back its mornings. The
 // PROLOGUE frames the first descent; each LevelDef.story is a chapter linking
 // the city before to the city after; the EPILOGUE plays once every city is
@@ -910,7 +1116,7 @@ const PROLOGUE =
   "flame from the last bonfire and learned to inscribe it into the ground. One " +
   "quarter at a time, you will give the city back its morning.";
 const EPILOGUE =
-  "Seven quarters, seven dawns. The watch that taught the city light burns is " +
+  "Every quarter, every dawn. The watch that taught the city light burns is " +
   "undone — every shade unmade, every ward-stone cracked, every lamp you lit " +
   "still lit. The morning the dark feared so long breaks over the whole city at " +
   "last. And it does not burn. It warms.";
@@ -926,7 +1132,7 @@ function cityUnlocked(level: LevelDef, l: PgLegacy): boolean {
 }
 
 // Roman-numeral chapter label for a city (its 1-based place in the journey).
-const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 function storyChapter(level: LevelDef): string {
   const i = LEVELS.indexOf(level);
   return ROMAN[i] ?? String(i + 1);
@@ -1056,6 +1262,25 @@ function generateCity(
   cut += fontPool;
   const obeliskPool = (level.obeliskCount ?? 0) - placedAtPlaza("obelisk");
   shuffled.slice(cut, cut + obeliskPool).forEach((n) => (n.kind = "obelisk"));
+  cut += obeliskPool;
+  // The expanded maps' new terrain & obstacles — carved from the same shuffled
+  // pool as fonts/obelisks, each by its own per-city dial (default 0, so the seven
+  // original cities carve none of these). A fixed order keeps generation
+  // deterministic per city. The four solids join s.solids in buildArena via
+  // OBSTACLE_KINDS; the rest are passable zones/emitters resolved by node geometry.
+  const extraKinds: [NodeKind, number][] = [
+    ["bonfire", level.bonfireCount ?? 0], ["pillar", level.pillarCount ?? 0],
+    ["statue", level.statueCount ?? 0], ["barrow", level.barrowCount ?? 0],
+    ["cinder", level.cinderCount ?? 0], ["mire", level.mireCount ?? 0],
+    ["thicket", level.thicketCount ?? 0], ["hallow", level.hallowCount ?? 0],
+    ["lantern", level.lanternCount ?? 0], ["cache", level.cacheCount ?? 0],
+    ["spring", level.springCount ?? 0], ["vent", level.ventCount ?? 0],
+    ["gust", level.gustCount ?? 0],
+  ];
+  for (const [kind, n] of extraKinds) {
+    if (n > 0) shuffled.slice(cut, cut + n).forEach((node) => (node.kind = kind));
+    cut += Math.max(0, n);
+  }
   // Any shrines beyond the plaza landmarks scatter as before (guard the -0 slice,
   // which would otherwise grab the whole pool).
   const extraShrines = level.shrineCount - placedAtPlaza("shrine");
@@ -1136,6 +1361,22 @@ function weaveVeils(w: number, h: number, count: number): Veil[] {
     veils.push({ x, y, vx: Math.cos(a) * VEIL_DRIFT, vy: Math.sin(a) * VEIL_DRIFT, r: VEIL_RADIUS });
   }
   return veils;
+}
+
+// Scatter `count` drifting mist banks across the arena, each given a random
+// heading. Unlike veils these are the hero's cover (they hide them from the ranged
+// watch), so the spawn-clear is unnecessary — but kept symmetric for tidy starts.
+// Pure: it only reads the world size.
+function weaveMists(w: number, h: number, count: number): Mist[] {
+  const mists: Mist[] = [];
+  let guard = 0;
+  while (mists.length < count && guard++ < count * 40) {
+    const x = 80 + Math.random() * (w - 160);
+    const y = 80 + Math.random() * (h - 160);
+    const a = Math.random() * Math.PI * 2;
+    mists.push({ x, y, vx: Math.cos(a) * MIST_DRIFT, vy: Math.sin(a) * MIST_DRIFT, r: MIST_RADIUS });
+  }
+  return mists;
 }
 
 // Push a moving body (hero or shade) out of any blocking terrain it has
@@ -1276,7 +1517,8 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
     curse,
-    scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils), motes: [], bolts: [], surgeUntil: 0,
+    scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils),
+    mists: weaveMists(w, h, level.mistCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
     arcs: [], novas: [], bursts: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
@@ -1426,6 +1668,51 @@ function inFontAura(s: PgState, x: number, y: number): boolean {
     if ((x - n.x) ** 2 + (y - n.y) ** 2 <= FONT_AURA ** 2) return true;
   }
   return false;
+}
+
+// Generic: is the point within `aura` of any node of `kind`? The workhorse for the
+// new passable-terrain auras (hallow/spring/cinder/…), so each reads one line.
+function inNodeAura(s: PgState, x: number, y: number, kind: NodeKind, aura: number): boolean {
+  const a2 = aura * aura;
+  for (const n of s.scenery) {
+    if (n.kind !== kind) continue;
+    if ((x - n.x) ** 2 + (y - n.y) ** 2 <= a2) return true;
+  }
+  return false;
+}
+
+// Is the point on consecrated *tiles* (a hallow's aura)? Like a font the hero
+// inscribes here while moving, and like a shrine it inscribes on veiled/scarred
+// ground — the burn-on-the-run and safe-stand mercies in one.
+function inHallow(s: PgState, x: number, y: number): boolean {
+  return inNodeAura(s, x, y, "hallow", HALLOW_AURA);
+}
+
+// Is the point inside any drifting mist bank? A hero here is hidden from the
+// ranged watch and rouses wandering shades more slowly (see stepShades).
+function inMist(s: PgState, x: number, y: number): boolean {
+  return s.mists.some((m) => (x - m.x) ** 2 + (y - m.y) ** 2 <= m.r ** 2);
+}
+
+// The terrain speed multiplier for a body at a point: a mire bogs EVERY body
+// (hero and shades); a thicket snares only the shades. Multiplicative, so the
+// worst of overlapping fields compounds. 1 on open ground. Pure geometry.
+function terrainSpeedMul(s: PgState, x: number, y: number, isShade: boolean): number {
+  let mul = 1;
+  if (inNodeAura(s, x, y, "mire", MIRE_AURA)) mul *= MIRE_SLOW;
+  if (isShade && inNodeAura(s, x, y, "thicket", THICKET_AURA)) mul *= THICKET_SLOW;
+  return mul;
+}
+
+// Drift the mist banks and bounce them off the world edge (pure motion, like the
+// veils). They never block — they only matter where the hero stands (stepShades).
+function stepMists(s: PgState, dt: number): void {
+  for (const m of s.mists) {
+    m.x += (m.vx * dt) / 1000;
+    m.y += (m.vy * dt) / 1000;
+    if (m.x < m.r || m.x > s.w - m.r) { m.vx = -m.vx; m.x = clamp(m.x, m.r, s.w - m.r); }
+    if (m.y < m.r || m.y > s.h - m.r) { m.vy = -m.vy; m.y = clamp(m.y, m.r, s.h - m.r); }
+  }
 }
 
 // Kindle a dark dwelling alight: count it, mend the hero, and send its flame down
@@ -1587,18 +1874,89 @@ function stepMotes(s: PgState): void {
   s.motes = s.motes.filter((m) => m.until > s.elapsed);
 }
 
+// Continuous ally/hazard ground (the parent's scorch ethos, made fixed terrain):
+// cinder-ground, bonfires and lanterns all burn shades standing in their aura
+// every frame, charge-independent (they answer no one). A still-shielded elite
+// shrugs the burn off — only a full pulse breaks the shield, as with every ground
+// burn. The single emitter path, so all three read the same.
+function stepFields(s: PgState, dt: number): void {
+  const EMITTERS: [NodeKind, number, number][] = [
+    ["cinder", CINDER_AURA, CINDER_DPS],
+    ["bonfire", BONFIRE_AURA, BONFIRE_DPS],
+    ["lantern", LANTERN_AURA, LANTERN_DPS],
+  ];
+  for (const [kind, aura, dps] of EMITTERS) {
+    const a2 = aura * aura, dmg = (dps * dt) / 1000;
+    for (const n of s.scenery) {
+      if (n.kind !== kind) continue;
+      for (const e of s.shades) {
+        if (e.dead || e.shielded) continue;
+        if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= a2) {
+          e.hp -= dmg;
+          e.hit = s.elapsed + SHADE_HIT_MS;
+          if (e.hp <= 0) killShade(s, e);
+        }
+      }
+    }
+  }
+}
+
+// Ember vents erupt on their own cadence: every VENT_CD a burst burns every
+// unshielded shade within VENT_RADIUS (charge-independent) and flashes a ring.
+// Each vent seeds its own clock the first time it is stepped, so they don't all
+// fire in lockstep. A timed hazard the host can be lured onto.
+function stepVents(s: PgState, dt: number): void {
+  void dt; // cadence is read off s.elapsed, not accumulated here
+  for (const n of s.scenery) {
+    if (n.kind !== "vent") continue;
+    if (n.ventAt === undefined) { n.ventAt = s.elapsed + VENT_CD; continue; }
+    if (s.elapsed < n.ventAt) continue;
+    n.ventAt = s.elapsed + VENT_CD;
+    const vr2 = VENT_RADIUS ** 2;
+    for (const e of s.shades) {
+      if (e.dead || e.shielded) continue;
+      if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= vr2) {
+        e.hp -= VENT_DMG;
+        e.hit = s.elapsed + SHADE_HIT_MS;
+        if (e.hp <= 0) killShade(s, e);
+      }
+    }
+    s.novas.push({ x: n.x, y: n.y, r: VENT_RADIUS, until: s.elapsed + NOVA_FX_MS });
+  }
+}
+
+// Relic caches — the hero's body reaching an un-cracked cache breaks it open for
+// an ember SURGE (snap the sigil full and open the same damage window a gathered
+// mote grants), then the cache is spent. The mote reward, placed on the map.
+function stepCaches(s: PgState): void {
+  const h = s.hero;
+  const rr = (HERO_RADIUS + CACHE_REACH) ** 2;
+  for (const n of s.scenery) {
+    if (n.kind !== "cache" || n.spent) continue;
+    if ((n.x - h.x) ** 2 + (n.y - h.y) ** 2 <= rr) {
+      n.spent = true;
+      s.penta.charge = 1;
+      s.surgeUntil = s.elapsed + MOTE_SURGE_MS;
+    }
+  }
+}
+
 // Shades wander their post until the hero comes near (sticky aggro), then chase,
 // separating from one another so a crowd swarms instead of stacking into a point.
 // Once only a handful remain, the rest rouse so a clear always reaches its end.
 function stepShades(s: PgState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveShades(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  // A hero standing in mist is harder to find: wandering shades rouse from a
+  // shrunken aggro range, and the ranged watch holds fire (checked per-spitter).
+  const heroHidden = inMist(s, h.x, h.y);
+  const aggro2 = (AGGRO_RADIUS * (heroHidden ? MIST_AGGRO_MUL : 1)) ** 2;
   for (const e of s.shades) {
     if (e.dead) continue;
 
     // Rouse on proximity (or the cleanup sweep). Aggro never settles back.
     if (e.state === "wander") {
-      if (cleanup || (h.x - e.x) ** 2 + (h.y - e.y) ** 2 <= AGGRO_RADIUS ** 2) {
+      if (cleanup || (h.x - e.x) ** 2 + (h.y - e.y) ** 2 <= aggro2) {
         e.state = "chase";
       }
     }
@@ -1625,7 +1983,7 @@ function stepShades(s: PgState, dt: number): void {
         if (dist < SPITTER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
         else if (dist <= SPITTER_STANDOFF * 1.15) { speed = 0; }
         e.cooldown = (e.cooldown ?? 0) - dt;
-        if (e.cooldown <= 0 && dist <= SPITTER_RANGE) {
+        if (e.cooldown <= 0 && dist <= SPITTER_RANGE && !heroHidden) {
           const ax = h.x - e.x, ay = h.y - e.y, ad = Math.hypot(ax, ay) || 1;
           s.bolts.push({ x: e.x, y: e.y, vx: (ax / ad) * BOLT_SPEED, vy: (ay / ad) * BOLT_SPEED, born: s.elapsed });
           e.cooldown = SPITTER_COOLDOWN_MS;
@@ -1666,9 +2024,23 @@ function stepShades(s: PgState, dt: number): void {
       dx = Math.cos(e.wanderAngle); dy = Math.sin(e.wanderAngle);
       speed = SHADE_WANDER_SPEED;
     }
+    // Terrain bogs the step: a mire slows every body, a thicket snares the shades.
+    speed *= terrainSpeedMul(s, e.x, e.y, true);
     e.vx = dx * speed; e.vy = dy * speed;
     const p = pushOut(s, e.x + (e.vx * dt) / 1000, e.y + (e.vy * dt) / 1000, SHADE_RADIUS);
     e.x = p.x; e.y = p.y;
+
+    // A wind-vent (gust) shoves a shade steadily outward while it stands in the
+    // aura — the hero, anchored by the flame, is unmoved. Opens a no-go lane.
+    for (const g of s.scenery) {
+      if (g.kind !== "gust") continue;
+      const gx = e.x - g.x, gy = e.y - g.y, gd = Math.hypot(gx, gy);
+      if (gd > 0 && gd < GUST_AURA) {
+        const push = (GUST_PUSH * dt) / 1000;
+        const gp = pushOut(s, e.x + (gx / gd) * push, e.y + (gy / gd) * push, SHADE_RADIUS);
+        e.x = gp.x; e.y = gp.y;
+      }
+    }
 
     // A shade brushing a lit dwelling snuffs it back to dark — unless that dwelling
     // stands on consecrated ground: a shrine's aura, or a consecration ring the
@@ -1943,7 +2315,9 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   const onPath = s.pathways.some(
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= PATHWAY_HALF,
   );
-  const speed = HERO_SPEED * (onPath ? PATHWAY_BOOST : 1);
+  // A pathway speeds the hero; a mire bogs them (terrainSpeedMul, hero = not a shade,
+  // so a thicket leaves them be). The two compose — a boosted lane through a bog.
+  const speed = HERO_SPEED * (onPath ? PATHWAY_BOOST : 1) * terrainSpeedMul(s, h.x, h.y, false);
   h.vx = move.x * speed;
   h.vy = move.y * speed;
   {
@@ -1975,7 +2349,10 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // snuffed dwelling's scar bars *relighting* that dwelling, not the hero's own
   // sigil — the parent's asymmetry — so it never traps a hero standing on it.)
   stepVeils(s, dt);
-  const veiled = inVeil(s, h.x, h.y) && !inShrineAura(s, h.x, h.y);
+  stepMists(s, dt); // drift the fog banks (cover read in stepShades)
+  // Consecrated ground — a shrine's aura OR a hallow's tiles — lets the hero
+  // inscribe even inside a veil pool (the veil's unravel is overridden).
+  const veiled = inVeil(s, h.x, h.y) && !inShrineAura(s, h.x, h.y) && !inHallow(s, h.x, h.y);
 
   // Stand still on clean ground and the sigil inscribes itself; move and it fades.
   // Standing in a veil pool UNRAVELS it instead — charge bleeds away fast — so a
@@ -1984,7 +2361,9 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   // inscribes regardless of speed (still barred by a veil pool, as anywhere else).
   // A pathway is a processional: walking a lane keeps inscribing, but only at
   // PATHWAY_INSCRIBE_MUL of the still-rate, so standing clean stays the fastest fill.
-  const onFont = inFontAura(s, h.x, h.y);
+  // A lightwell (font) OR a hallow's tiles feed the flame even while moving — in
+  // either aura the hero inscribes regardless of speed (still barred by a veil).
+  const onFont = inFontAura(s, h.x, h.y) || inHallow(s, h.x, h.y);
   if (veiled) {
     s.penta.charge = Math.max(0, s.penta.charge - (VEIL_DRAIN_MUL * dt) / s.fxCharge);
   } else if (Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED || onFont) {
@@ -1996,15 +2375,25 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   }
   s.penta.angle = (s.penta.angle + dt * PENTA_SPIN) % 360;
 
-  // Gather any ember mote underfoot last, so its snap-to-full and surge land on
-  // this frame's pulse rather than the next.
+  // A healing spring slowly mends the hero while they stand in its water — gated by
+  // the same HEAL_CAP as relighting, so it tops you up but can't facetank a swarm.
+  if (inNodeAura(s, h.x, h.y, "spring", SPRING_AURA)) {
+    const ceil = Math.max(h.hp, h.maxHp * HEAL_CAP);
+    h.hp = Math.min(ceil, h.hp + (SPRING_HEAL_DPS * dt) / 1000);
+  }
+
+  // Gather any ember mote (or crack a relic cache) underfoot last, so the snap-to-
+  // full and surge land on this frame's pulse rather than the next.
   stepMotes(s);
+  stepCaches(s);
 
   stepShades(s, dt);
   stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
   stepObelisks(s);   // ward shades near standing obelisks (and crack one underfoot)
   stepPentagram(s, dt);
   stepRings(s, dt);  // consecration rings chip shades on warded ground, then fade
+  stepFields(s, dt); // cinder/bonfire/lantern emitters burn shades in their auras
+  stepVents(s, dt);  // ember vents erupt on their cadence
   stepSpread(s);     // advance any conduit relays whose travel time has elapsed
   stepDwellings(s);  // mature lit dwellings into awakened ally emitters
   stepPress(s);      // a press by the hero, at full charge, fires its cascade
@@ -2576,9 +2965,18 @@ function pentagramPath(cx: number, cy: number, r: number, rotDeg: number): strin
 const SCENERY_SPRITE: Record<NodeKind, string> = {
   dwelling: "dwelling-dark", conduit: "conduit", press: "press",
   shrine: "shrine", keeper: "keeper-node", font: "font", obelisk: "obelisk",
+  // The expanded maps' kinds. No PNGs ship for these yet; each falls back to a
+  // procedural primitive (see the render section), so the sprite name is only a
+  // hook for future art (spriteFor returns null until then).
+  bonfire: "bonfire", pillar: "pillar", statue: "statue", barrow: "barrow",
+  cinder: "cinder", mire: "mire", thicket: "thicket", hallow: "hallow",
+  lantern: "lantern", cache: "cache", spring: "spring", vent: "vent", gust: "gust",
 };
 const SCENERY_SIZE: Record<NodeKind, number> = {
   dwelling: 64, conduit: 56, press: 78, shrine: 70, keeper: 0, font: 68, obelisk: 76,
+  bonfire: 72, pillar: 44, statue: 60, barrow: 80,
+  cinder: 60, mire: 60, thicket: 60, hallow: 60,
+  lantern: 48, cache: 44, spring: 56, vent: 56, gust: 56,
 };
 
 // Resolve a node's sprite name from its live state: a dwelling shows its dark/
@@ -2782,6 +3180,79 @@ function renderBossScene(s: PgState, layer: SVGGElement): void {
   layer.appendChild(el("rect", { x: b.cx - bw / 2, y: by, width: bw * hpFrac, height: 7, fill: "#b46cff", opacity: 0.95 }));
 }
 
+// Draw one of the expanded maps' new terrain/obstacle nodes procedurally. Returns
+// true when it handled `n` (so the scenery loop skips its generic path). No PNGs
+// ship for these yet — each reads as a coloured aura (where it has a reach) plus a
+// distinct body, so the new vocabulary is legible without art. Pure render.
+function renderNewTerrain(s: PgState, n: ArenaNode, layer: SVGGElement): boolean {
+  const aura = (r: number, color: string, op: number, dash = "4 10") =>
+    layer.appendChild(el("circle", {
+      cx: n.x, cy: n.y, r, fill: "none", stroke: color,
+      "stroke-width": 1.4, "stroke-dasharray": dash, opacity: op,
+    }));
+  const disc = (r: number, fill: string, op = 1) =>
+    layer.appendChild(el("circle", { cx: n.x, cy: n.y, r, fill, opacity: op }));
+  const solidRing = () => layer.appendChild(el("circle", {
+    cx: n.x, cy: n.y, r: OBSTACLE_RADIUS[n.kind] || 0, fill: "none",
+    stroke: "#3a3050", "stroke-width": 1.5, opacity: 0.4,
+  }));
+  const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
+  switch (n.kind) {
+    case "bonfire": { // solid pyre + permanent burn aura
+      aura(BONFIRE_AURA * pulse, "#ffb24a", 0.22, "2 8");
+      disc(BONFIRE_AURA, "url(#haloAwake)", 0.1);
+      disc(16, "#3a1606"); disc(11, "#ff7a1e", 0.95); disc(6, "#ffe6a0");
+      solidRing(); return true;
+    }
+    case "pillar": { disc(12, "#2a2740"); disc(8, "#454063", 0.9); solidRing(); return true; }
+    case "statue": { disc(16, "#23263a"); disc(11, "#3c4258", 0.9); solidRing(); return true; }
+    case "barrow": { disc(24, "#1c160f"); disc(16, "#2e2417", 0.95); disc(8, "#3d3120", 0.9); solidRing(); return true; }
+    case "cinder": { // burning ground — scorches shades
+      aura(CINDER_AURA, "#ff7a2e", 0.22, "3 7");
+      disc(CINDER_AURA, "#3a1404", 0.12);
+      disc(9, "#ff6a1e", 0.9); disc(4, "#ffd27a"); return true;
+    }
+    case "mire": { // bog — slows everything
+      disc(MIRE_AURA, "#1b2417", 0.22); aura(MIRE_AURA, "#5a6b3a", 0.2, "2 10");
+      disc(8, "#2c3a22", 0.9); return true;
+    }
+    case "thicket": { // briars — slow shades
+      aura(THICKET_AURA, "#5fae5a", 0.22, "5 8");
+      disc(THICKET_AURA, "#13210f", 0.1); disc(8, "#244a1e", 0.9); return true;
+    }
+    case "hallow": { // consecrated tiles — inscribe on the move & on dark ground
+      aura(HALLOW_AURA, "#ffe39a", 0.22, "2 9");
+      aura(HALLOW_AURA * 0.7, "#9fe8c4", 0.16, "4 10");
+      disc(8, "#caa84a", 0.9); return true;
+    }
+    case "lantern": { // small passable ally emitter
+      aura(LANTERN_AURA * pulse, "#ffd27a", 0.22, "2 8");
+      disc(LANTERN_AURA, "url(#haloAwake)", 0.08);
+      disc(8, "#3a2a10"); disc(5, "#ffce7a"); return true;
+    }
+    case "cache": { // relic hoard — an ember surge once
+      const op = n.spent ? 0.3 : 1;
+      disc(11, "#2a2208", op); disc(7, n.spent ? "#5a4a20" : "#ffcf5a", op);
+      if (!n.spent) disc(3, "#fff4c8"); return true;
+    }
+    case "spring": { // healing water
+      aura(SPRING_AURA, "#7ad0ff", 0.22, "3 9");
+      disc(SPRING_AURA, "#0c1c2a", 0.12); disc(9, "#173247", 0.9); disc(5, "#9fe0ff", 0.9); return true;
+    }
+    case "vent": { // ember vent — timed eruption; flares as it nears firing
+      const due = n.ventAt !== undefined ? clamp((n.ventAt - s.elapsed) / VENT_CD, 0, 1) : 1;
+      aura(VENT_RADIUS, "#ff5a3a", 0.16 + 0.2 * (1 - due), "4 6");
+      disc(10, "#2a0c06"); disc(5, "#ff5a2a", 0.95); return true;
+    }
+    case "gust": { // wind-vent — repels shades
+      aura(GUST_AURA * pulse, "#bcd6ff", 0.2, "6 10");
+      aura(GUST_AURA * 0.6, "#bcd6ff", 0.14, "6 10");
+      disc(7, "#2a3242", 0.9); return true;
+    }
+    default: return false;
+  }
+}
+
 function render(s: PgState, layer: SVGGElement): void {
   layer.innerHTML = "";
 
@@ -2818,6 +3289,17 @@ function render(s: PgState, layer: SVGGElement): void {
     layer.appendChild(el("circle", {
       cx: v.x, cy: v.y, r: v.r, fill: "none",
       stroke: "#2a1840", "stroke-width": 1.5, "stroke-dasharray": "5 9", opacity: 0.5,
+    }));
+  }
+
+  // Mist banks — drifting fog the hero hides in (the watch loses sight). A pale,
+  // soft cloud with a faint rim, drawn low on the ground like the veils.
+  for (const m of s.mists) {
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: m.r, fill: "#cfd8e8", opacity: 0.1 }));
+    layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: m.r * 0.66, fill: "#e6edf7", opacity: 0.08 }));
+    layer.appendChild(el("circle", {
+      cx: m.x, cy: m.y, r: m.r, fill: "none",
+      stroke: "#aeb9cc", "stroke-width": 1.2, "stroke-dasharray": "3 11", opacity: 0.3,
     }));
   }
 
@@ -2980,6 +3462,10 @@ function render(s: PgState, layer: SVGGElement): void {
   for (const n of s.scenery) {
     if (n.kind === "keeper") continue;
     const solid = OBSTACLE_KINDS.has(n.kind);
+    // The expanded maps' new terrain & obstacles — drawn procedurally (no PNGs ship
+    // for them yet): an aura ring for the zones/emitters, a distinct body for each,
+    // and a solid edge-ring for the four obstacles. Handled here and skipped below.
+    if (renderNewTerrain(s, n, layer)) continue;
     // Consecrated ground — a faint protective ring marking a shrine's snuff-proof aura.
     if (n.kind === "shrine") {
       layer.appendChild(el("circle", {
@@ -4027,7 +4513,7 @@ function start(): void {
       `<div><dt>${label}</dt><dd>${val}</dd></div>`;
     // The story beat for this cleansing: the whole journey done plays the
     // epilogue; otherwise, finishing a city opens the road to the next (and says
-    // so), threading the seven descents into one tale.
+    // so), threading the descents into one tale.
     const idx = LEVELS.indexOf(s.level);
     const next = LEVELS[idx + 1];
     const allDone = LEVELS.every((lv) => l.best[lv.id]);
@@ -4521,7 +5007,8 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
   testGlobal.__pg = {
     generateCity, resolveDistricts, buildArena, freshPg, stepCombat, stepShades, stepBolts, stepPentagram,
-    stepVeils, inVeil, stepMotes, killShade, weaveVeils,
+    stepVeils, inVeil, stepMotes, killShade, weaveVeils, weaveMists,
+    stepMists, inMist, inHallow, inNodeAura, terrainSpeedMul, stepFields, stepVents, stepCaches,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
     stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
@@ -4556,6 +5043,11 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       HEALER_HP, HEALER_STANDOFF, HEALER_SPEED_MUL, HEALER_RANGE, HEALER_HEAL, HEALER_COOLDOWN_MS,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
+      BONFIRE_AURA, BONFIRE_DPS, LANTERN_AURA, LANTERN_DPS,
+      CINDER_AURA, CINDER_DPS, MIRE_AURA, MIRE_SLOW, THICKET_AURA, THICKET_SLOW,
+      HALLOW_AURA, SPRING_AURA, SPRING_HEAL_DPS, CACHE_REACH,
+      VENT_CD, VENT_RADIUS, VENT_DMG, GUST_AURA, GUST_PUSH,
+      MIST_RADIUS, MIST_DRIFT, MIST_AGGRO_MUL,
       BOSS_RING_R, BOSS_HP, BOSS_BITE_MS, BOSS_BITE_DMG, BOSS_BITE_RAMP, BOSS_KEY_COST,
       BOSS_VEILS_BASE, BOSS_VEILS_DIFF, BOSS_VEIL_R, BOSS_VEIL_DRIFT, BOSS_VEIL_UNRAVEL,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS, TRACE_FLASH_MS,
