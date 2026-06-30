@@ -1,0 +1,32 @@
+ASSET: path.png — a village lane tile (seamless horizontal tile)
+OUTPUT: art/path.png
+FORMAT: 1024×1024, square, SEAMLESS HORIZONTAL TILING texture, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate on a flat solid #070912 (deep night-indigo) background
+  where the lane itself doesn't cover it.
+- The render TILES this sprite down the length of each lane segment, so it must be
+  SEAMLESSLY TILEABLE LEFT-TO-RIGHT: the left and right edges must wrap perfectly
+  with no visible seam. One row tall is all that shows (the tile's height is the
+  lane's width), so let the top and bottom edges fade toward the dark background.
+  Do not center a single feature — design it to repeat into a continuous track.
+- The lane only speeds the hero (it is not a special hunting surface for the
+  watch) — it should read as a CLEARED, OPEN track, inviting a fast run down it.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); warm hearth-amber (#ffcf7a) only as a faint hint of distant lantern-
+light. Soft painterly edges, subtle grain, no outlines, no photorealism. Top-down
+~60° three-quarter view, matching the base sprite set.
+
+--- PROMPT ---
+A seamless horizontally-tiling top-down texture of a worn dirt village lane: hard
+packed earth running left to right across the frame, two shallow parallel cart-
+rut grooves, frost-rimed grass verges at the edges, pale cold moonlight glinting
+off a thin film of rime on the path. An open, unobstructed track meant to be run
+down fast. The left and right edges must wrap seamlessly so the lane repeats
+endlessly when tiled. The top and bottom edges fade down into deep night-indigo
+#070912. No people, no carts, no text. 1024×1024.

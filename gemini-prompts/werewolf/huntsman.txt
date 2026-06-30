@@ -1,0 +1,27 @@
+ASSET: huntsman.png — a village huntsman, the watch's ranged threat
+OUTPUT: art/huntsman.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- A small game sprite: keep the silhouette readable at small sizes. He NEVER
+  melees — he holds a standoff and looses dodgeable silver-tinged bolts. He must
+  read clearly as a RANGED threat: a drawn crossbow, not a blade, and a watchful,
+  scanning stance rather than a charge.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) glinting on a silvered bolt-tip;
+warm hearth-amber (#ffcf7a) at his belt-lantern. Soft painterly edges, subtle
+grain, no outlines, no photorealism. Three-quarter top-down (about 60°), isolated
+on a flat solid #070912 background.
+
+--- PROMPT ---
+A village huntsman in worn leather and fur, crouched low and watchful, a loaded
+crossbow raised and aimed, a single silvered bolt catching cold moonlight at its
+tip, eyes scanning the treeline. Wary, patient, deadly at range — he holds his
+ground rather than closing in. A small lantern hooded at his belt. The watch's
+only projectile threat, distinct from the knight's heavy steel.

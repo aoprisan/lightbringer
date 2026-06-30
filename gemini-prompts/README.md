@@ -16,6 +16,7 @@ top level) and `../ART_PLAN.md` (the original-game base sprites, `base/`).
 | `gemini-prompts/base/` | The original Light-Bringer's base sprite prompts (ground, the four dwelling states, conduit/press/shrine, the Keepers, lantern, scar, flame, weather) — see `../ART_PLAN.md` |
 | `gemini-prompts/necro/` | The Necromancer's March undead sprites + village art (and the walk-cycle image-edit scripts) |
 | `gemini-prompts/{ashfold,drowned,glassworks,vesper}/` | The eight re-skinnable sprites per city (the split form of the `09*` prompts) |
+| `gemini-prompts/werewolf/` | The Moon's Hunger sprites (man/wolf hero, watch, scenery) + village establishing art |
 
 Raw, unoptimized PNGs that Gemini emits go in **`../art-prompts-output/`** (kept
 out of this folder so prompts and outputs stay cleanly separated); the per-city
@@ -103,3 +104,52 @@ falls back to the procedural lines — so you can drop either file in and it
 appears, no code change. Like the city sprites they are **optional and so NOT in
 `sw.js` `ASSETS`** (a 404 there breaks the whole offline install); when you ship
 them, add `./art/pathway.png` / `./art/fence.png` to `ASSETS` and bump `CACHE`.
+
+The `werewolf/` folder covers The Moon's Hunger (`werewolf.ts`), which currently
+ships with **zero gameplay PNGs** (only its procedurally-generated PWA icons are
+in `sw.js`). It is the exact set `werewolf.ts`'s `SPRITE_NAMES` probes for, so
+dropping any subset of these files into `art/` makes them appear immediately —
+no code change needed, the loader (`loadSprites`/`spriteFor`) already silently
+falls back to the procedural render for whatever's missing:
+
+| File | What it makes |
+| --- | --- |
+| `ground.txt` | Village/track ground tile (seamless, `art/ground.png`) |
+| `field.txt` | Small moor-scrub clutter, the most common scenery point (`art/field.png`) |
+| `stone.txt` | Standing stone, a solid obstacle (`art/stone.png`) |
+| `cottage.txt` | Thatched dwelling, a solid obstacle (`art/cottage.png`) |
+| `cairn.txt` | Cairn — dormant/unclaimed state (`art/cairn.png`) |
+| `cairn-marked.txt` | Cairn — claimed as the wolf's den (`art/cairn-marked.png`) |
+| `cairn-cleansed.txt` | Cairn — scoured clean by a hunter (`art/cairn-cleansed.png`) |
+| `moonwell.txt` | Moonwell — a pool the moon always reaches (`art/moonwell.png`) |
+| `wall.txt` | Hedgerow/drystone wall tile (seamless, `art/wall.png`) |
+| `path.txt` | Village lane tile (seamless, `art/path.png`) |
+| `wolf-human.txt` | The hero, MAN form — the player avatar (`art/wolf-human.png`) |
+| `wolf-beast.txt` | The hero, WOLF form — the player avatar (`art/wolf-beast.png`) |
+| `villager.txt` | Fleeing villager, common prey (`art/villager.png`) |
+| `hound.txt` | Fleeing watch-hound, fast/frail prey (`art/hound.png`) |
+| `knight.txt` | Armed knight, the watch's heavy melee (`art/knight.png`) |
+| `huntsman.txt` | Crossbowman, the watch's ranged threat (`art/huntsman.png`) |
+| `friar.txt` | Friar, the watch's anti-werewolf caster (`art/friar.png`) |
+| `village-thornwick.txt` | Village card — Thornwick (`art/village-thornwick.jpg`) |
+| `village-greymoor.txt` | Village card — Greymoor (`art/village-greymoor.jpg`) |
+| `village-hollowby.txt` | Village card — Hollowby (`art/village-hollowby.jpg`) |
+| `village-wulfmere.txt` | Village card — Wulfmere (`art/village-wulfmere.jpg`) |
+
+The house palette is its own identity, distinct from the Vigil's gold and Necro's
+necrotic green: deep night-indigo (`#070912`) and pale ice-blue moonlight
+(`#cfe0ff`), blood-curse red (`#c83344`/`#ff6a7a`) reserved for the wolf and its
+mark, and warm hearth-amber (`#ffcf7a`) reserved for the human village and its
+watch — a mortal warmth set against the cold curse. `wolf-human.png` and
+`wolf-beast.png` are the same cursed character in two states and share a single
+visual thread (a dark travelling cloak, intact on the man, torn to a scrap on the
+wolf) so the transformation reads as one soul, not two creatures. The four
+village cards cover the four villages whose `LevelDef` already sets an `art`
+path (`thornwick`/`greymoor`/`hollowby`/`wulfmere`); the four Outlands villages
+(`ashthorn`/`mirefen`/`galehead`/`direhollow`) don't yet have an `art` field
+wired up, and the expanded terrain vocabulary (pyres, bogs, glades, woods, etc.)
+is deliberately **procedural-only** per `werewolf.ts` — no PNGs are planned for
+those. Like the other establishing cards, the village cards are optional and
+**not** in `sw.js` `ASSETS`; the point sprites above ARE the game's only
+gameplay art, so once you ship any of them, add the corresponding `art/*.png`
+to `ASSETS` and bump `CACHE`.

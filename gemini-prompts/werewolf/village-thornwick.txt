@@ -1,0 +1,30 @@
+ASSET: village-thornwick.jpg — establishing card for Thornwick (the first hunt)
+OUTPUT: art/village-thornwick.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- Thornwick is the FAIR FIRST HUNT: small, sleepy, snow-bound, the watch few and
+  slow to rouse. This should feel quiet and almost gentle compared to the later
+  villages — an easy, inviting opening, not yet dangerous.
+- This is a snow-bound, winter village (the only one) — cold, frosted, hushed.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, a fog-bound, frost-edged 13th-
+century English village under a blood-marked hunter's moon, woodcut-and-
+illuminated-manuscript meets minimal poster art. Palette: deep night-indigo
+(#070912), slate mist-blue (#1a223c), snow-pale moonlight silver-white (#e6eaf6)
+with a cold ice-blue glow (#cfe0ff); a few scattered warm hearth-amber (#ffcf7a)
+window-lights, sparse and far apart. High contrast, deep negative darkness, soft
+volumetric glow, subtle grain. No outlines, no photorealism. Wide 16:9, low
+horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Thornwick, a small thatched holt seen from a high
+three-quarter angle: a handful of snow-laden cottages and standing stones huddled
+together, deep snow blanketing the greens, thin grey moonlight filtering through
+drifting mist. A scatter of dry-stone cairns sits dark and unclaimed at the
+hamlet's edge. Only a few faint amber window-lights show — the watch is thin and
+the village sleeps soundly, unaware. Quiet, hushed, gentle — a fair first hunt.
+Wide 16:9 cinematic composition, deep negative darkness around a low horizon.

@@ -1,0 +1,35 @@
+ASSET: wall.png — a hedgerow/drystone wall tile (seamless horizontal tile)
+OUTPUT: art/wall.png
+FORMAT: 1024×1024, square, SEAMLESS HORIZONTAL TILING texture, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate on a flat solid #070912 (deep night-indigo) background
+  where the wall itself doesn't cover it.
+- The render TILES this sprite down the length of each wall segment, so it must be
+  SEAMLESSLY TILEABLE LEFT-TO-RIGHT: the left and right edges must wrap perfectly
+  with no visible seam. One row tall is all that shows (the tile's height is the
+  wall's drawn thickness), so let the top and bottom edges fade toward the dark
+  background. Do not center a single feature — design it to repeat endlessly.
+- This wall blocks BOTH bodies (hero and watch) AND line of sight/bolts — it must
+  read as a genuinely SOLID barrier, taller and denser than a simple hedge border,
+  the kind of cover a huntsman's bolt cannot punch through.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); warm hearth-amber (#ffcf7a) only as a faint hint of distant lantern-
+light catching the near face. Soft painterly edges, subtle grain, no outlines, no
+photorealism. Top-down ~60° three-quarter view, matching the base sprite set.
+
+--- PROMPT ---
+A seamless horizontally-tiling top-down texture of a dense hedgerow-and-drystone
+field boundary: a tangled hawthorn hedge interwoven with old grey fieldstones,
+bare thorny branches rimed with frost, packed dense and unbroken, running left to
+right across the frame. A faint cold ice-blue moonlight along its upper edge, a
+hint of warm amber lantern-glow catching the near face. Clearly impassable — a
+wall that stops bodies, bolts, and sightlines alike. The left and right edges
+must wrap seamlessly so the hedge repeats endlessly when tiled. The top and
+bottom edges fade down into deep night-indigo #070912. No gaps, no people, no
+text. 1024×1024.

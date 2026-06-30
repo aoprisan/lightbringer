@@ -1,0 +1,31 @@
+ASSET: village-wulfmere.jpg — establishing card for Wulfmere (the drowned fen-village)
+OUTPUT: art/village-wulfmere.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- Wulfmere is the HARDEST and most populous of the first four villages: a drowned
+  fen-village of black water and willow, the moon dead overhead, every soul of it
+  roused to hunt. This should feel waterlogged, oppressive, and crowded with
+  lantern-light — the most dangerous of the four at a glance.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, a fog-bound, frost-edged 13th-
+century English village under a blood-marked hunter's moon, woodcut-and-
+illuminated-manuscript meets minimal poster art. Palette: deep night-indigo
+(#070912), slate mist-blue (#1a223c), pale moonlight silver-white (#e6eaf6) with
+a cold ice-blue glow (#cfe0ff); a dense scatter of warm hearth-amber (#ffcf7a)
+lanterns across the water — the whole village awake and hunting. High contrast,
+deep negative darkness, soft volumetric glow, subtle grain. No outlines, no
+photorealism. Wide 16:9, low horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Wulfmere, a drowned fen-village seen from a high
+three-quarter angle: black still water threading between half-flooded cottages
+and weeping willows, standing stones rising from the marsh like teeth, thick fog
+hugging the waterline. The full moon hangs low and dim, almost swallowed by
+cloud. Many small amber lanterns dot the water's edge and the willow-shadowed
+paths — far more than any other village, every soul roused. Oppressive,
+waterlogged, dangerous. Wide 16:9 cinematic composition, deep negative darkness
+around a low horizon.

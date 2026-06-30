@@ -1,0 +1,27 @@
+ASSET: field.png — a small tuft of moor scrub (the most common scenery clutter)
+OUTPUT: art/field.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the SMALLEST and most numerous scenery sprite (drawn at ~40px, scattered
+  everywhere) — a minor clutter object, not a landmark. Keep it simple and small
+  in frame so it reads as a tuft, not a bush.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A small clump of moor scrub: a low tuft of frost-rimed grass, dead heather, and a
+sprig of gorse, huddled close to the ground, touched with a thin crust of rime.
+Modest and unremarkable — one of countless small wild patches dotting the cold
+ground between the village's stones and cottages. Centered, compact, small in
+frame.

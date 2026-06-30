@@ -1,0 +1,25 @@
+ASSET: hound.png — a fleeing watch-hound, fast and frail prey
+OUTPUT: art/hound.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is PREY, not an attack-dog: faster than the villager but just as frail —
+  it flees and flocks rather than fighting. Keep the pose low, fast, and frightened,
+  ears pinned back, never snarling or lunging at the viewer.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6); a touch of warm hearth-amber
+(#ffcf7a) on its collar — the mark of a village animal, not a wild one. Soft
+painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A lean farm or watch hound, rough grey-brown coat, low to the ground and running
+flat-out, ears pinned back, tail tucked, a simple worn leather collar with a
+small amber charm. Frightened, fast, fragile — fleeing the thing that hunts the
+village, not hunting anything itself. Small and unmistakably an animal in flight.

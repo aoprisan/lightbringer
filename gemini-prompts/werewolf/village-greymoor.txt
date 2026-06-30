@@ -1,0 +1,29 @@
+ASSET: village-greymoor.jpg — establishing card for Greymoor (bleak moorland)
+OUTPUT: art/village-greymoor.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- Greymoor is bleak open moorland: gorse, standing stones, houndsmen coursing the
+  fog, bowmen waiting on the ridge. Wilder and more exposed than Thornwick — open
+  ground, few walls, fog rolling low.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, a fog-bound, frost-edged 13th-
+century English village under a blood-marked hunter's moon, woodcut-and-
+illuminated-manuscript meets minimal poster art. Palette: deep night-indigo
+(#070912), slate mist-blue (#1a223c), pale moonlight silver-white (#e6eaf6) with
+a cold ice-blue glow (#cfe0ff); scattered warm hearth-amber (#ffcf7a) lantern-
+light from huntsmen on the ridge. High contrast, deep negative darkness, soft
+volumetric glow, subtle grain. No outlines, no photorealism. Wide 16:9, low
+horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Greymoor, bleak open moorland seen from a high
+three-quarter angle: scattered gorse and a ring of ancient standing stones rising
+out of low-lying fog, a far ridge silhouetted against the moon where a line of
+huntsmen's lanterns burns faint amber. A scatter of unclaimed cairns sits cold
+among the stones. Thin fog courses low across the open ground, hiding and
+revealing in turns. Wild, exposed, watchful. Wide 16:9 cinematic composition,
+deep negative darkness around a low horizon.
