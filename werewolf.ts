@@ -548,18 +548,21 @@ interface LevelDef {
   hoardCount?: number;    // barrow-hoards — first-footing surges the curse
   woodsCount?: number;    // stands of trees — concealing cover (hide + dull aggro), the static cousin of mist
   sizeScale?: number;     // arena size = W/H × this (default 1); leans the difficulty
+  winter?: boolean;       // render-only: a snow-bound village (cold palette, frosted scenery).
+                          // Pure cosmetic — no rule changes, read solely by render().
 }
 
 const LEVELS: LevelDef[] = [
   {
     id: "thornwick",
     name: "Thornwick",
-    epigraph: "A small thatched holt under a thin grey moon. The watch is few and slow to rouse. A fair first hunt.",
+    epigraph: "A small thatched holt under a thin grey moon, its greens deep in snow. The watch is few and slow to rouse. A fair first hunt.",
     art: "art/village-thornwick.jpg",
     nodeCount: 110, minDist: 72,
     stoneCount: 4, cottageCount: 7, cairnCount: 6, moonwellCount: 2,
     greenCount: 5, greenSpacing: 360,
     wallCount: 7, pathCount: 6, mistCount: 3, woodsCount: 3, sizeScale: 0.9,
+    winter: true, // snow-bound first village — cold render palette, frosted scenery
   },
   {
     id: "greymoor",
@@ -1762,7 +1765,7 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
 }
 
 const SCENERY_SIZE: Record<NodeKind, number> = {
-  field: 40, stone: 48, cottage: 56, cairn: 44, moonwell: 60,
+  field: 40, stone: 48, cottage: 76, cairn: 44, moonwell: 60,
   pyre: 72, dolmen: 80, gibbet: 52, cart: 44,
   wisp: 44, marshfire: 60, bog: 60, bramble: 60, glade: 60,
   spring: 56, geyser: 56, gale: 56, wolfsbane: 52, hoard: 44, woods: 96,
@@ -1789,6 +1792,7 @@ const FOE_HUE: Record<FoeKind, string> = {
 // ship for these yet — each reads as a coloured aura (where it has a reach) plus a
 // distinct body, so the new vocabulary is legible without art. Pure render.
 function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean {
+  const winter = !!s.level.winter; // snow-bound village — frost the woods
   const aura = (r: number, color: string, op: number, dash = "4 10") =>
     layer.appendChild(el("circle", {
       cx: n.x, cy: n.y, r, fill: "none", stroke: color,
@@ -1802,12 +1806,21 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
   const solidRing = () => layer.appendChild(el("circle", {
     cx: n.x, cy: n.y, r: R, fill: "none", stroke: "#2c2a22", "stroke-width": 1.4, opacity: 0.4,
   }));
-  // A single tree — a brown trunk and a layered green canopy — offset from the node
-  // centre, so a stand of woods can cluster several into a thicket.
+  // A single tree — a thick brown trunk and a layered, brightly-lit green canopy —
+  // offset from the node centre, so a stand of woods can cluster several into a thicket.
+  // Drawn big and high-contrast so the woods read clearly against the gloom.
   const tree = (dx: number, dy: number, cr: number) => {
-    layer.appendChild(el("rect", { x: n.x + dx - 1.8, y: n.y + dy, width: 3.6, height: cr, fill: "#2e2114", opacity: 0.95 }));
-    layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#16301a", opacity: 0.96 }));
-    layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.28, cy: n.y + dy - cr * 0.28, r: cr * 0.55, fill: "#234a27", opacity: 0.92 }));
+    layer.appendChild(el("rect", { x: n.x + dx - 3, y: n.y + dy, width: 6, height: cr * 1.5, rx: 1.5, fill: "#3a2a18", opacity: 0.98 }));
+    if (winter) {
+      // a frosted evergreen — cool dark needles under a heavy cap of snow
+      layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#24463a", stroke: "#0a1a14", "stroke-width": 1.6, opacity: 0.98 }));
+      layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.24, cy: n.y + dy - cr * 0.30, r: cr * 0.62, fill: "#dfe9f2", opacity: 0.95 }));
+      layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.34, cy: n.y + dy - cr * 0.42, r: cr * 0.3, fill: "#ffffff", opacity: 0.9 }));
+    } else {
+      layer.appendChild(el("circle", { cx: n.x + dx, cy: n.y + dy, r: cr, fill: "#1d3f22", stroke: "#08160a", "stroke-width": 1.6, opacity: 0.98 }));
+      layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.26, cy: n.y + dy - cr * 0.30, r: cr * 0.6, fill: "#347a3a", opacity: 0.96 }));
+      layer.appendChild(el("circle", { cx: n.x + dx - cr * 0.34, cy: n.y + dy - cr * 0.40, r: cr * 0.3, fill: "#5aac5e", opacity: 0.88 }));
+    }
   };
   const pulse = 1 + 0.06 * Math.sin(s.elapsed / 240);
   switch (n.kind) {
@@ -1850,10 +1863,10 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
       return true;
     }
     case "woods": { // a stand of trees — concealing cover (hide + dull aggro)
-      aura(WOODS_AURA, "#2f5a34", 0.18, "5 12");
-      disc(WOODS_AURA, "#0b160c", 0.15); // forest shade pool out to the conceal radius
-      tree(-30, 8, 17); tree(26, 16, 19); tree(2, -26, 18); tree(-14, 36, 14); tree(36, -20, 15);
-      tree(-62, -10, 13); tree(60, 38, 14); tree(-44, 54, 12); tree(54, -48, 13); tree(8, 70, 12);
+      aura(WOODS_AURA, winter ? "#8fb0d0" : "#3a7040", 0.26, "5 12");
+      disc(WOODS_AURA, winter ? "#0c1420" : "#0b160c", 0.2); // forest shade pool out to the conceal radius
+      tree(-34, 10, 24); tree(30, 20, 27); tree(2, -30, 26); tree(-16, 42, 20); tree(42, -24, 21);
+      tree(-66, -12, 19); tree(64, 44, 20); tree(-48, 60, 18); tree(58, -52, 19); tree(10, 78, 18);
       return true;
     }
     default: return false;
@@ -1863,24 +1876,40 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
 function render(s: WwState, layer: SVGGElement): void {
   layer.innerHTML = "";
   const night = moonlightOf(s.moon);
+  const winter = !!s.level.winter; // a snow-bound village — cold palette, frosted scenery
 
-  // Ground — the village floor (or solid gloom if the art isn't loaded).
+  // Ground — the village floor. A winter village lays a cold moonlit-snow field over
+  // the gloom (lighter, so the dark watch reads against it); otherwise the dirt floor
+  // (or solid gloom if the art isn't loaded).
   const hasGround = sprites.has("ground");
-  layer.appendChild(el("rect", {
-    x: 0, y: 0, width: s.w, height: s.h,
-    fill: hasGround ? "url(#groundPat)" : "#10131a", opacity: hasGround ? 0.5 : 1,
-  }));
+  if (winter) {
+    layer.appendChild(el("rect", { x: 0, y: 0, width: s.w, height: s.h, fill: "#6e7a90" }));
+    // a faint brighter drift across the snow, so the field isn't a flat slab
+    layer.appendChild(el("ellipse", {
+      cx: s.w * 0.5, cy: s.h * 0.42, rx: s.w * 0.62, ry: s.h * 0.5,
+      fill: "#8794a8", opacity: 0.5,
+    }));
+    if (hasGround) layer.appendChild(el("rect", {
+      x: 0, y: 0, width: s.w, height: s.h, fill: "url(#groundPat)", opacity: 0.16,
+    }));
+  } else {
+    layer.appendChild(el("rect", {
+      x: 0, y: 0, width: s.w, height: s.h,
+      fill: hasGround ? "url(#groundPat)" : "#10131a", opacity: hasGround ? 0.5 : 1,
+    }));
+  }
 
-  // Paths — the village lanes beneath the built world.
+  // Paths — the village lanes beneath the built world. In winter they read as trodden
+  // tracks through the snow (a darker slush bed, footprints lighter than the drift).
   for (const p of s.paths) {
     layer.appendChild(el("line", {
       x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
-      stroke: "#231f1a", "stroke-width": PATH_HALF * 2, "stroke-linecap": "round", opacity: 0.5,
+      stroke: winter ? "#566378" : "#231f1a", "stroke-width": PATH_HALF * 2, "stroke-linecap": "round", opacity: winter ? 0.6 : 0.5,
     }));
     layer.appendChild(el("line", {
       x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
-      stroke: "#4a4030", "stroke-width": 3, "stroke-linecap": "round",
-      "stroke-dasharray": "10 14", opacity: 0.45,
+      stroke: winter ? "#b6c2d4" : "#4a4030", "stroke-width": 3, "stroke-linecap": "round",
+      "stroke-dasharray": "10 14", opacity: winter ? 0.55 : 0.45,
     }));
   }
 
@@ -1892,7 +1921,7 @@ function render(s: WwState, layer: SVGGElement): void {
     }));
     layer.appendChild(el("line", {
       x1: f.x1, y1: f.y1, x2: f.x2, y2: f.y2,
-      stroke: "#3a4a28", "stroke-width": 2.5, "stroke-linecap": "round", opacity: 0.5,
+      stroke: winter ? "#d4dceb" : "#3a4a28", "stroke-width": 2.5, "stroke-linecap": "round", opacity: winter ? 0.7 : 0.5,
     }));
   }
 
@@ -1929,16 +1958,28 @@ function render(s: WwState, layer: SVGGElement): void {
     if (n.kind === "stone") {
       layer.appendChild(el("rect", {
         x: n.x - 10, y: n.y - 22, width: 20, height: 44, rx: 6,
-        fill: "#3a3f48", stroke: "#565f6a", "stroke-width": 1.5,
+        fill: winter ? "#525a66" : "#3a3f48", stroke: winter ? "#8a96a6" : "#565f6a", "stroke-width": 1.5,
+      }));
+      // a cap of snow on the standing stone's crown
+      if (winter) layer.appendChild(el("path", {
+        d: `M${n.x - 10} ${n.y - 16}Q${n.x} ${n.y - 26} ${n.x + 10} ${n.y - 16}L${n.x + 10} ${n.y - 22}Q${n.x} ${n.y - 27} ${n.x - 10} ${n.y - 22}Z`,
+        fill: "#e6ecf6", opacity: 0.92,
       }));
     } else if (n.kind === "cottage") {
+      // Body and roof span the collision radius (≈30) so the cottage reads as big as it
+      // blocks; brighter timber + a lit window make it legible in the night gloom. In
+      // winter the thatch wears a thick cap of snow and the warm window glows against it.
       layer.appendChild(el("rect", {
-        x: n.x - 18, y: n.y - 12, width: 36, height: 24, rx: 2,
-        fill: "#3a2c20", stroke: "#5a4632", "stroke-width": 1.5,
+        x: n.x - 26, y: n.y - 14, width: 52, height: 34, rx: 2,
+        fill: winter ? "#54504a" : "#4a3829", stroke: winter ? "#8a8278" : "#7a5e42", "stroke-width": 2.5,
       }));
       layer.appendChild(el("path", {
-        d: `M${n.x - 22} ${n.y - 10}L${n.x} ${n.y - 26}L${n.x + 22} ${n.y - 10}Z`,
-        fill: "#4a3a28", stroke: "#5a4632", "stroke-width": 1.5,
+        d: `M${n.x - 32} ${n.y - 11}L${n.x} ${n.y - 38}L${n.x + 32} ${n.y - 11}Z`,
+        fill: winter ? "#dfe7f2" : "#5e4830", stroke: winter ? "#aeb9cc" : "#7a5e42", "stroke-width": 2.5,
+      }));
+      layer.appendChild(el("rect", {
+        x: n.x - 6, y: n.y - 4, width: 12, height: 15, rx: 1,
+        fill: "#ffcf7a", opacity: 0.95, filter: "url(#glow)",
       }));
     } else if (n.kind === "moonwell") {
       layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 16, fill: "#1a2438", stroke: "#7e98d0", "stroke-width": 2 }));
@@ -1956,8 +1997,8 @@ function render(s: WwState, layer: SVGGElement): void {
         fill: "none", stroke: marked ? "#22262e" : "#6a727c", "stroke-width": 1.2, opacity: 0.9,
       }));
     } else {
-      // A field — a faint tuft, drawn sparsely.
-      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 4, fill: "#2a2e22", opacity: 0.5 }));
+      // A field — a faint tuft, drawn sparsely (a glint of snow in winter).
+      layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: 4, fill: winter ? "#cdd6e6" : "#2a2e22", opacity: winter ? 0.6 : 0.5 }));
     }
   }
 
