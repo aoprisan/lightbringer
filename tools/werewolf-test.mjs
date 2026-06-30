@@ -169,6 +169,7 @@ ok(wellFury > sCtl.hero.fury + 0.05, `a moonwell stokes fury at noon (${sCtl.her
 //    strike sets i-frames, counts the hit, knocks back. Aggro is wider for the beast.
 const s4 = ww.buildArena(ww.levelById(id));
 stowAll(s4);
+s4.mists = []; // isolate aggro: a drifting bank over the spawn would read the wolf as hidden
 beast(s4); // a wolf draws full aggro
 const eNear = s4.foes[0], eFar = s4.foes[1];
 park(eNear, s4.hero.x + K.FOE_AGGRO - 40, s4.hero.y);

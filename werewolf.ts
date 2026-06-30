@@ -158,7 +158,7 @@ const HERO_SPEED_HUMAN = 248;    // human travel, world units per second
 const HERO_SPEED_WOLF = 304;     // wolf travel — the beast runs faster
 const HERO_RADIUS = 16;
 const HERO_HP = 100;
-const HERO_IFRAMES_MS = 700;     // grace after a blow, no further damage
+const HERO_IFRAMES_MS = 600;     // grace after a blow, no further damage (the watch bites through sooner)
 const HERO_KNOCKBACK = 56;       // units the hero is shoved back by a blow
 
 // The maw — the wolf's weapon and the gate on every rending. Standing still TRACES
@@ -172,7 +172,7 @@ const MAW_BITE_AT = 0.6;         // the maw rends once at least this traced
 const MAW_RADIUS = 132;          // the rending reach around the wolf
 const MAW_PULSE_MS = 520;        // ms between rending pulses while the maw holds
 const MAW_DMG = 17;              // damage a pulse deals to every foe in reach
-const MAW_FURY_COST = 0.015;     // fury each rending spends (feed to outpace it)
+const MAW_FURY_COST = 0.02;      // fury each rending spends (feed to outpace it — hold the beast harder)
 const SIGIL_SPIN = 0.05;         // degrees of blood-moon rotation per ms (cosmetic)
 const PULSE_FX_MS = 360;         // how long a rending ring lingers
 
@@ -191,8 +191,8 @@ const TERROR_KNOCK = 64;         // units an empowered (or Black-pelt) pulse fli
 // or bleeds (wolf). daylight(moon): 1 at noon (moon 0/1), 0 at midnight (moon 0.5).
 const MOON_CYCLE_MS = 60000;     // a full day-night wheel (one "night" comes ~every 30s)
 const MOON_START = 0.35;         // begin near dusk — night, and the beast, come soon
-const FURY_RISE_MS = 4200;       // human → full fury, standing under a full moon
-const FURY_DRAIN_MS = 9000;      // wolf fury drain at base (daylight bleeds it faster)
+const FURY_RISE_MS = 4600;       // human → full fury, standing under a full moon (slower to turn beast)
+const FURY_DRAIN_MS = 7200;      // wolf fury drain at base (daylight bleeds it faster — a shorter beast window)
 const FURY_PER_KILL = 0.14;      // fury a kill feeds the beast (sustains the change)
 
 // Blood-motes — a felled foe may leave hot blood; gathering it (walk over it) STOKES
@@ -260,17 +260,17 @@ function peltTypeById(id: string): PeltType {
 
 // The villager — the common body of the watch. By night, or when the beast is near,
 // they grab pitchfork and brand and close to strike; the maw's bread-and-butter.
-const FOE_HP = 30;
-const FOE_SPEED = 96;            // travel, units/s
+const FOE_HP = 38;               // a hardier watch — the maw takes a beat longer to fell each
+const FOE_SPEED = 110;           // travel, units/s
 const FOE_RADIUS = 14;
-const FOE_CONTACT = 9;           // damage a strike deals to the hero
+const FOE_CONTACT = 12;          // damage a strike deals to the hero
 const FOE_ATTACK_CD = 740;       // ms between a foe's strikes
 const FOE_ATTACK_REACH = 16;     // within this (+radii) of the hero it can strike
 const FOE_SEP = 26;              // foes push apart within this (so they swarm, not stack)
-const FOE_AGGRO = 380;           // a lurking foe within this of the hero rouses to hunt
+const FOE_AGGRO = 440;           // a lurking foe within this of the hero rouses to hunt (wakes wider)
 const FOE_WANDER_SPEED = 32;     // idle drift while lurking, units/s
 const FOE_LEASH = 240;           // a lurker steers home if it drifts past this from its green
-const FOE_PER_GREEN = 4;         // villagers each green musters (the host gate)
+const FOE_PER_GREEN = 5;         // villagers each green musters (a denser host)
 const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a hunt always ends
 const RISE_MS = 600;             // a freshly-mustered foe's rise flourish (cosmetic)
 
@@ -298,7 +298,7 @@ const HUNTSMAN_RANGE = 320;      // it looses at a hero within this (with line o
 const HUNTSMAN_STANDOFF = 200;   // it backs from a hero closer than this (kiting)
 const HUNTSMAN_SHOOT_CD = 1500;  // ms between bolts
 const BOLT_SPEED = 330;          // a silver bolt's travel, units/s
-const BOLT_DMG = 11;             // damage a bolt deals on a hit
+const BOLT_DMG = 14;             // damage a bolt deals on a hit
 const BOLT_TTL_MS = 2600;        // a bolt's life before it falls spent
 const BOLT_RADIUS = 7;           // a bolt's hit radius
 

@@ -259,13 +259,13 @@ ok(pathDist > baseDist + 1, `the hero runs faster on a pathway (${baseDist | 0} 
 // rate), where the same walk off any lane lets the sigil fade to nothing.
 const spw = pg.buildArena(pg.levelById("old-city"));
 for (const e of spw.shades) park(e, 5, 5);
-spw.solids = []; spw.fences = []; spw.veils = []; spw.pathways = [];
+spw.solids = []; spw.fences = []; spw.veils = []; spw.pathways = []; spw.scenery = []; // a font near the path would inscribe-on-move
 spw.hero.x = 100; spw.hero.y = 100; spw.penta.charge = 0.5;
 run(spw, 400, { x: 1, y: 0 }); // walk off any lane
 ok(spw.penta.charge < 0.5 - 1e-3, `walking off a lane lets the sigil fade (0.50 -> ${spw.penta.charge.toFixed(2)})`);
 const spw2 = pg.buildArena(pg.levelById("old-city"));
 for (const e of spw2.shades) park(e, 5, 5);
-spw2.solids = []; spw2.fences = []; spw2.veils = [];
+spw2.solids = []; spw2.fences = []; spw2.veils = []; spw2.scenery = []; // isolate the lane's processional inscribe
 spw2.pathways = [{ x1: 80, y1: 100, x2: 900, y2: 100 }];
 spw2.hero.x = 100; spw2.hero.y = 100; spw2.penta.charge = 0.5;
 run(spw2, 400, { x: 1, y: 0 }); // same walk, but on a lane

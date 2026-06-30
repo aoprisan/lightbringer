@@ -265,7 +265,7 @@ const HERO_SPEED = 260;          // travel, world units per second (reused from 
 const HERO_RADIUS = 16;
 const HERO_HP = 100;
 const HERO_STILL_MAXSPEED = 40;  // must be slower than this (units/s) to inscribe
-const HERO_IFRAMES_MS = 700;     // grace after a touch, no further damage
+const HERO_IFRAMES_MS = 600;     // grace after a touch, no further damage (a swarm bites through sooner)
 const HERO_KNOCKBACK = 64;       // units the hero is shoved back by a shade's blow
 
 // The pentagram — the weapon. Stand still and it inscribes; the fuller the
@@ -277,18 +277,18 @@ const PENTA_DMG = 22;            // damage per pulse at full charge (scales w/ c
 const PENTA_SPIN = 0.05;         // degrees of rotation per ms (cosmetic)
 
 // The shades (the city's watch, risen against you — drawn as Keepers).
-const SHADE_HP = 44;
-const SHADE_SPEED = 108;         // chase speed, units per second (slower than hero)
+const SHADE_HP = 50;             // tougher host — a partial sigil no longer melts them
+const SHADE_SPEED = 120;         // chase speed, units per second (slower than hero)
 const SHADE_RADIUS = 18;
-const SHADE_CONTACT_DMG = 10;    // hero HP lost per touch (gated by i-frames)
+const SHADE_CONTACT_DMG = 12;    // hero HP lost per touch (gated by i-frames)
 const SHADE_SEP = 34;            // shades push apart within this range, so they swarm
-const SHADE_PER_KEEPER = 3;      // how many shades each keeper-post raises
+const SHADE_PER_KEEPER = 4;      // how many shades each keeper-post raises (a denser host)
 
 // Aggro & wander. A shade lurks near its post until the hero comes within
 // AGGRO_RADIUS, then chases — and never settles again (sticky). Until roused it
 // drifts on its own, kept near home by the leash, so the city feels inhabited
 // rather than rushing you all at once from spawn.
-const AGGRO_RADIUS = 360;        // hero within this of a wanderer rouses it to chase
+const AGGRO_RADIUS = 420;        // hero within this of a wanderer rouses it to chase (the host wakes wider)
 const SHADE_WANDER_SPEED = 38;   // idle drift, units/s (≈1/3 chase speed)
 const SHADE_WANDER_RETARGET_MS = 1400; // re-roll a wander heading this often
 const SHADE_LEASH = 240;         // a wanderer steers home if it drifts past this
@@ -333,7 +333,7 @@ const PATHWAY_INSCRIBE_MUL = 0.5; // fraction of the still charge-rate gained wh
 // the shield. So you can't feather an elite down — you must hold for a full
 // inscription. Once broken it fights as any other shade.
 const ELITE_HP_MUL = 2.6;        // a champion's hp over a common shade
-const ELITE_CONTACT_DMG = 16;    // hero HP lost per elite touch (vs SHADE_CONTACT_DMG)
+const ELITE_CONTACT_DMG = 20;    // hero HP lost per elite touch (vs SHADE_CONTACT_DMG)
 
 // Spitter shades — the city's ranged watch. A spitter does NOT close; it holds a
 // standoff distance and lobs a slow bolt at where the hero is, so standing still
@@ -344,9 +344,9 @@ const SPITTER_HP = 30;           // frailer than a common shade (44)
 const SPITTER_STANDOFF = 210;    // the range it tries to hold from the hero
 const SPITTER_SPEED_MUL = 0.7;   // it repositions slower than a chaser closes
 const SPITTER_RANGE = 380;       // won't lob past this
-const SPITTER_COOLDOWN_MS = 1900; // between lobs
+const SPITTER_COOLDOWN_MS = 1550; // between lobs (the ranged watch presses harder)
 const BOLT_SPEED = 230;          // units/s — slow enough to sidestep while moving
-const BOLT_DMG = 12;             // hero HP per bolt (gated by the same i-frames as a touch)
+const BOLT_DMG = 15;             // hero HP per bolt (gated by the same i-frames as a touch)
 const BOLT_RADIUS = 9;
 const BOLT_LIFETIME_MS = 2600;   // a bolt fades if it reaches nothing
 
@@ -354,7 +354,7 @@ const BOLT_LIFETIME_MS = 2600;   // a bolt fades if it reaches nothing
 // ramps, making pathways and fences matter defensively rather than offensively.
 // Common contact damage; just faster and softer. No projectile — pure chaser.
 const DARTER_HP = 26;            // very frail
-const DARTER_SPEED_MUL = 1.7;    // far quicker than a common chaser (SHADE_SPEED)
+const DARTER_SPEED_MUL = 1.85;   // far quicker than a common chaser (SHADE_SPEED)
 
 // Healer shades — the warden's acolytes. A healer never closes and never spawns
 // anything (the host stays finite — "clear every shade" still terminates); it holds
@@ -386,8 +386,8 @@ const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
 
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
-const DWELLING_HEAL = 8;         // hero HP restored per dwelling kindled (clamped)
-const HEAL_CAP = 0.6;            // …but the city can only rally you to this frac of maxHp.
+const DWELLING_HEAL = 6;         // hero HP restored per dwelling kindled (clamped)
+const HEAL_CAP = 0.5;            // …but the city can only rally you to this frac of maxHp.
 const CONSTELLATION_HEAL = 14;   // hero HP restored when a conduit-fuse constellation completes (clamped by HEAL_CAP)
                                  // A clean run above the cap isn't pulled down; once a swarm
                                  // bites you below it, relighting mends only back up to the cap —
