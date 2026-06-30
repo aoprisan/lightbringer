@@ -1379,7 +1379,7 @@ function render(s: EldState, layer: SVGGElement): void {
     const rr = SIGN_RADIUS * s.sign.radiusMul * (h.overcharge >= 1 ? OVERCHARGE_RADIUS_MUL : 1);
     if (traced) layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: rr * h.charge, fill: "url(#signGlow)" }));
     layer.appendChild(el("path", {
-      d: pentagramPath(h.x, h.y, 24 + 10 * h.charge, h.angle),
+      d: pentagramPath(h.x, h.y, 44 + 18 * h.charge, h.angle),
       fill: "none", stroke: s.sign.star, "stroke-width": 2 + 2 * h.charge,
       opacity: 0.35 + 0.6 * h.charge, filter: "url(#glow)",
     }));
