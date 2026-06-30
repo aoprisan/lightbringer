@@ -169,6 +169,13 @@ interface Move { x: number; y: number } // normalized input vector, -1..1 each
 const W = 1500;
 const H = 2000;
 
+// The village expansion: villages are tripled in linear size. Area grows with the
+// square of a linear factor, so CONTENT_SCALE (applied to node/foe/terrain counts at
+// generation time, never to the LevelDef literals themselves) keeps density — and
+// difficultyMult, which reads the un-scaled LevelDef counts — unchanged.
+const VILLAGE_SCALE = 3;
+const CONTENT_SCALE = VILLAGE_SCALE * VILLAGE_SCALE;
+
 // The cursed soul. Speed depends on the shape — the wolf is the swifter body.
 const HERO_SPEED_HUMAN = 248;    // human travel, world units per second
 const HERO_SPEED_WOLF = 304;     // wolf travel — the beast runs faster
@@ -658,16 +665,40 @@ function levelById(id: string): LevelDef | undefined {
 
 function generateWerewolf(
   level: LevelDef,
-  w = W * (level.sizeScale ?? 1),
-  h = H * (level.sizeScale ?? 1),
+  w = W * VILLAGE_SCALE * (level.sizeScale ?? 1),
+  h = H * VILLAGE_SCALE * (level.sizeScale ?? 1),
 ): { nodes: ArenaNode[]; greens: { x: number; y: number }[] } {
   const nodes: ArenaNode[] = [];
+  // A spatial-hash grid (cells sized to minDist, the rejection radius) keeps the
+  // per-candidate neighbour check near-O(1) instead of scanning every placed node —
+  // needed once village counts run into the thousands.
+  const cell = level.minDist;
+  const grid = new Map<string, ArenaNode[]>();
+  const cellKey = (cx: number, cy: number) => `${cx},${cy}`;
+  const tooClose = (x: number, y: number): boolean => {
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gy = cy - 1; gy <= cy + 1; gy++) {
+        const bucket = grid.get(cellKey(gx, gy));
+        if (!bucket) continue;
+        for (const n of bucket) {
+          if ((n.x - x) ** 2 + (n.y - y) ** 2 <= level.minDist ** 2) return true;
+        }
+      }
+    }
+    return false;
+  };
+  const targetNodes = level.nodeCount * CONTENT_SCALE;
   let guard = 0;
-  while (nodes.length < level.nodeCount && guard++ < 20000) {
+  while (nodes.length < targetNodes && guard++ < 20000 * CONTENT_SCALE) {
     const x = 60 + Math.random() * (w - 120);
     const y = 60 + Math.random() * (h - 120);
-    if (nodes.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2)) {
-      nodes.push({ x, y, kind: "field" });
+    if (!tooClose(x, y)) {
+      const node: ArenaNode = { x, y, kind: "field" };
+      nodes.push(node);
+      const key = cellKey(Math.floor(x / cell), Math.floor(y / cell));
+      const bucket = grid.get(key);
+      if (bucket) bucket.push(node); else grid.set(key, [node]);
     }
   }
 
@@ -678,10 +709,10 @@ function generateWerewolf(
     cursor += n;
     return slice;
   };
-  take(level.stoneCount).forEach((n) => (n.kind = "stone"));
-  take(level.cottageCount).forEach((n) => (n.kind = "cottage"));
-  take(level.cairnCount).forEach((n) => { n.kind = "cairn"; n.lit = false; });
-  take(level.moonwellCount).forEach((n) => (n.kind = "moonwell"));
+  take(level.stoneCount * CONTENT_SCALE).forEach((n) => (n.kind = "stone"));
+  take(level.cottageCount * CONTENT_SCALE).forEach((n) => (n.kind = "cottage"));
+  take(level.cairnCount * CONTENT_SCALE).forEach((n) => { n.kind = "cairn"; n.lit = false; });
+  take(level.moonwellCount * CONTENT_SCALE).forEach((n) => (n.kind = "moonwell"));
   // The expanded maps' new terrain & obstacles — carved from the same field pool,
   // each by its own per-place dial (default 0, so the four original villages carve
   // none). The four solids join s.solids in buildArena via OBSTACLE_KINDS; the rest
@@ -696,15 +727,16 @@ function generateWerewolf(
     ["wolfsbane", level.wolfsbaneCount ?? 0], ["hoard", level.hoardCount ?? 0],
     ["woods", level.woodsCount ?? 0],
   ];
-  for (const [kind, n] of extraKinds) take(n).forEach((node) => (node.kind = kind));
+  for (const [kind, n] of extraKinds) take(n * CONTENT_SCALE).forEach((node) => (node.kind = kind));
 
   // Greens — placed on still-field nodes, spaced apart so waves don't stack.
   const greens: { x: number; y: number }[] = [];
+  const greenTarget = level.greenCount * CONTENT_SCALE;
   for (const n of shuffled) {
     if (n.kind !== "field") continue;
     if (greens.every((p) => (p.x - n.x) ** 2 + (p.y - n.y) ** 2 > level.greenSpacing ** 2)) {
       greens.push({ x: n.x, y: n.y });
-      if (greens.length >= level.greenCount) break;
+      if (greens.length >= greenTarget) break;
     }
   }
 
@@ -809,11 +841,11 @@ function pushOut(s: WwState, x: number, y: number, radius: number): { x: number;
 // variants seeded among them as extra bodies — the "extra defenders" pattern the
 // siblings use).
 function buildArena(level: LevelDef): WwState {
-  const w = Math.round(W * (level.sizeScale ?? 1));
-  const h = Math.round(H * (level.sizeScale ?? 1));
+  const w = Math.round(W * VILLAGE_SCALE * (level.sizeScale ?? 1));
+  const h = Math.round(H * VILLAGE_SCALE * (level.sizeScale ?? 1));
   const { nodes: scenery, greens } = generateWerewolf(level, w, h);
-  const walls = weaveSegments(scenery, level.wallCount, level.minDist * 0.9, level.minDist * 2.0);
-  const paths = weaveSegments(scenery, level.pathCount, level.minDist * 3, level.minDist * 5);
+  const walls = weaveSegments(scenery, level.wallCount * CONTENT_SCALE, level.minDist * 0.9, level.minDist * 2.0);
+  const paths = weaveSegments(scenery, level.pathCount * CONTENT_SCALE, level.minDist * 3, level.minDist * 5);
   const legacy = loadWwLegacy();
   const pelt = peltTypeById(legacy.equipped);
   const hero: Hero = {
@@ -823,10 +855,10 @@ function buildArena(level: LevelDef): WwState {
     lunge: 0, lungeVx: 0, lungeVy: 0, transformAt: 0,
   };
   const foes: Foe[] = [];
-  const houndCount = Math.min(level.houndCount ?? 0, greens.length);
-  const knightCount = Math.min(level.knightCount ?? 0, greens.length);
-  const huntsmanCount = Math.min(level.huntsmanCount ?? 0, greens.length);
-  const friarCount = Math.min(level.friarCount ?? 0, greens.length);
+  const houndCount = Math.min((level.houndCount ?? 0) * CONTENT_SCALE, greens.length);
+  const knightCount = Math.min((level.knightCount ?? 0) * CONTENT_SCALE, greens.length);
+  const huntsmanCount = Math.min((level.huntsmanCount ?? 0) * CONTENT_SCALE, greens.length);
+  const friarCount = Math.min((level.friarCount ?? 0) * CONTENT_SCALE, greens.length);
   // Muster one foe near a green — a small helper so a green's villagers and its
   // (optional) variants all rise the same way.
   const muster = (green: { x: number; y: number }, variant: FoeKind, hpMul: number): void => {
@@ -858,7 +890,7 @@ function buildArena(level: LevelDef): WwState {
   });
   // Drifting fog banks.
   const mists: Mist[] = [];
-  for (let i = 0; i < level.mistCount; i++) {
+  for (let i = 0; i < level.mistCount * CONTENT_SCALE; i++) {
     const a = Math.random() * Math.PI * 2;
     mists.push({
       x: 100 + Math.random() * (w - 200),
