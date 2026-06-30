@@ -1,11 +1,16 @@
 # The Light-Bringer
 
-An action game set in a world taught that light burns — an installable browser
-**PWA**. The primary game is **The Burning Vigil**, a real-time action descent.
-The original *contemplative* inversion game ships alongside it as a code-frozen
-companion.
+A set of action games set in a world taught that light burns — an installable
+browser **PWA**. They are unified behind a **class-select front door**: open the
+game, **choose a class**, and that choice launches one of the four games (for now
+each class simply *is* one of the games). The primary game is **The Burning
+Vigil**, a real-time action descent.
 
-### ▶ [**Play it now → The Burning Vigil**](https://aoprisan.github.io/lightbringer/pentagram.html)
+### ▶ [**Play it now → choose your class**](https://aoprisan.github.io/lightbringer/)
+
+Pick a class on the front door, or jump straight to one below.
+
+### ▶ [**The Burning Vigil**](https://aoprisan.github.io/lightbringer/pentagram.html)
 
 The primary game: an Archero-style action descent. Stand still to inscribe a
 burning pentagram that scorches the shades around you, move to dodge — clear
@@ -43,74 +48,21 @@ you back to a hunted man. Feed to hold the change, dodge the huntsmen's silver b
 and cut down every soul to claim the village. ([more
 below](#the-moons-hunger--the-werewolf-spinoff))
 
-### ✦ [**Play the original → The Light-Bringer**](https://aoprisan.github.io/lightbringer/)
-
-
-The original game in the same world, now kept around: a slower, turn-based
-contemplative inversion where you tend a stolen flame across a city. ([more
-below](#the-original-light-bringer))
-
 > The world has been taught that the light burns. An order of Keepers maintains
 > the Veil: a sanctioned dimness in which people live safe, obedient,
 > half-asleep. You are the heretic who carries a stolen flame. The "demonic"
 > figure of the setting is you, as described by your enemies. The actual
 > experience of playing is illumination.
 
-## The original Light-Bringer
-
-The original, code-frozen game — a contemplative, turn-based inversion. Tap to
-**kindle** light at a point — a dwelling, a printing press, a shrine.
-Each kindling reveals geometry that was always there but unrendered: hidden
-streets, suppressed frescoes, the cold faces of the Keepers. Light spreads on
-its own along anything that can carry it (oil, paper, rumor).
-
-- **Kindle (1✦):** light a point. Light spreads to neighbours along conductive streets.
-- **Awaken (3✦):** bank your flame into a *person*. An awakened soul becomes an
-  autonomous light source who keeps kindling **while you are away** — the idle
-  layer. But every banked flame is someone the Keepers can target.
-- **The Keepers snuff** the brightest light in reach. Snuffed ground does not
-  return to neutral dark — it *thickens*, resists relighting, and eventually
-  breeds a new Keeper. So light is precious and **placement is the strategy**.
-- **The carrier burns.** Each night your maximum flame shrinks, permanently.
-  You will not finish the city. The end state isn't completion — it's whether
-  what you lit keeps burning without you. The win screen is the city at dawn,
-  rendered only from the lights that survived.
-
-Unbanked light dies at dawn; only light connected to an awakened soul survives.
-
-### Two ways to play
-
-The default is the **contemplative night** — turn-based, the city breathing once
-per act. There is also a real-time **Lamplighter Run**, where you *become* the
-flame and walk the streets while the Keepers hunt you. Switch between them from
-the **Lamplighter Run / Classic night** link in the header (the choice is
-remembered). Both run the same underlying simulation.
-
-### Five cities to carry the flame into
-
-On a fresh start you choose a **city** — each the same rules under different
-dials, so each is a distinct puzzle, not a different game:
-
-- **The Old City** — where you first stole the flame; an even, indifferent watch.
-- **Ashfold** — dry tinder under a near-constant wind; the fire runs fast and far,
-  and turns on you just as fast.
-- **The Drowned Quarter** — flooded, sparse, rain-drowned; the fire crawls and
-  every light stands alone. A city of patience and hearths.
-- **The Glassworks** — bright, brittle, crowded, scarce of flame, and thick with a
-  quick watch. A city of precision and decoys.
-- **Vesper Row** *(unlocks once you carry a flame to night 4)* — the watched city,
-  where the fire will not run and you must place every light by hand.
-
-Across runs the game keeps a quiet **legacy** — the furthest night you reached,
-the brightest morning you held, the most hearths you settled — shown on the
-title and the end screen so each new flame has something to outdo.
+> *The original contemplative, turn-based Light-Bringer has been retired — the
+> repo now ships only the four real-time action games above, reached from the
+> class-select front door.*
 
 ## The Burning Vigil — the primary game
 
 [**The Burning Vigil**](https://aoprisan.github.io/lightbringer/pentagram.html)
-is the primary game, shipped alongside the original Light-Bringer (and linked
-from its title screen): an Archero-style action descent set in the *same* world,
-reusing the same five cities and the same art. Instead of tending light, you walk a
+is the primary game, reached from the class-select front door: an Archero-style
+action descent. Instead of tending light, you walk a
 flame-hero through a city and **stand still to inscribe a pentagram** on the
 ground — a burning sigil that pulses damage to every *shade* (the city's watch,
 risen against you) in its ring. Move and the sigil fades and you dodge; stand and
@@ -179,12 +131,12 @@ procedural SVG fallback.
 
 ## Tech
 
-A single TypeScript module rendering layered SVG (deep indigo world, light in
-warm icon-gold; Keepers in cold fluorescent blue). `tsc` compiles `app.ts` →
-`app.js`, and `app.js` is what ships — the only dependency is the TypeScript
-compiler itself (dev-only), so the deployed runtime stays dependency-free.
-Progress is saved to `localStorage`, and awakened souls keep working offline via
-a bounded "while you were away" catch-up.
+Hand-written TypeScript modules rendering layered SVG (deep indigo world, light in
+warm icon-gold; foes in cold fluorescent blue). `tsc` compiles each game's `.ts`
+→ `.js`, and those `.js` files are what ship — the only dependency is the
+TypeScript compiler itself (dev-only), so the deployed runtime stays
+dependency-free. The class-select hub (`index.html`) is plain static HTML/CSS.
+Per-run progress and cross-run legacy are saved to `localStorage`.
 
 | File | Purpose |
 | --- | --- |
@@ -196,10 +148,9 @@ a bounded "while you were away" catch-up.
 | `eldritch.html` | The Watcher at the Threshold page shell |
 | `werewolf.ts` | **The Moon's Hunger** spinoff — hunt sim + rendering — compiles to `werewolf.js` |
 | `werewolf.html` | The Moon's Hunger page shell |
-| `app.ts` | The original Light-Bringer — game logic + rendering — compiles to `app.js` |
-| `index.html` | Original Light-Bringer shell, styling, PWA tags |
-| `sw.js` | Service worker — offline app-shell cache (all five games) |
-| `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `werewolf.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / The Moon's Hunger / the original) |
+| `index.html` | The class-select hub — the front door (pick a class, launch its game), styling, PWA tags |
+| `sw.js` | Service worker — offline app-shell cache (the hub + all four games) |
+| `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `werewolf.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / The Moon's Hunger / the class-select hub) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
 | `gemini-prompts/` | All self-contained Gemini ("Nano Banana") image-generation prompts (icons, frescoes, city cards, scenery + `base/` original-game sprites, `necro/` undead + village art, and the per-city sprite folders) |
 | `art-prompts-output/` | Raw multi-megabyte PNGs emitted by Gemini, before optimizing into `art/` (e.g. `tools/process-city-sprites.py`) |
@@ -207,7 +158,6 @@ a bounded "while you were away" catch-up.
 | `tools/necro-test.mjs` | Headless march test for The Necromancer's March (`npm test`) |
 | `tools/eldritch-test.mjs` | Headless watch test for The Watcher at the Threshold (`npm test`) |
 | `tools/werewolf-test.mjs` | Headless hunt test for The Moon's Hunger (`npm test`) |
-| `tools/smoke-test.mjs` | Headless simulation test for the original (`npm test`) |
 | `lightbringer.ts`, `the-light-bringer.html` | Original single-file prototype, kept for reference |
 
 ### Local run
@@ -220,7 +170,8 @@ npm run build && python3 -m http.server 8000
 # open http://localhost:8000/
 ```
 
-`app.js` is generated by the build and git-ignored — edit `app.ts`, not `app.js`.
+The `.js` files are generated by the build and git-ignored — edit the `.ts`, not
+the compiled `.js`.
 
 ### Regenerate icons / run tests
 
@@ -235,7 +186,7 @@ npm run typecheck           # type-check without emitting
 
 The site is the repository root. A workflow at
 `.github/workflows/deploy.yml` installs deps, compiles the TypeScript
-(`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`,
+(`pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`,
 `eldritch.ts` → `eldritch.js`, `werewolf.ts` → `werewolf.js`), and publishes on
 every push to `main`.
 

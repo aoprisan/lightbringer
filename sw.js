@@ -1,12 +1,13 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v104";
+const CACHE = "lightbringer-v105";
 
 const ASSETS = [
+  // The class-select hub — the unified front door (root). Network-first like the
+  // rest of the shell (see isShell): the freshest code always wins online.
   "./",
   "./index.html",
-  "./app.js",
   // Pentagram — the action-combat spinoff (its own page + module, reusing the
   // same art and cities). Network-first like the rest of the shell (see isShell).
   "./pentagram.html",
@@ -191,8 +192,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// The app shell — the page and the compiled app.js — is the *code*, and it
-// changes on every deploy. Pinning it cache-first means a shipped fix stays
+// The app shell — the pages and the compiled game modules — is the *code*, and
+// it changes on every deploy. Pinning it cache-first means a shipped fix stays
 // invisible behind the old cached copy until the cache version retires it (and
 // even then only after every tab closes). So the shell is network-first: when
 // online the newest code always wins, and the cache is only the offline
@@ -200,7 +201,7 @@ self.addEventListener("activate", (event) => {
 // it stays cache-first — that is what makes the game playable offline at all.
 function isShell(url) {
   return url.pathname === "/" || url.pathname.endsWith("/") ||
-    url.pathname.endsWith("/index.html") || url.pathname.endsWith("/app.js") ||
+    url.pathname.endsWith("/index.html") ||
     url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
     url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
     url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js") ||

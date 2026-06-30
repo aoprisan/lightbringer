@@ -1,7 +1,7 @@
 {
   "name": "lightbringer",
   "version": "1.0.0",
-  "description": "The Light-Bringer — an action game (The Burning Vigil) shipped as an installable PWA; the original contemplative inversion game ships alongside it.",
+  "description": "The Light-Bringer — a set of action games shipped as installable PWAs, unified behind a class-select front door (choose a class, play that game).",
   "private": true,
   "license": "UNLICENSED",
   "author": "Andrei Oprisan <aoprisan@gmail.com>",
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && node tools/smoke-test.mjs && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs",
+    "test": "tsc && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs",
     "icons": "node tools/gen-icons.mjs && node tools/gen-ww-icons.mjs",
     "start": "tsc && python3 -m http.server 8000"
   },

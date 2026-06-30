@@ -18,7 +18,7 @@ only partly generated; rerun as more sprites arrive.
 
 After shipping a city's set, wire it for offline: add the eight
 art/<city>/*.png paths to sw.js ASSETS and bump CACHE. (The render loader,
-spriteFor / loadCitySprites in app.ts, needs no change — it falls back to the
+spriteFor / loadCitySprites in pentagram.ts, needs no change — it falls back to the
 base sprite for any city file that is absent.)
 
 Requires Pillow (`pip install Pillow`).
@@ -38,7 +38,7 @@ except ImportError:
 # Board navy that the base sprites are flattened onto (sampled from art/*.png).
 NAVY = (15, 17, 30)
 
-# The eight re-skinnable sprites — must stay in sync with CITY_SPRITES in app.ts.
+# The eight re-skinnable sprites — must stay in sync with CITY_SPRITES in pentagram.ts.
 SPRITES = [
     "ground",
     "dwelling-dark",

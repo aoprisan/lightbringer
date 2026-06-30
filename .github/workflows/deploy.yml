@@ -31,7 +31,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Compile TypeScript (app.ts -> app.js)
+      - name: Compile TypeScript modules to JavaScript
         run: npm run build
       - name: Prune non-shipped files from the artifact
         run: rm -rf node_modules
