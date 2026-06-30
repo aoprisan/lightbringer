@@ -1196,5 +1196,177 @@ for (const lvl of pg.LEVELS) {
   ok(sc.filter((n) => n.kind === "obelisk").length === (lvl.obeliskCount ?? 0), `${lvl.id}: obelisk count preserved`);
 }
 
+// 43. The expanded maps — four further cities carrying the new terrain vocabulary,
+//     chained on from the Bastion. Each resolves and generates its signature kinds.
+ok(pg.LEVELS.length === 11, `the maps now run to eleven cities (${pg.LEVELS.length})`);
+ok(["emberwood", "mistmarket", "windward", "last-vigil"].every((id) => pg.levelById(id)),
+  "the four new cities resolve by id");
+ok(pg.levelById("bastion").story.toLowerCase().includes("the emberwood"),
+  "the Bastion now leads on to the Emberwood (the journey extends)");
+const ew = pg.buildArena(pg.levelById("emberwood"));
+ok(ew.scenery.some((n) => n.kind === "cinder") && ew.scenery.some((n) => n.kind === "thicket"),
+  "the Emberwood grows cinder-ground and thickets");
+ok(ew.solids.some((n) => n.kind === "bonfire") && ew.solids.some((n) => n.kind === "barrow"),
+  "the Emberwood's bonfires and barrows are solids (block bodies)");
+const mm = pg.buildArena(pg.levelById("mistmarket"));
+ok(mm.scenery.some((n) => n.kind === "mire") && mm.mists.length > 0 && mm.scenery.some((n) => n.kind === "spring"),
+  "the Mistmarket has mires, drifting mist, and springs");
+const wd = pg.buildArena(pg.levelById("windward"));
+ok(wd.scenery.some((n) => n.kind === "gust") && wd.scenery.some((n) => n.kind === "hallow")
+  && wd.solids.some((n) => n.kind === "pillar"),
+  "Windward Heights has gusts, hallows, and (solid) pillars");
+const lv2 = pg.buildArena(pg.levelById("last-vigil"));
+ok(lv2.scenery.some((n) => n.kind === "vent") && lv2.scenery.some((n) => n.kind === "lantern")
+  && lv2.scenery.some((n) => n.kind === "cinder"),
+  "the Last Vigil gathers vents, lanterns, and cinders");
+
+// 44. Emitter ground — cinder, bonfire, and lantern all burn shades in their aura,
+//     charge-independent (the parent's scorch made fixed terrain).
+for (const [kind, aura] of [["cinder", K.CINDER_AURA], ["bonfire", K.BONFIRE_AURA], ["lantern", K.LANTERN_AURA]]) {
+  const sfl = pg.buildArena(pg.levelById("old-city"));
+  for (const e of sfl.shades) park(e, 5, 5);
+  const node = { x: 700, y: 700, kind };
+  sfl.scenery = [node];
+  const burn = sfl.shades[0];
+  burn.elite = false; burn.shielded = false; burn.x = node.x; burn.y = node.y; burn.hp = K.SHADE_HP;
+  const hp0 = burn.hp;
+  pg.stepFields(sfl, 1000);
+  ok(burn.hp < hp0, `a ${kind} burns a shade standing in its aura (${hp0} -> ${burn.hp.toFixed(1)})`);
+  // A shade outside the aura is untouched.
+  const safe = sfl.shades[1];
+  safe.x = node.x + aura + 60; safe.y = node.y; const safe0 = safe.hp;
+  pg.stepFields(sfl, 1000);
+  ok(safe.hp === safe0, `a shade beyond a ${kind}'s aura is unharmed`);
+}
+// A shielded elite shrugs off ground burn (only a full pulse breaks the shield).
+const sflE = pg.buildArena(pg.levelById("old-city"));
+for (const e of sflE.shades) park(e, 5, 5);
+sflE.scenery = [{ x: 500, y: 500, kind: "cinder" }];
+const shieldVictim = sflE.shades[0];
+shieldVictim.shielded = true; shieldVictim.x = 500; shieldVictim.y = 500;
+const sv0 = shieldVictim.hp;
+pg.stepFields(sflE, 1000);
+ok(shieldVictim.hp === sv0, "a shielded elite shrugs off cinder ground");
+
+// 45. Mires slow every body; thickets slow only the shades.
+const stm = pg.buildArena(pg.levelById("old-city"));
+stm.scenery = [{ x: 400, y: 400, kind: "mire" }];
+ok(pg.terrainSpeedMul(stm, 400, 400, false) === K.MIRE_SLOW, "a mire slows the hero");
+ok(pg.terrainSpeedMul(stm, 400, 400, true) === K.MIRE_SLOW, "a mire slows a shade too");
+ok(pg.terrainSpeedMul(stm, 9000, 9000, false) === 1, "open ground does not slow");
+stm.scenery = [{ x: 400, y: 400, kind: "thicket" }];
+ok(pg.terrainSpeedMul(stm, 400, 400, false) === 1, "a thicket leaves the hero unslowed");
+ok(pg.terrainSpeedMul(stm, 400, 400, true) === K.THICKET_SLOW, "a thicket snares only a shade");
+ok(K.MIRE_SLOW < 1 && K.THICKET_SLOW < 1, "the slows are real (multiplier < 1)");
+
+// 46. Hallows — consecrated tiles let the hero inscribe while MOVING (like a font)
+//     and inside a veil (like a shrine).
+const sha = pg.buildArena(pg.levelById("old-city"));
+for (const e of sha.shades) park(e, 5, 5);
+sha.solids = []; sha.fences = []; sha.veils = []; sha.pathways = [];
+const hl = { x: 1000, y: 1000, kind: "hallow" };
+sha.scenery = [hl]; sha.conduitLinks = []; sha.penta.charge = 0;
+ok(pg.inHallow(sha, hl.x, hl.y), "inHallow reports consecrated tiles");
+ok(!pg.inHallow(sha, hl.x + K.HALLOW_AURA + 40, hl.y), "a hallow's aura is finite");
+for (let t = 0; t < 700; t += 16) { sha.hero.x = hl.x; sha.hero.y = hl.y; pg.stepCombat(sha, 16, { x: 1, y: 0 }); }
+ok(sha.penta.charge > 0.5, `a moving hero inscribes inside a hallow (charge=${sha.penta.charge.toFixed(2)})`);
+const shv = pg.buildArena(pg.levelById("old-city"));
+for (const e of shv.shades) park(e, 5, 5);
+shv.solids = []; shv.fences = []; shv.pathways = [];
+shv.scenery = [{ x: shv.hero.x, y: shv.hero.y, kind: "hallow" }];
+shv.veils = [{ x: shv.hero.x, y: shv.hero.y, vx: 0, vy: 0, r: 100 }];
+shv.penta.charge = 0;
+run(shv, K.PENTA_CHARGE_MS + 30, still);
+ok(shv.penta.charge > 0.9, "a hero on a hallow inscribes even inside a veil");
+
+// 47. Springs — standing in the water slowly mends the hero, but only to the cap.
+const ssp = pg.buildArena(pg.levelById("old-city"));
+for (const e of ssp.shades) park(e, 5, 5);
+ssp.solids = []; ssp.fences = []; ssp.veils = []; ssp.pathways = [];
+ssp.scenery = [{ x: ssp.hero.x, y: ssp.hero.y, kind: "spring" }]; ssp.conduitLinks = [];
+ssp.hero.hp = 30;
+run(ssp, 1000, still);
+ok(ssp.hero.hp > 30, `a spring mends a hero standing in it (30 -> ${ssp.hero.hp.toFixed(1)})`);
+const sspCap = pg.buildArena(pg.levelById("old-city"));
+for (const e of sspCap.shades) park(e, 5, 5);
+sspCap.solids = []; sspCap.fences = []; sspCap.veils = []; sspCap.pathways = [];
+sspCap.scenery = [{ x: sspCap.hero.x, y: sspCap.hero.y, kind: "spring" }]; sspCap.conduitLinks = [];
+const springCap = sspCap.hero.maxHp * K.HEAL_CAP;
+sspCap.hero.hp = springCap - 2;
+run(sspCap, 3000, still);
+ok(sspCap.hero.hp <= springCap + 1e-6, `a spring mends only to the heal cap (${sspCap.hero.hp.toFixed(1)} <= ${springCap})`);
+
+// 48. Ember vents erupt on their own cadence, burning unshielded shades in reach.
+const svt = pg.buildArena(pg.levelById("old-city"));
+for (const e of svt.shades) park(e, 5, 5);
+const vt = { x: 700, y: 700, kind: "vent" };
+svt.scenery = [vt];
+const vv = svt.shades[0]; vv.shielded = false; vv.x = vt.x; vv.y = vt.y; vv.hp = K.SHADE_HP;
+pg.stepVents(svt, 16); // seeds the clock; no eruption on the first tick
+ok(vv.hp === K.SHADE_HP, "a vent does not erupt before its cadence");
+svt.elapsed += K.VENT_CD + 1;
+pg.stepVents(svt, 16);
+ok(vv.hp < K.SHADE_HP, "a vent erupts on its cadence and burns shades in reach");
+
+// 49. Gusts — a wind-vent resists a shade's approach (it can't fully close while in
+//     the aura). Compared with the same chase over open ground.
+function gustClose(withGust) {
+  const sg = pg.buildArena(pg.levelById("old-city"));
+  for (const e of sg.shades) park(e, 5, 5);
+  sg.solids = []; sg.fences = []; sg.pathways = [];
+  const node = { x: 900, y: 900, kind: "gust" };
+  sg.scenery = withGust ? [node] : [];
+  sg.hero.x = node.x; sg.hero.y = node.y; // hero at the gust's heart
+  const chaser = sg.shades[0];
+  chaser.elite = false; chaser.spitter = false; chaser.darter = false; chaser.healer = false;
+  chaser.x = node.x + 90; chaser.y = node.y; chaser.state = "chase";
+  for (let t = 0; t < 300; t += 16) pg.stepShades(sg, 16);
+  return Math.hypot(chaser.x - node.x, chaser.y - node.y);
+}
+ok(gustClose(true) > gustClose(false) + 5, "a gust holds a shade off — it closes less than over open ground");
+
+// 50. Mist — a hero in fog is hidden from the ranged watch (spitters hold fire) and
+//     rouses wandering shades from a shrunken aggro range.
+const smi = pg.buildArena(pg.levelById("old-city"));
+for (const e of smi.shades) park(e, 5, 5);
+smi.scenery = []; smi.solids = []; smi.fences = []; smi.pathways = []; smi.veils = [];
+const mspit = smi.shades[0];
+mspit.spitter = true; mspit.elite = false; mspit.shielded = false; mspit.darter = false; mspit.healer = false;
+mspit.cooldown = 0; mspit.hp = K.SPITTER_HP; mspit.maxHp = K.SPITTER_HP;
+mspit.x = smi.hero.x + K.SPITTER_STANDOFF; mspit.y = smi.hero.y; wake(mspit);
+mspit.homeX = mspit.x; mspit.homeY = mspit.y;
+smi.mists = [{ x: smi.hero.x, y: smi.hero.y, vx: 0, vy: 0, r: K.MIST_RADIUS }];
+const mhp0 = smi.hero.hp;
+run(smi, K.SPITTER_COOLDOWN_MS * 2 + 200, still);
+ok(pg.inMist(smi, smi.hero.x, smi.hero.y), "inMist reports the hero hidden in fog");
+ok(smi.hero.hp === mhp0, "a spitter holds fire while the hero hides in mist");
+// Aggro shrinks: a wanderer that would rouse on open ground keeps lurking in mist.
+const smi2 = pg.buildArena(pg.levelById("old-city"));
+for (const e of smi2.shades) park(e, 5, 5);
+const wlk = smi2.shades[0];
+park(wlk, smi2.hero.x + K.AGGRO_RADIUS * 0.7, smi2.hero.y); // inside full aggro, outside the shrunk one
+smi2.mists = [{ x: smi2.hero.x, y: smi2.hero.y, vx: 0, vy: 0, r: K.MIST_RADIUS }];
+for (let t = 0; t < 400; t += 16) pg.stepShades(smi2, 16);
+ok(wlk.state === "wander", "mist shrinks aggro — a shade that would rouse stays lurking");
+const smi3 = pg.buildArena(pg.levelById("old-city"));
+for (const e of smi3.shades) park(e, 5, 5);
+const wlk3 = smi3.shades[0];
+park(wlk3, smi3.hero.x + K.AGGRO_RADIUS * 0.7, smi3.hero.y);
+smi3.mists = []; // control: no fog
+for (let t = 0; t < 400; t += 16) pg.stepShades(smi3, 16);
+ok(wlk3.state === "chase", "without mist, the same wanderer rouses (control)");
+
+// 51. Relic caches — the hero's body cracking one grants an ember surge, once.
+const sca = pg.buildArena(pg.levelById("old-city"));
+for (const e of sca.shades) park(e, 5, 5);
+sca.scenery = [{ x: sca.hero.x, y: sca.hero.y, kind: "cache" }];
+sca.penta.charge = 0; sca.surgeUntil = 0;
+pg.stepCaches(sca);
+ok(sca.scenery[0].spent, "the hero cracks a relic cache underfoot");
+ok(sca.penta.charge >= 1 - 1e-6 && sca.surgeUntil > sca.elapsed, "a cracked cache snaps the sigil full and opens a surge");
+sca.penta.charge = 0;
+pg.stepCaches(sca);
+ok(sca.penta.charge === 0, "a spent cache grants nothing more");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

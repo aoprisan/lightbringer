@@ -260,8 +260,9 @@ surface):
 Mostly pure functions of node geometry, woven at build (`buildArena`) and held on `s.*` — **live-play state,
 not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune per-city counts via the
 `LevelDef` dials.
-- **Solid structures** (`OBSTACLE_KINDS` = press, shrine, **obelisk**; radii in `OBSTACLE_RADIUS`) block
-  movement via `pushOut` (hero and shades). Dwellings/conduits/fonts stay passable.
+- **Solid structures** (`OBSTACLE_KINDS` = press, shrine, **obelisk**, **bonfire**, **pillar**, **statue**,
+  **barrow**; radii in `OBSTACLE_RADIUS`) block movement via `pushOut` (hero and shades) **and** bolts
+  (`stepBolts`). Dwellings/conduits/fonts and the new passable terrain stay passable.
 - **Fonts** (`"font"` node, `FONT_AURA`) — lightwells: the hero inscribes **even while moving** within the
   aura. A place to keep the sigil alive on the run.
 - **Obelisks** (`"obelisk"` node, `OBELISK_AURA`/`OBELISK_REACH`) — solid ward-stones that **shield nearby
@@ -289,6 +290,24 @@ not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune
   drains charge faster). `veilCount`.
 - **Ember motes** (`MOTE_DROP_CHANCE`): slain shades may drop motes (`MOTE_TTL_MS`); gathering one triggers a
   damage **surge** (`MOTE_SURGE_MS`, `MOTE_SURGE_DMG`).
+- **The expanded vocabulary (the maps' expansion).** Thirteen new node kinds + one drifting field, all
+  default-off `LevelDef` count dials (e.g. `cinderCount`, `mistCount`), woven in `generateCity`/`buildArena`,
+  pure and never persisted. **Four obstacles** (solids, above): **bonfire** (also a permanent ally emitter —
+  see below), **pillar**/**statue**/**barrow** (small/medium/broad cover). **Ten terrain types:**
+  - **Bonfires** (`BONFIRE_AURA`/`BONFIRE_DPS`) & **lanterns** (`LANTERN_*`, passable) — permanent ally
+    emitters; `stepFields` burns shades in their aura continuously (charge-independent, the scorch ethos).
+  - **Cinder-ground** (`CINDER_*`, `stepFields`) — burns shades that cross it; the hero walks it unharmed.
+  - **Mires** (`MIRE_*`) slow **every** body; **thickets** (`THICKET_*`) slow **only shades** — both via
+    `terrainSpeedMul(s, x, y, isShade)`, read in `stepCombat` (hero) and `stepShades` (shades).
+  - **Hallows** (`HALLOW_AURA`, `inHallow`) — consecrated tiles: inscribe **while moving** (like a font)
+    **and** on veiled/scarred ground (like a shrine).
+  - **Springs** (`SPRING_*`, `inNodeAura`) — slowly mend the hero in `stepCombat`, gated by `HEAL_CAP`.
+  - **Vents** (`VENT_*`, `stepVents`, `node.ventAt`) — erupt a burst on a cadence, burning unshielded shades.
+  - **Gusts** (`GUST_*`) — shove shades out of the aura each frame (hero unmoved), applied in `stepShades`.
+  - **Caches** (`CACHE_REACH`, `stepCaches`) — first-footing one grants the mote **surge** once, then `n.spent`.
+  - **Mist** (`Mist`, `s.mists`, `MIST_*`, `weaveMists`/`stepMists`/`inMist`) — drifting fog (the only new
+    non-node field): a hero inside is hidden from spitters (hold fire) and rouses wanderers from a shrunken
+    aggro range (`MIST_AGGRO_MUL`). New kinds render procedurally (`renderNewTerrain`); no PNGs ship yet.
 - **Frescoes & the reliquary** — the hero's *first-footing* (`FRESCO_REACH`, `node.seen`) reveals painted
   fragments (`maybeFresco`; the shell's `revealFresco` shows them non-modally so the swarm is never paused).
   Frescoes are a lifetime collection: `PgLegacy.frescoesFound`, folded in at each run-end by
@@ -298,16 +317,22 @@ not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune
   `showFresco` detail view) with **PNG sharing** (`shareReliquary`/`shareFresco` → `shareCanvas`, native
   share sheet or download). Render-layer only, drawn from already-cached fresco jpgs — no new assets.
 
-### Cities (seven) and per-city dials
+### Cities (eleven) and per-city dials
 
-`LEVELS` now holds **seven** cities (the parent's five plus two): **The Old City**, **Ashfold**, **The
-Drowned Quarter**, **The Glassworks**, **Vesper Row**, **The Ember Foundry**, **The Pale Bastion**. Each
-`LevelDef` adds Vigil-specific dials on top of the parent's generation overrides:
-`fenceCount`/`pathwayCount`, `fontCount`/`obeliskCount`, `veilCount`, and the variant counts
-(`eliteCount`/`spitterCount`/`darterCount`/`healerCount`), plus `sizeScale` (arena size = `W/H × sizeScale`,
-which leans difficulty — `difficultyMult` is normalized so The Old City sits near 1.0 and the hardest near
-1.5) and the `frescoes` subset. The Old City is kept deliberately fair (no veils/elites). Cities may re-skin
-the built world via `spriteFor`/`loadCitySprites` (`art/<cityId>/<name>.png`, silent fallback to the base).
+`LEVELS` now holds **eleven** cities — the original seven plus the **Edge-Lands** expansion (the dark, broken
+at the Bastion, fleeing to the city's outlying quarters): **The Old City**, **Ashfold**, **The Drowned
+Quarter**, **The Glassworks**, **Vesper Row**, **The Ember Foundry**, **The Pale Bastion**, then **The
+Emberwood** (cinder/thicket/bonfire/barrow), **The Mistmarket** (mire/mist/spring/statue), **Windward
+Heights** (gust/hallow/pillar/vent/cache), and **The Last Vigil** (the culmination — the whole vocabulary at
+once). Each `LevelDef` adds Vigil-specific dials on top of the parent's generation overrides:
+`fenceCount`/`pathwayCount`, `fontCount`/`obeliskCount`, `veilCount`, the variant counts
+(`eliteCount`/`spitterCount`/`darterCount`/`healerCount`), the **new terrain/obstacle counts** (see above),
+plus `sizeScale` (arena size = `W/H × sizeScale`, which leans difficulty — `difficultyMult` is normalized so
+The Old City sits near 1.0 and the hardest near 1.5–1.6, capped) and the `frescoes` subset (the four new
+cities leave it undefined, falling back to the global pool, so the original seven still partition all
+indices). The Old City is kept deliberately fair (no veils/elites). The eleven are one journey told in order
+(`cityUnlocked`, each `story` naming the next); Cities may re-skin the built world via
+`spriteFor`/`loadCitySprites` (`art/<cityId>/<name>.png`, silent fallback to the base).
 
 ### The Veilwarden duel — currently DISABLED (code intact)
 
