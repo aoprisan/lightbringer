@@ -307,7 +307,12 @@ not persisted** (there's no mid-combat save), in the parent's decoys ethos. Tune
   - **Caches** (`CACHE_REACH`, `stepCaches`) — first-footing one grants the mote **surge** once, then `n.spent`.
   - **Mist** (`Mist`, `s.mists`, `MIST_*`, `weaveMists`/`stepMists`/`inMist`) — drifting fog (the only new
     non-node field): a hero inside is hidden from spitters (hold fire) and rouses wanderers from a shrunken
-    aggro range (`MIST_AGGRO_MUL`). New kinds render procedurally (`renderNewTerrain`); no PNGs ship yet.
+    aggro range (`MIST_AGGRO_MUL`).
+  - **Groves** (`GROVE_AURA`/`GROVE_AGGRO_MUL`, `inGrove`) — **concealing cover**, the static cousin of mist
+    and the maps' tactical heart: a hero under a copse's canopy is hidden from spitters **and** dulls the
+    host's aggro (the most-concealing cover wins, in `stepShades`). Seeded in every city (`groveCount`).
+    New kinds render procedurally (`renderNewTerrain`, trees drawn via a `tree()` helper; solids draw their
+    body at the **collision radius** so visual == hitbox); no PNGs ship yet.
 - **Frescoes & the reliquary** — the hero's *first-footing* (`FRESCO_REACH`, `node.seen`) reveals painted
   fragments (`maybeFresco`; the shell's `revealFresco` shows them non-modally so the swarm is never paused).
   Frescoes are a lifetime collection: `PgLegacy.frescoesFound`, folded in at each run-end by
@@ -681,15 +686,43 @@ day/night twist spatial and atmospheric:
 - **Mist** (drifting fog banks, `stepMists`/`inMist`) — the misty Britain made mechanical and the wolf's
   cover: inside a bank a huntsman can't see you (holds fire) and the watch is slower to rouse.
 
-### Villages (four) & sim loop
+**The expanded vocabulary (the maps' expansion).** Fourteen new node kinds, all default-off `LevelDef` count
+dials (e.g. `bogCount`, `geyserCount`), carved in `generateWerewolf`, pure and never persisted. **Four
+obstacles** (solids in `OBSTACLE_KINDS`): **pyre** (also a permanent foe-emitter), **dolmen**/**gibbet**/
+**cart** (broad/medium/small cover). **Ten terrain types:**
+- **Pyres** (`PYRE_*`) & **corpse-candles/wisps** (`WISP_*`, passable) — permanent hazards; `stepFields`
+  burns the watch in their auras continuously (the cairn-emitter ethos, ever-on).
+- **Marsh-fire** (`MARSHFIRE_*`, `stepFields`) — burns the watch that crosses it; the hero wades it unharmed.
+- **Bog** (`BOG_*`) slows **every** body; **bramble** (`BRAMBLE_*`) slows **only the watch** — both via
+  `terrainSpeedMul(s, x, y, isFoe)`, read in `stepHunt` (hero) and `moveBody` (foes).
+- **Glades** (`GLADE_AURA`, `inGlade`) — trace the maw **while loping** (the moonwell's moving-trace gift).
+- **Springs** (`SPRING_*`, `inNodeAura`) — slowly mend the hero in `stepHunt`, gated by `SPRING_HEAL_CAP`.
+- **Geysers** (`GEYSER_*`, `stepGeysers`, `node.geyserAt`) — erupt a scalding burst on a cadence.
+- **Gales** (`GALE_*`, `stepGale`) — shove the watch out of the aura each frame (the hero is unmoved).
+- **Wolfsbane** (`WOLFSBANE_*`) — the one hazard to the hero: **bleeds his fury** while he stands in it
+  (the friar's drain, made ground — it can tip a wolf back to a man).
+- **Woods** (`WOODS_AURA`, `inWoods`) — **concealing cover**, the static cousin of mist and the most thematic
+  terrain of the hunt: the wolf melts into the trees — huntsmen hold fire (no line through the boughs) and the
+  watch is slower to rouse (`STEALTH_AGGRO_MUL`, folded into `stepFoes`'s `stealthy`). Seeded in every village
+  (`woodsCount`).
+- (Plus **barrow-hoards** — `HOARD_*`/`stepHoards`: first-footing one **surges the curse** once, then
+  `n.spent`; the Vigil's relic-cache re-themed.) New kinds render procedurally (`renderNewTerrain`, trees via
+  a `tree()` helper; solids draw their body at the **collision radius** so visual == hitbox); no PNGs.
 
-`LEVELS` holds four villages: **Thornwick** (fair first), **Greymoor** (moor; hounds & huntsmen), **Hollowby**
-(walled market town; knights, friars, the abbey), **Wulfmere** (drowned fen, hardest). Each `LevelDef` carries
+### Villages (eight) & sim loop
+
+`LEVELS` holds **eight** villages — the original four plus the **Outlands** expansion (villages beyond the
+dale, carrying the new terrain): **Thornwick** (fair first), **Greymoor** (moor; hounds & huntsmen),
+**Hollowby** (walled market town; knights, friars, the abbey), **Wulfmere** (drowned fen), then **Ashthorn**
+(pyre/marsh-fire/bramble), **Mirefen** (bog/wolfsbane/spring), **Galehead** (gale/glade/geyser/hoard), and
+**Direhollow** (the last hollow — the whole vocabulary). Werewolf villages don't chain narratively (no
+`story` field / unlock gate, unlike the Vigil) — just an `epigraph` each. Each `LevelDef` carries
 `stoneCount`/`cottageCount`/`cairnCount`/`moonwellCount`, `greenCount`/`greenSpacing`,
 `wallCount`/`pathCount`/`mistCount`, the variant counts
-(`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), and `sizeScale`. `stepHunt` advances the moon,
-integrates the hero, resolves the form, runs `stepMaw → stepFoes → stepBolts → stepCairns → stepMists →
-stepMotes`, then checks terminal states (`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror
+(`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), the **new terrain/obstacle counts** (above), and
+`sizeScale`. `stepHunt` advances the moon, integrates the hero, resolves the form, runs `stepMaw → stepFoes →
+stepBolts → stepCairns → stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then
+checks terminal states (`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror
 the siblings (`slay`/`hurtFoe`/`nearestFoe`, `aliveFoes`/`clearedPct`/`furyReadout`, `scoreRun`,
 `difficultyMult`). **Blood-motes** (`stepMotes`) are the fury economy's heartbeat: a felled foe may drop one;
 gathering it stokes the curse.

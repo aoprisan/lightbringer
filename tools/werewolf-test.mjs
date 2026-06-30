@@ -169,6 +169,7 @@ ok(wellFury > sCtl.hero.fury + 0.05, `a moonwell stokes fury at noon (${sCtl.her
 //    strike sets i-frames, counts the hit, knocks back. Aggro is wider for the beast.
 const s4 = ww.buildArena(ww.levelById(id));
 stowAll(s4);
+s4.mists = []; s4.scenery = []; // isolate aggro: mist OR a woods node over the spawn would read the wolf as hidden
 beast(s4); // a wolf draws full aggro
 const eNear = s4.foes[0], eFar = s4.foes[1];
 park(eNear, s4.hero.x + K.FOE_AGGRO - 40, s4.hero.y);
@@ -207,7 +208,7 @@ ok(s5.hero.hp === hp2, "i-frames spare the hero an immediate second strike");
 //     silver bolts with line of sight; a wall stops the bolt; MIST hides the hero.
 const sH = ww.buildArena(ww.levelById("greymoor"));
 ok(sH.foes.some((e) => e.variant === "huntsman"), "greymoor musters a huntsman");
-stowAll(sH); sH.solids = []; sH.walls = []; sH.cairns = []; sH.mists = [];
+stowAll(sH); sH.solids = []; sH.walls = []; sH.cairns = []; sH.mists = []; sH.scenery = []; // woods would hide the hero too
 const hunter = sH.foes.find((e) => e.variant === "huntsman") ?? sH.foes[0];
 hunter.variant = "huntsman"; wake(hunter); hunter.x = 800; hunter.y = 800; hunter.shootCd = 0;
 sH.hero.x = 800 + (K.HUNTSMAN_RANGE - 40); sH.hero.y = 800;
@@ -553,6 +554,168 @@ try {
   console.error(err);
 }
 ok(!threw, "render and scaffold run headlessly with zero sprites, at start and after state changes");
+
+// === The expanded maps — four further villages + the new terrain vocabulary ===
+
+// N1. The four new villages resolve and generate their signature terrain/obstacles.
+ok(ww.LEVELS.length === 8, `the maps now run to eight villages (${ww.LEVELS.length})`);
+ok(["ashthorn", "mirefen", "galehead", "direhollow"].every((vid) => ww.levelById(vid)),
+  "the four new villages resolve by id");
+const ntAsh = ww.buildArena(ww.levelById("ashthorn"));
+ok(ntAsh.scenery.some((n) => n.kind === "marshfire") && ntAsh.scenery.some((n) => n.kind === "bramble")
+  && ntAsh.solids.some((n) => n.kind === "pyre"),
+  "Ashthorn has marsh-fire, brambles, and (solid) pyres");
+const ntMire = ww.buildArena(ww.levelById("mirefen"));
+ok(ntMire.scenery.some((n) => n.kind === "bog") && ntMire.scenery.some((n) => n.kind === "wolfsbane")
+  && ntMire.scenery.some((n) => n.kind === "spring"),
+  "Mirefen has bog, wolfsbane, and springs");
+const ntGale = ww.buildArena(ww.levelById("galehead"));
+ok(ntGale.scenery.some((n) => n.kind === "gale") && ntGale.scenery.some((n) => n.kind === "glade")
+  && ntGale.scenery.some((n) => n.kind === "hoard"),
+  "Galehead has gales, glades, and hoards");
+const ntDire = ww.buildArena(ww.levelById("direhollow"));
+ok(ntDire.scenery.some((n) => n.kind === "geyser") && ntDire.scenery.some((n) => n.kind === "wisp"),
+  "Direhollow gathers geysers and wisps");
+ok(ntDire.solids.some((n) => n.kind === "dolmen"), "a dolmen is a solid (blocks bodies)");
+ok(ww.difficultyMult(ww.levelById("wulfmere")) > ww.difficultyMult(ww.levelById("thornwick")),
+  "the difficulty ordering still holds with the new villages");
+
+// N2. Emitter ground — pyre, wisp, and marsh-fire burn the watch in their auras.
+for (const [kind, aura] of [["pyre", K.PYRE_AURA], ["wisp", K.WISP_AURA], ["marshfire", K.MARSHFIRE_AURA]]) {
+  const sfl = ww.buildArena(ww.levelById("thornwick"));
+  stowAll(sfl);
+  const node = { x: 700, y: 700, kind };
+  sfl.scenery = [node];
+  const burn = sfl.foes[0]; burn.dead = false; burn.x = node.x; burn.y = node.y; burn.hp = K.FOE_HP;
+  const hp0 = burn.hp;
+  ww.stepFields(sfl, 1000);
+  ok(burn.hp < hp0, `a ${kind} burns a foe in its aura (${hp0} -> ${burn.hp.toFixed(1)})`);
+  const safe = sfl.foes[1]; safe.dead = false; safe.x = node.x + aura + 60; safe.y = node.y;
+  const safe0 = safe.hp;
+  ww.stepFields(sfl, 1000);
+  ok(safe.hp === safe0, `a foe beyond a ${kind}'s aura is unharmed`);
+}
+
+// N3. Bogs slow every body; brambles slow only the watch.
+const ntStm = ww.buildArena(ww.levelById("thornwick"));
+ntStm.scenery = [{ x: 400, y: 400, kind: "bog" }];
+ok(ww.terrainSpeedMul(ntStm, 400, 400, false) === K.BOG_SLOW, "a bog slows the hero");
+ok(ww.terrainSpeedMul(ntStm, 400, 400, true) === K.BOG_SLOW, "a bog slows a foe too");
+ok(ww.terrainSpeedMul(ntStm, 9000, 9000, false) === 1, "open ground does not slow");
+ntStm.scenery = [{ x: 400, y: 400, kind: "bramble" }];
+ok(ww.terrainSpeedMul(ntStm, 400, 400, false) === 1, "a bramble leaves the hero unslowed");
+ok(ww.terrainSpeedMul(ntStm, 400, 400, true) === K.BRAMBLE_SLOW, "a bramble snares only a foe");
+ok(K.BOG_SLOW < 1 && K.BRAMBLE_SLOW < 1, "the slows are real (multiplier < 1)");
+
+// N4. Glades — the maw traces even while loping; off any glade, loping fades it.
+const ntGl = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntGl); ntGl.solids = []; ntGl.walls = []; ntGl.paths = []; ntGl.moonwells = [];
+ntGl.moon = 0.5; // deep night, so the trace ramps briskly
+ntGl.scenery = [{ x: 1000, y: 1000, kind: "glade" }]; ntGl.hero.charge = 0;
+ok(ww.inGlade(ntGl, 1000, 1000), "inGlade reports the clearing");
+for (let t = 0; t < 700; t += 16) { ntGl.hero.x = 1000; ntGl.hero.y = 1000; ww.stepHunt(ntGl, 16, { x: 1, y: 0 }); }
+ok(ntGl.hero.charge > 0.5, `the maw traces while loping in a glade (charge=${ntGl.hero.charge.toFixed(2)})`);
+const ntGl2 = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntGl2); ntGl2.solids = []; ntGl2.walls = []; ntGl2.paths = []; ntGl2.moonwells = []; ntGl2.scenery = [];
+ntGl2.hero.charge = 1;
+run(ntGl2, 500, { x: 1, y: 0 });
+ok(ntGl2.hero.charge < 1, "off any glade, a loping hero lets the maw fade");
+
+// N5. Springs — slowly mend the hero, but only to the cap.
+const ntSp = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntSp); ntSp.solids = []; ntSp.walls = []; ntSp.paths = [];
+ntSp.scenery = [{ x: ntSp.hero.x, y: ntSp.hero.y, kind: "spring" }];
+ntSp.hero.hp = 30;
+run(ntSp, 1000, still);
+ok(ntSp.hero.hp > 30, `a spring mends the hero (30 -> ${ntSp.hero.hp.toFixed(1)})`);
+const ntSpC = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntSpC); ntSpC.solids = []; ntSpC.walls = []; ntSpC.paths = [];
+ntSpC.scenery = [{ x: ntSpC.hero.x, y: ntSpC.hero.y, kind: "spring" }];
+const ntCap = ntSpC.hero.maxHp * K.SPRING_HEAL_CAP;
+ntSpC.hero.hp = ntCap - 2;
+run(ntSpC, 3000, still);
+ok(ntSpC.hero.hp <= ntCap + 1e-6, `a spring mends only to the cap (${ntSpC.hero.hp.toFixed(1)} <= ${ntCap})`);
+
+// N6. Geysers erupt on their cadence, burning the watch in reach.
+const ntGy = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntGy);
+const ntGyN = { x: 700, y: 700, kind: "geyser" };
+ntGy.scenery = [ntGyN];
+const ntGyF = ntGy.foes[0]; ntGyF.dead = false; ntGyF.x = ntGyN.x; ntGyF.y = ntGyN.y; ntGyF.hp = K.FOE_HP;
+ww.stepGeysers(ntGy, 16); // seeds the clock; no eruption on the first tick
+ok(ntGyF.hp === K.FOE_HP, "a geyser does not erupt before its cadence");
+ntGy.elapsed += K.GEYSER_CD + 1;
+ww.stepGeysers(ntGy, 16);
+ok(ntGyF.hp < K.FOE_HP, "a geyser erupts on its cadence and burns the watch");
+
+// N7. Gales — a moor-wind holds a foe off (it closes less than over open ground).
+function ntGaleClose(withGale) {
+  const sg = ww.buildArena(ww.levelById("thornwick"));
+  stowAll(sg); sg.solids = []; sg.walls = []; sg.paths = [];
+  const node = { x: 900, y: 900, kind: "gale" };
+  sg.scenery = withGale ? [node] : [];
+  sg.hero.x = node.x; sg.hero.y = node.y; // hero at the gale's heart
+  const f = sg.foes[0]; f.dead = false; f.variant = "villager"; f.x = node.x + 90; f.y = node.y; f.state = "hunt";
+  for (let t = 0; t < 300; t += 16) { ww.stepFoes(sg, 16); ww.stepGale(sg, 16); }
+  return Math.hypot(f.x - node.x, f.y - node.y);
+}
+ok(ntGaleClose(true) > ntGaleClose(false) + 5, "a gale holds a foe off — it closes less than over open ground");
+
+// N8. Wolfsbane — bleeds the hero's fury (less than without, over the same stand).
+function ntFuryAfter(withBane) {
+  const s = ww.buildArena(ww.levelById("thornwick"));
+  stowAll(s); s.solids = []; s.walls = []; s.paths = []; s.moonwells = [];
+  s.moon = 0.5; // night, so a standing man's fury swells
+  s.scenery = withBane ? [{ x: s.hero.x, y: s.hero.y, kind: "wolfsbane" }] : [];
+  s.hero.form = "human"; s.hero.fury = 0.3;
+  run(s, 400, still);
+  return s.hero.fury;
+}
+ok(ntFuryAfter(true) < ntFuryAfter(false), "wolfsbane bleeds the hero's fury (less than without it)");
+
+// N9. Barrow-hoards — cracking one surges the curse, once.
+const ntHo = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntHo);
+ntHo.scenery = [{ x: ntHo.hero.x, y: ntHo.hero.y, kind: "hoard" }];
+ntHo.hero.fury = 0.2;
+ww.stepHoards(ntHo);
+ok(ntHo.scenery[0].spent, "the hero cracks a barrow-hoard underfoot");
+ok(ntHo.hero.fury > 0.2, "a cracked hoard surges the curse (fury)");
+const ntHoF = ntHo.hero.fury;
+ww.stepHoards(ntHo);
+ok(ntHo.hero.fury === ntHoF, "a spent hoard surges nothing more");
+
+// N10. Render handles a new-terrain village headlessly (exercises renderNewTerrain).
+let ntThrew = false;
+try { ww.render(ww.buildArena(ww.levelById("direhollow")), makeNode()); }
+catch (err) { ntThrew = true; console.error(err); }
+ok(!ntThrew, "render draws the new terrain/obstacles headlessly with zero sprites");
+
+// N11. Woods — concealing cover (the static cousin of mist): the wolf melts into
+//      the trees — huntsmen hold fire, and the watch is slower to rouse.
+const ntWd = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntWd); ntWd.solids = []; ntWd.walls = []; ntWd.paths = []; ntWd.mists = [];
+ntWd.scenery = [{ x: ntWd.hero.x, y: ntWd.hero.y, kind: "woods" }];
+beast(ntWd); // a wolf is normally NOT stealthy — the woods hide it anyway
+ok(ww.inWoods(ntWd, ntWd.hero.x, ntWd.hero.y), "inWoods reports the canopy");
+ok(!ww.inWoods(ntWd, ntWd.hero.x + K.WOODS_AURA + 40, ntWd.hero.y), "a stand of woods is finite");
+const wdH = ntWd.foes[0];
+wdH.variant = "huntsman"; wdH.dead = false; wdH.shootCd = 0; wdH.hp = Math.round(K.FOE_HP * K.HUNTSMAN_HP_MUL);
+wdH.x = ntWd.hero.x + (K.HUNTSMAN_RANGE - 40); wdH.y = ntWd.hero.y; wdH.state = "hunt";
+wdH.homeX = wdH.x; wdH.homeY = wdH.y;
+const wdHp0 = ntWd.hero.hp;
+run(ntWd, K.HUNTSMAN_SHOOT_CD * 2 + 200, still);
+ok(ntWd.bolts.length === 0 && ntWd.hero.hp === wdHp0, "a huntsman holds fire while the wolf hides in the woods");
+const ntWd2 = ww.buildArena(ww.levelById("thornwick"));
+stowAll(ntWd2); ntWd2.mists = [];
+beast(ntWd2); // full beast aggro
+const wdW = ntWd2.foes[0];
+park(wdW, ntWd2.hero.x + K.FOE_AGGRO * 0.8, ntWd2.hero.y); // inside full aggro, outside the woods-dulled one
+ntWd2.scenery = [{ x: ntWd2.hero.x, y: ntWd2.hero.y, kind: "woods" }];
+ww.stepFoes(ntWd2, 16);
+ok(wdW.state === "lurk", "the woods dull aggro — a foe that would rouse stays lurking");
+ok(ww.buildArena(ww.levelById("ashthorn")).scenery.some((n) => n.kind === "woods"),
+  "Ashthorn is forested (woods seed as tactical cover)");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

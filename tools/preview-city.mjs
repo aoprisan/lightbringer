@@ -67,7 +67,25 @@ for (const n of s.scenery) {
 for (const f of s.fences)
   thickLine(f.x1 * SCALE, f.y1 * SCALE, f.x2 * SCALE, f.y2 * SCALE, Math.max(2, K.FENCE_HALF * SCALE), [0x20, 0x1a, 0x2a]);
 
-// Landmarks.
+// New terrain auras (zones) — drawn first, faint, beneath the markers, at their
+// true gameplay reach so the tactical footprint is to scale.
+const ZONE = {
+  cinder: [K.CINDER_AURA, [0xff, 0x7a, 0x2e]], mire: [K.MIRE_AURA, [0x4a, 0x5a, 0x2a]],
+  thicket: [K.THICKET_AURA, [0x5f, 0xae, 0x5a]], hallow: [K.HALLOW_AURA, [0xff, 0xd8, 0x7a]],
+  spring: [K.SPRING_AURA, [0x7a, 0xd0, 0xff]], vent: [K.VENT_RADIUS, [0xff, 0x5a, 0x3a]],
+  gust: [K.GUST_AURA, [0xbc, 0xd6, 0xff]], lantern: [K.LANTERN_AURA, [0xff, 0xce, 0x7a]],
+  bonfire: [K.BONFIRE_AURA, [0xff, 0xb2, 0x4a]], grove: [K.GROVE_AURA, [0x3a, 0x6a, 0x3e]],
+};
+for (const n of s.scenery) {
+  const z = ZONE[n.kind];
+  if (z) disc(Math.round(n.x * SCALE), Math.round(n.y * SCALE), Math.round(z[0] * SCALE), z[1], 0.16);
+}
+// Mist banks — drifting fog, pale.
+for (const m of (s.mists || []))
+  disc(Math.round(m.x * SCALE), Math.round(m.y * SCALE), Math.round(m.r * SCALE), [0xcf, 0xd8, 0xe8], 0.14);
+
+// Landmarks (and the new node cores), drawn at their collision/visual size to scale.
+const OR = K.OBSTACLE_RADIUS;
 for (const n of s.scenery) {
   const x = Math.round(n.x * SCALE), y = Math.round(n.y * SCALE);
   if (n.kind === "shrine") { disc(x, y, 9, [0x2a, 0x6f, 0x74]); disc(x, y, 4, [0xcf, 0xe8, 0xe6]); } // wells
@@ -75,6 +93,15 @@ for (const n of s.scenery) {
   else if (n.kind === "obelisk") disc(x, y, 7, [0x6a, 0x4a, 0x8a]);
   else if (n.kind === "press") disc(x, y, 7, [0x8a, 0x5a, 0x2a]);
   else if (n.kind === "keeper") disc(x, y, 6, [0xc0, 0x33, 0x33]); // enemy spawns
+  // New solids — drawn at their true collision radius (the size audit, to scale).
+  else if (n.kind === "bonfire") { disc(x, y, Math.round(OR.bonfire * SCALE), [0xff, 0x7a, 0x1e]); disc(x, y, 3, [0xff, 0xe6, 0xa0]); }
+  else if (n.kind === "pillar") disc(x, y, Math.round(OR.pillar * SCALE), [0x45, 0x40, 0x63]);
+  else if (n.kind === "statue") disc(x, y, Math.round(OR.statue * SCALE), [0x3c, 0x42, 0x58]);
+  else if (n.kind === "barrow") disc(x, y, Math.round(OR.barrow * SCALE), [0x2e, 0x24, 0x17]);
+  // New passable cores.
+  else if (n.kind === "grove") { for (const [dx, dy] of [[-9,3],[8,5],[1,-8],[-4,11],[11,-6]]) disc(x+dx, y+dy, 5, [0x23, 0x4a, 0x27]); }
+  else if (n.kind === "cache" || n.kind === "spring" || n.kind === "lantern" || n.kind === "vent")
+    disc(x, y, 4, (ZONE[n.kind] || [[0,0,0],[0xff,0xcf,0x5a]])[1]);
 }
 
 // Bonfire — the hero's central spawn.
