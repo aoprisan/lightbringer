@@ -54,10 +54,12 @@ function stowAll(s, x = 5, y = 5) { for (const e of s.foes) park(e, x, y); }
 // A fresh foe at (x,y) — the test's stock body.
 const mkF = (x, y, v = "villager", hp = K.FOE_HP) => ({
   x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false, state: "hunt", variant: v,
-  wanderAngle: 0, homeX: x, homeY: y, attackCd: 0, shootCd: 0, hit: 0, bornAt: 0,
+  wanderAngle: 0, homeX: x, homeY: y, attackCd: 0, shootCd: 0, hit: 0, bornAt: 0, alarm: 0,
 });
-// Force the hero into the beast (so the maw can rend) for a sim slice.
+// Force the hero into the beast (so the maul can rend) for a sim slice.
 const beast = (s) => { s.hero.form = "wolf"; s.hero.fury = 1; };
+// Force the wolf to a full sprint's momentum (so a contact bite hits at full force).
+const sprint = (s) => { s.hero.form = "wolf"; s.hero.fury = 1; s.hero.momentum = 1; };
 
 const id = "thornwick";
 
@@ -92,34 +94,44 @@ ok(s.foes.every((e) => e.state === "lurk"), "the watch begins lurking, not hunti
 ok(ww.daylight(0) > 0.95 && ww.daylight(0.5) < 0.05, "daylight peaks at noon (moon 0), dies at midnight (0.5)");
 ok(Math.abs(ww.moonlightOf(0.5) - 1) < 0.05 && ww.moonlightOf(0) < 0.05, "moonlight is the inverse of daylight");
 
-// 3. The maw rends — but ONLY as a wolf, and only when sufficiently traced. A man
-//    cannot attack; a wolf's pulse damages every foe in reach.
+// 3. The maul rends — but ONLY as a wolf, on CONTACT, with the force scaling by
+//    MOMENTUM. A man cannot fight; a wolf bites the nearest foe in reach; a foe out of
+//    contact reach is spared; the bite holds a cadence.
 const s2 = ww.buildArena(ww.levelById(id));
 stowAll(s2);
-s2.cairns = []; // isolate from any cairn the pulse might mark
+s2.cairns = []; // isolate from any den a bite might claim
 s2.hero.x = 700; s2.hero.y = 700;
-const near = mkF(700 + 40, 700);
-const far = mkF(700 + K.MAW_RADIUS + 120, 700);
+const reach2 = K.HERO_RADIUS + K.FOE_RADIUS + K.MAUL_REACH;
+const near = mkF(700 + reach2 - 8, 700);
+const far = mkF(700 + reach2 + 120, 700);
 s2.foes = [near, far];
-// As a MAN, a fully-traced stand does NOT rend.
-s2.hero.form = "human"; s2.hero.charge = 1; s2.hero.mawCd = 0;
+// As a MAN, contact is no threat — the maul never fires.
+s2.hero.form = "human"; s2.hero.momentum = 1; s2.hero.biteCd = 0;
 const nearHp0 = near.hp;
-ww.stepMaw(s2, 16);
-ok(near.hp === nearHp0, "a man cannot attack — no rending, whatever the stand");
-// As a WOLF, the same stand rends: the near foe is hit, the far one spared.
-s2.hero.form = "wolf"; s2.hero.charge = 1; s2.hero.mawCd = 0;
-ww.stepMaw(s2, 16);
-ok(near.hp < nearHp0, "the wolf's traced maw rends the foe in reach");
-ok(far.hp === K.FOE_HP, "a foe outside the maw's reach is spared");
-ok(s2.hero.mawCd > 0, "after a pulse the maw holds its cadence before the next");
-// A faint (untraced) wolf-maw does not rend.
-s2.hero.charge = K.MAW_BITE_AT - 0.01; s2.hero.mawCd = 0;
-const nearHp1 = near.hp;
-ww.stepMaw(s2, 16);
-ok(near.hp === nearHp1, "a faint (untraced) maw does not rend");
+ww.stepMaul(s2, 16);
+ok(near.hp === nearHp0, "a man cannot fight — no bite, whatever the speed");
+// As a WOLF, the same contact rends: the near foe is bitten, the far one spared.
+s2.hero.form = "wolf"; s2.hero.momentum = 1; s2.hero.biteCd = 0;
+ww.stepMaul(s2, 16);
+ok(near.hp < nearHp0, "the wolf's maul rends the foe in contact reach");
+ok(far.hp === K.FOE_HP, "a foe beyond the maul's reach is spared");
+ok(s2.hero.biteCd > 0, "after a bite the maul holds its cadence before the next");
 
-// 3b. The blood-moon sigil geometry: two rings (the full moon), claw-rakes, radial
-//     rays — a closed path.
+// 3a. The bite scales with MOMENTUM — a full-run bite out-bites a near-standing graze.
+function biteDmg(mom) {
+  const sb = ww.buildArena(ww.levelById(id));
+  stowAll(sb); sb.cairns = [];
+  sb.hero.x = 700; sb.hero.y = 700; sb.hero.form = "wolf"; sb.hero.momentum = mom; sb.hero.lunge = 0;
+  const t = mkF(700 + reach2 - 6, 700, "villager", 1e6);
+  sb.foes = [t];
+  ww.bite(sb, t);
+  return 1e6 - t.hp;
+}
+ok(biteDmg(1) > biteDmg(0) + 1, `a full-run bite out-bites a standing graze (${biteDmg(0).toFixed(1)} -> ${biteDmg(1).toFixed(1)})`);
+ok(Math.abs(biteDmg(0) - K.MAUL_DMG * K.MAUL_MIN_MUL) < 1e-6, "a standing bite is the MAUL_MIN_MUL fraction");
+
+// 3b. The blood-moon sigil geometry (kept as a cosmetic flourish): two rings (the full
+//     moon), claw-rakes, radial rays — a closed path.
 const pp = ww.pentagramPath(100, 100, 50, 0);
 ok(pp.startsWith("M") && pp.trimEnd().endsWith("Z"), "the sigil is a closed path");
 ok((pp.match(/A/g) || []).length >= 4, "the sigil arcs the two moon-rings");
@@ -141,9 +153,9 @@ ok(s3.slain === slain1, "a slain foe is inert (no double-count)");
 //    daylight a wolf's fury bleeds and he turns back.
 const sT1 = ww.buildArena(ww.levelById(id));
 stowAll(sT1); sT1.solids = []; sT1.walls = [];
-sT1.hero.x = 700; sT1.hero.y = 700; sT1.moon = 0.5; sT1.hero.fury = 0.8; // deep night, near the crest
-run(sT1, 1600, still);
-ok(sT1.hero.form === "wolf" && sT1.hero.fury >= 0.99, "moonlight swells a man's fury until he turns beast");
+sT1.hero.x = 700; sT1.hero.y = 700; sT1.moon = 0.5; sT1.hero.fury = 0.9; // deep night, near the crest
+run(sT1, 400, still);
+ok(sT1.hero.form === "wolf", "moonlight swells a man's fury until he turns beast");
 const sT2 = ww.buildArena(ww.levelById(id));
 stowAll(sT2); sT2.solids = []; sT2.walls = []; sT2.moonwells = []; // (foes stay stowed far, so no instant win)
 sT2.hero.x = 700; sT2.hero.y = 700; sT2.moon = 0; beast(sT2); sT2.hero.fury = 0.1; // high noon
@@ -165,44 +177,77 @@ sCtl.hero.x = 700; sCtl.hero.y = 700; sCtl.moon = 0; sCtl.hero.fury = 0; sCtl.mo
 run(sCtl, 800, still);
 ok(wellFury > sCtl.hero.fury + 0.05, `a moonwell stokes fury at noon (${sCtl.hero.fury.toFixed(2)} -> ${wellFury.toFixed(2)})`);
 
-// 6. The watch AI — rouses on the hero in aggro (sticky), closes, and strikes; the
-//    strike sets i-frames, counts the hit, knocks back. Aggro is wider for the beast.
+// 6. The predator-hunt AI. PREY flee a near wolf (and FLOCK); ALARM radiates, spreads
+//    prey→prey, decays; a roused village sends the HUNTERS converging; a calm MAN is
+//    unseen (stealth). The villager/hound are prey; the knight/huntsman/friar hunt.
+ok(ww.isPrey("villager") && ww.isPrey("hound") && !ww.isPrey("knight")
+  && !ww.isPrey("huntsman") && !ww.isPrey("friar"), "prey are the villager & hound; the rest hunt");
+
+// A wolf near a prey raises its alarm and it flees (moves away from the beast).
 const s4 = ww.buildArena(ww.levelById(id));
-stowAll(s4);
-s4.mists = []; s4.scenery = []; // isolate aggro: mist OR a woods node over the spawn would read the wolf as hidden
-beast(s4); // a wolf draws full aggro
-const eNear = s4.foes[0], eFar = s4.foes[1];
-park(eNear, s4.hero.x + K.FOE_AGGRO - 40, s4.hero.y);
-park(eFar, s4.hero.x + K.FOE_AGGRO + 140, s4.hero.y);
-ww.stepFoes(s4, 16);
-ok(eNear.state === "hunt", "a lurker rouses when the wolf is in aggro");
-ok(eFar.state === "lurk", "a lurker beyond aggro keeps watching");
-s4.hero.x = 40; s4.hero.y = 40; // flee far
-ww.stepFoes(s4, 16);
-ok(eNear.state === "hunt", "aggro is sticky — a roused foe never settles back");
-// A man is harder to spot: a foe just inside the beast-aggro band stays lurking.
+stowAll(s4); s4.solids = []; s4.walls = []; s4.scenery = []; s4.mists = []; s4.cairns = [];
+sprint(s4); // a wolf at full sprint reads loudest
+s4.hero.x = 700; s4.hero.y = 700;
+const flee1 = mkF(700 + 120, 700); flee1.state = "lurk"; flee1.alarm = 0;
+s4.foes = [flee1];
+const fx0 = flee1.x;
+ww.stepFoes(s4, 100);
+ok(flee1.alarm > 0, "a wolf nearby drives a prey's alarm up");
+ok(flee1.state === "hunt" && flee1.x > fx0, "an alarmed prey breaks and FLEES (away from the wolf)");
+
+// Alarm spreads prey→prey: a calm prey beside a terrified one catches the panic.
+const sSpread = ww.buildArena(ww.levelById(id));
+stowAll(sSpread); sSpread.solids = []; sSpread.walls = []; sSpread.scenery = []; sSpread.cairns = [];
+sSpread.hero.form = "human"; sSpread.hero.x = 5; sSpread.hero.y = 5; // hero far & calm: no radiation
+const scared = mkF(700, 700); scared.alarm = 1;
+const calm = mkF(700 + K.ALARM_SPREAD_R - 30, 700); calm.alarm = 0;
+sSpread.foes = [scared, calm];
+ww.stepFoes(sSpread, 200);
+ok(calm.alarm > 0, "alarm spreads from a terrified prey to a near calm one");
+// …and decays when nothing feeds it.
+const sDecay = ww.buildArena(ww.levelById(id));
+stowAll(sDecay); sDecay.solids = []; sDecay.walls = []; sDecay.scenery = []; sDecay.cairns = [];
+sDecay.hero.form = "human"; sDecay.hero.x = 5; sDecay.hero.y = 5;
+const lone = mkF(700, 700); lone.alarm = 0.8;
+sDecay.foes = [lone];
+ww.stepFoes(sDecay, 300);
+ok(lone.alarm < 0.8, "alarm decays when nothing feeds it");
+
+// A roused village (high average alarm) sends a DISTANT hunter converging.
+const sRouse = ww.buildArena(ww.levelById("hollowby"));
+stowAll(sRouse); sRouse.solids = []; sRouse.walls = []; sRouse.scenery = []; sRouse.cairns = [];
+sRouse.hero.form = "human"; sRouse.hero.x = 5; sRouse.hero.y = 5;
+const knightR = sRouse.foes.find((e) => e.variant === "knight") ?? sRouse.foes[0];
+knightR.variant = "knight";
+park(knightR, 1400, 1400); // far from the hero — proximity alone would not wake it
+const mob = [knightR];
+for (let i = 0; i < 6; i++) { const p = mkF(300 + i * 10, 300); p.alarm = 1; mob.push(p); }
+sRouse.foes = mob; sRouse.total = 100; // high total so the cleanup sweep can't be the cause
+ww.stepFoes(sRouse, 16);
+ok(knightR.state === "hunt", "a roused village (high alarm) sends the hunters converging from afar");
+
+// Stealth: a calm MAN beside a prey radiates nothing — it stays lurking and calm.
+// (Keep the full roster stowed so the cleanup sweep never rouses the village.)
 const sStealth = ww.buildArena(ww.levelById(id));
-stowAll(sStealth);
-sStealth.hero.form = "human";
-const watcher = sStealth.foes[0];
-park(watcher, sStealth.hero.x + K.FOE_AGGRO * 0.7, sStealth.hero.y); // inside beast aggro, outside man aggro
-ww.stepFoes(sStealth, 16);
-ok(watcher.state === "lurk", "the watch is slower to rouse to a man than to a beast");
-// A foe glued to the hero strikes it, sets i-frames, counts the hit.
+stowAll(sStealth); sStealth.solids = []; sStealth.walls = []; sStealth.scenery = []; sStealth.mists = []; sStealth.cairns = [];
+sStealth.hero.form = "human"; sStealth.hero.x = 700; sStealth.hero.y = 700; sStealth.hero.vx = 0; sStealth.hero.vy = 0;
+const unseen = sStealth.foes[0];
+park(unseen, 700 + 80, 700); unseen.alarm = 0;
+ww.stepFoes(sStealth, 200);
+ok(unseen.state === "lurk" && unseen.alarm === 0, "a calm man passes unseen — a prey beside him never stirs");
+
+// A cornered prey flails at the WOLF on top of it: a hit, i-frames, the flawless lost.
 const s5 = ww.buildArena(ww.levelById(id));
-stowAll(s5);
-s5.solids = []; s5.walls = []; s5.cairns = [];
-const biter = s5.foes[0];
-biter.x = s5.hero.x; biter.y = s5.hero.y; wake(biter); biter.attackCd = 0;
+stowAll(s5); s5.solids = []; s5.walls = []; s5.cairns = [];
+sprint(s5);
+const corner = s5.foes[0];
+corner.variant = "villager"; corner.x = s5.hero.x; corner.y = s5.hero.y; corner.alarm = 1; corner.attackCd = 0;
+corner.hp = 1e9; // don't let the maul fell it before it flails
+s5.foes = [corner];
 const hp1Before = s5.hero.hp;
 ww.stepFoes(s5, 16);
-ok(s5.hero.hp < hp1Before, `a foe in contact strikes the hero (${hp1Before} -> ${s5.hero.hp})`);
-ok(s5.hero.hurt > 0, "a strike sets i-frames");
-ok(s5.hits === 1, "a landed strike is counted (for the flawless bonus)");
-biter.x = s5.hero.x; biter.y = s5.hero.y; biter.attackCd = 0;
-const hp2 = s5.hero.hp;
-ww.stepFoes(s5, 16);
-ok(s5.hero.hp === hp2, "i-frames spare the hero an immediate second strike");
+ok(s5.hero.hp < hp1Before, `a cornered prey flails at the wolf (${hp1Before} -> ${s5.hero.hp})`);
+ok(s5.hero.hurt > 0 && s5.hits === 1, "the flail sets i-frames and forfeits the flawless bonus");
 
 // 6b. Huntsman — the ranged arm. It never melees: it holds a standoff and looses
 //     silver bolts with line of sight; a wall stops the bolt; MIST hides the hero.
@@ -288,7 +333,7 @@ for (let i = 1; i < s6.foes.length; i++) ww.slay(s6, s6.foes[i]);
 s6.motes = [];
 const last = s6.foes[0];
 last.hp = 1; last.x = 700; last.y = 700; wake(last);
-s6.hero.x = 700; s6.hero.y = 700; s6.moon = 0.5; beast(s6); s6.hero.charge = 1; s6.hero.mawCd = 0;
+s6.hero.x = 700; s6.hero.y = 700; s6.moon = 0.5; sprint(s6); s6.hero.biteCd = 0;
 run(s6, 1200, still);
 ok(s6.foes.every((e) => e.dead), "the last foe falls to the maw");
 ok(s6.phase === "won" && ww.clearedPct(s6) === 1, "cutting down every foe claims the village (won)");
@@ -305,49 +350,54 @@ killer.variant = "knight"; killer.x = s7.hero.x; killer.y = s7.hero.y; wake(kill
 run(s7, 20000, still, 8);
 ok(s7.phase === "lost" && s7.hero.hp === 0, "enough blows bring the hero down (lost)");
 
-// 9. Cairns — the maw marks a dark cairn in reach (stoking the curse); a marked
-//    cairn's aura grants fury AND rends the host; a foe cleanses a marked cairn.
+// 9. Dens — a KILL beside a dark den (a bite within reach of it) claims it; a claimed
+//    den's aura grants fury/momentum, rends the host AND panics prey; a hunter cleanses it.
 const sC = ww.buildArena(ww.levelById(id));
 stowAll(sC);
-const cairn = { x: 700, y: 700, kind: "cairn", lit: false };
-sC.cairns = [cairn]; sC.scenery = [cairn]; sC.litCount = 0;
-sC.hero.x = 700 + 20; sC.hero.y = 700; beast(sC); sC.hero.charge = 1; sC.hero.mawCd = 0;
-sC.hero.fury = 0.5; sC.foes = [];
-ww.firePulse(sC);
-ok(cairn.lit && sC.litCount === 1, "a maw pulse marks a dark cairn in reach");
-ok(sC.hero.fury > 0.5 - K.MAW_FURY_COST, "marking a cairn stokes the curse (offsets the pulse's cost)");
-// A marked cairn's aura grants the hero fury.
+const den = { x: 700, y: 700, kind: "cairn", lit: false };
+sC.cairns = [den]; sC.scenery = [den]; sC.litCount = 0;
+sC.hero.x = 700 + 40; sC.hero.y = 700; sprint(sC); sC.hero.fury = 0.5;
+const victim = mkF(700 + 40 + (K.HERO_RADIUS + K.FOE_RADIUS + K.MAUL_REACH - 6), 700);
+sC.foes = [victim];
+ww.bite(sC, victim); // a bite beside the dark den
+ok(den.lit && sC.litCount === 1, "a bite beside a dark den claims it");
+ok(sC.hero.fury > 0.5, "claiming a den stokes the curse");
+// A claimed den's aura grants the hero fury and tops up the wolf's momentum.
 const sC2 = ww.buildArena(ww.levelById(id));
 stowAll(sC2);
-const cairn2 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
-sC2.cairns = [cairn2];
-sC2.hero.x = 700 + 30; sC2.hero.y = 700; sC2.hero.fury = 0.4; sC2.foes = [];
+const den2 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
+sC2.cairns = [den2];
+sC2.hero.x = 700 + 30; sC2.hero.y = 700; sC2.hero.form = "wolf"; sC2.hero.fury = 0.4; sC2.hero.momentum = 0.2; sC2.foes = [];
 ww.stepCairns(sC2, 1000);
-ok(sC2.hero.fury > 0.4, "a marked cairn's aura grants the hero fury");
-// …and rends a foe caught in it.
+ok(sC2.hero.fury > 0.4, "a claimed den's aura grants the hero fury");
+ok(sC2.hero.momentum > 0.2, "a claimed den's aura tops up the wolf's momentum");
+// …rends a foe caught in it, AND panics a prey (alarm up + shoved outward).
 const sC3 = ww.buildArena(ww.levelById(id));
 stowAll(sC3);
-const cairn3 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
-sC3.cairns = [cairn3]; sC3.hero.x = 5; sC3.hero.y = 5;
-const rent = mkF(700 + 30, 700);
+const den3 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
+sC3.cairns = [den3]; sC3.hero.x = 5; sC3.hero.y = 5;
+const rent = mkF(700 + 30, 700); rent.alarm = 0;
 sC3.foes = [rent];
-const rentHp0 = rent.hp;
+const rentHp0 = rent.hp, rentX0 = rent.x;
 ww.stepCairns(sC3, 600);
-ok(rent.hp < rentHp0, "a marked cairn rends a foe in its aura (ally emitter)");
-// A foe brushing a marked cairn cleanses it (dark + scar).
+ok(rent.hp < rentHp0, "a claimed den rends a foe in its aura (ally emitter)");
+ok(rent.alarm > 0 && rent.x > rentX0, "a claimed den panics prey in its aura (alarm up, shoved out)");
+// A HUNTER brushing a claimed den cleanses it (dark + scar).
 const sC4 = ww.buildArena(ww.levelById(id));
 stowAll(sC4); sC4.solids = []; sC4.walls = [];
-const cairn4 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
-sC4.cairns = [cairn4]; sC4.scenery = [cairn4]; sC4.litCount = 1; sC4.hero.x = 5; sC4.hero.y = 5;
-const cleanser = mkF(700 + 10, 700);
+const den4 = { x: 700, y: 700, kind: "cairn", lit: true, litAt: 0 };
+sC4.cairns = [den4]; sC4.scenery = [den4]; sC4.litCount = 1; sC4.hero.x = 5; sC4.hero.y = 5;
+const cleanser = mkF(700 + 10, 700, "knight"); wake(cleanser);
 sC4.foes = [cleanser];
 ww.stepFoes(sC4, 16);
-ok(!cairn4.lit && sC4.litCount === 0 && sC4.cleansedCount === 1, "a foe brushing a marked cairn cleanses it");
-ok(ww.nearScar(sC4, cairn4.x, cairn4.y), "a cleansed cairn scars the ground");
-// A still-scarred cairn resists re-marking.
-sC4.hero.x = 720; sC4.hero.y = 700; beast(sC4); sC4.hero.charge = 1; sC4.hero.mawCd = 0; sC4.foes = [];
-ww.firePulse(sC4);
-ok(!cairn4.lit && sC4.litCount === 0, "the scar bars re-marking until it fades");
+ok(!den4.lit && sC4.litCount === 0 && sC4.cleansedCount === 1, "a hunter brushing a claimed den cleanses it");
+ok(ww.nearScar(sC4, den4.x, den4.y), "a cleansed den scars the ground");
+// A still-scarred den resists re-claiming.
+sC4.hero.x = 720; sC4.hero.y = 700; sprint(sC4);
+const v2 = mkF(720 + (K.HERO_RADIUS + K.FOE_RADIUS + K.MAUL_REACH - 6), 700);
+sC4.foes = [v2];
+ww.bite(sC4, v2);
+ok(!den4.lit && sC4.litCount === 0, "the scar bars re-claiming until it fades");
 
 // 10. Blood-motes — a felled foe may drop one; gathering it stokes the curse.
 const sM = ww.buildArena(ww.levelById(id));
@@ -362,32 +412,54 @@ ww.stepMotes(sM2);
 ok(sM2.motes.length === 0, "the hero gathers a blood-mote underfoot");
 ok(Math.abs(sM2.hero.fury - (0.5 + K.MOTE_FURY)) < 1e-9, "a gathered blood-mote stokes the curse");
 
-// 11. Overcharge — holding still PAST a full trace banks an overcharge; the next
-//     pulse erupts (wider, terrifies the host, stokes fury), then resets. Moving spends it.
-const sO = ww.buildArena(ww.levelById(id));
-stowAll(sO); sO.solids = []; sO.walls = []; sO.cairns = [];
-sO.hero.x = 700; sO.hero.y = 700; sO.moon = 0.5; beast(sO);
-// A full trace already inscribed; mawCd parked far out so the auto-pulse doesn't fire
-// and spend the bank while it accrues (a real pulse empties the overcharge).
-sO.hero.charge = 1; sO.hero.mawCd = 1e9; sO.hero.overcharge = 0;
-run(sO, K.OVERCHARGE_MS + 120, still);
-ok(sO.hero.charge >= 1 && sO.hero.overcharge >= 1, "holding still past a full trace banks an overcharge");
-// An empowered pulse: a foe just outside the BASE reach is caught by the wider ring,
-// flung back, and fury is stoked.
-sO.hero.overcharge = 1; sO.hero.charge = 1; sO.hero.fury = 0.5;
-const justOut = mkF(700 + K.MAW_RADIUS + 30, 700); // beyond base reach, within the empowered ring
-sO.foes = [justOut];
-const oHp0 = justOut.hp, oX0 = justOut.x;
-ww.firePulse(sO);
-ok(justOut.hp < oHp0, "an empowered pulse's wider ring catches a foe beyond the base reach");
-ok(justOut.x > oX0, "an empowered pulse terrifies (flings back) the host");
-ok(sO.hero.fury > 0.5, "an empowered pulse stokes the curse");
-ok(sO.hero.overcharge === 0, "an empowered pulse spends the banked overcharge");
-// Moving spends a banked overcharge back to nothing.
-const sO2 = ww.buildArena(ww.levelById(id));
-beast(sO2); sO2.hero.charge = 1; sO2.hero.overcharge = 1;
-ww.stepHunt(sO2, 16, { x: 1, y: 0 });
-ok(sO2.hero.overcharge === 0, "moving spends the banked overcharge");
+// 11. Momentum & the pounce — the predator's weapon. Momentum BUILDS while the wolf
+//     runs and BLEEDS while it stands; a moonwell holds it; at POUNCE_AT a frontal foe
+//     is auto-pounced (a locked lunge), spending the momentum.
+const sMo = ww.buildArena(ww.levelById(id));
+stowAll(sMo); sMo.solids = []; sMo.walls = []; sMo.paths = []; sMo.cairns = []; sMo.moonwells = []; sMo.scenery = [];
+sMo.hero.x = 700; sMo.hero.y = 700; beast(sMo); sMo.moon = 0.5; sMo.hero.momentum = 0;
+run(sMo, 700, { x: 1, y: 0 }); // a full run east
+ok(sMo.hero.momentum > 0.5, `momentum builds while the wolf runs (${sMo.hero.momentum.toFixed(2)})`);
+const moRun = sMo.hero.momentum;
+run(sMo, 700, still); // now stand
+ok(sMo.hero.momentum < moRun, "momentum bleeds while the wolf stands still");
+// A moonwell holds momentum even at a standstill.
+const sMw = ww.buildArena(ww.levelById(id));
+stowAll(sMw); sMw.solids = []; sMw.walls = []; sMw.paths = []; sMw.cairns = []; sMw.scenery = [];
+sMw.hero.x = 700; sMw.hero.y = 700; beast(sMw); sMw.hero.momentum = 0.8;
+sMw.moonwells = [{ x: 700, y: 700, kind: "moonwell" }];
+run(sMw, 600, still);
+ok(sMw.hero.momentum >= 0.8 - 1e-6, "a moonwell holds the wolf's momentum at a standstill");
+// The pounce: full momentum + a frontal foe → a locked lunge fires, spending momentum.
+const sP = ww.buildArena(ww.levelById(id));
+stowAll(sP); sP.solids = []; sP.walls = []; sP.cairns = [];
+sP.hero.x = 700; sP.hero.y = 700; sP.hero.form = "wolf"; sP.hero.fury = 1;
+sP.hero.facing = 0; sP.hero.momentum = 1; sP.hero.pounceCd = 0; sP.hero.lunge = 0; sP.hero.biteCd = 1e9;
+const ahead = mkF(700 + K.POUNCE_RANGE - 40, 700); // straight ahead, within pounce range
+sP.foes = [ahead];
+ww.stepMaul(sP, 16);
+ok(sP.hero.lunge > 0, "a frontal foe at full momentum triggers a pounce-lunge");
+ok(sP.hero.pounceCd > 0 && sP.hero.momentum <= K.POUNCE_SPEND + 1e-6, "the pounce sets its cooldown and spends momentum");
+// A foe BEHIND the wolf is not pounced (the cone is frontal).
+const sPb = ww.buildArena(ww.levelById(id));
+stowAll(sPb); sPb.solids = []; sPb.walls = []; sPb.cairns = [];
+sPb.hero.x = 700; sPb.hero.y = 700; sPb.hero.form = "wolf"; sPb.hero.fury = 1;
+sPb.hero.facing = 0; sPb.hero.momentum = 1; sPb.hero.pounceCd = 0; sPb.hero.lunge = 0; sPb.hero.biteCd = 1e9;
+const behind = mkF(700 - (K.POUNCE_RANGE - 40), 700); // directly behind the heading
+sPb.foes = [behind];
+ww.stepMaul(sPb, 16);
+ok(sPb.hero.lunge === 0, "a foe behind the wolf is outside the pounce cone");
+// A mid-lunge bite hits harder than the same standing bite (POUNCE_DMG_MUL).
+function lungeBite(lunge) {
+  const sl = ww.buildArena(ww.levelById(id));
+  stowAll(sl); sl.cairns = [];
+  sl.hero.x = 700; sl.hero.y = 700; sl.hero.form = "wolf"; sl.hero.momentum = 0; sl.hero.lunge = lunge;
+  const t = mkF(700 + (K.HERO_RADIUS + K.FOE_RADIUS + K.MAUL_REACH - 6), 700, "villager", 1e6);
+  sl.foes = [t];
+  ww.bite(sl, t);
+  return 1e6 - t.hp;
+}
+ok(lungeBite(K.POUNCE_MS) > lungeBite(0) + 1, "a bite landed mid-lunge hits harder (the pounce-bite)");
 
 // 12. Terrain — walls + paths present; pushOut stops a body at a wall and a solid;
 //     a path speeds travel.
@@ -543,7 +615,7 @@ try {
   srn.bolts.push({ x: 450, y: 450, vx: 200, vy: 50, dead: false, bornAt: srn.elapsed });
   srn.pulses.push({ x: 500, y: 500, r: 80, until: srn.elapsed + 300 });
   srn.moon = 0.5; // deep night (the night wash)
-  srn.hero.form = "wolf"; srn.hero.charge = 1; srn.hero.overcharge = 1; srn.hero.hurt = 200;
+  srn.hero.form = "wolf"; srn.hero.momentum = 1; srn.hero.lunge = 120; srn.hero.facing = 0.6; srn.hero.hurt = 200;
   ww.render(srn, camLayer);
   srn.hero.form = "human"; // render the man too
   ww.render(srn, camLayer);
@@ -607,19 +679,20 @@ ok(ww.terrainSpeedMul(ntStm, 400, 400, false) === 1, "a bramble leaves the hero 
 ok(ww.terrainSpeedMul(ntStm, 400, 400, true) === K.BRAMBLE_SLOW, "a bramble snares only a foe");
 ok(K.BOG_SLOW < 1 && K.BRAMBLE_SLOW < 1, "the slows are real (multiplier < 1)");
 
-// N4. Glades — the maw traces even while loping; off any glade, loping fades it.
+// N4. Glades — a lesser moonwell: moonlit footing that HOLDS the wolf's momentum at a
+//     standstill, and (for a man) swells fury at the night rate even by day.
 const ntGl = ww.buildArena(ww.levelById("thornwick"));
 stowAll(ntGl); ntGl.solids = []; ntGl.walls = []; ntGl.paths = []; ntGl.moonwells = [];
-ntGl.moon = 0.5; // deep night, so the trace ramps briskly
-ntGl.scenery = [{ x: 1000, y: 1000, kind: "glade" }]; ntGl.hero.charge = 0;
+ntGl.scenery = [{ x: 1000, y: 1000, kind: "glade" }];
 ok(ww.inGlade(ntGl, 1000, 1000), "inGlade reports the clearing");
-for (let t = 0; t < 700; t += 16) { ntGl.hero.x = 1000; ntGl.hero.y = 1000; ww.stepHunt(ntGl, 16, { x: 1, y: 0 }); }
-ok(ntGl.hero.charge > 0.5, `the maw traces while loping in a glade (charge=${ntGl.hero.charge.toFixed(2)})`);
+ntGl.hero.x = 1000; ntGl.hero.y = 1000; ntGl.hero.form = "wolf"; ntGl.hero.fury = 1; ntGl.hero.momentum = 0.8;
+run(ntGl, 500, still);
+ok(ntGl.hero.momentum >= 0.8 - 1e-6, `a glade holds the wolf's momentum at a standstill (${ntGl.hero.momentum.toFixed(2)})`);
 const ntGl2 = ww.buildArena(ww.levelById("thornwick"));
 stowAll(ntGl2); ntGl2.solids = []; ntGl2.walls = []; ntGl2.paths = []; ntGl2.moonwells = []; ntGl2.scenery = [];
-ntGl2.hero.charge = 1;
-run(ntGl2, 500, { x: 1, y: 0 });
-ok(ntGl2.hero.charge < 1, "off any glade, a loping hero lets the maw fade");
+ntGl2.hero.x = 1000; ntGl2.hero.y = 1000; ntGl2.hero.form = "wolf"; ntGl2.hero.fury = 1; ntGl2.hero.momentum = 0.8;
+run(ntGl2, 500, still);
+ok(ntGl2.hero.momentum < 0.8, "off any glade, a standing wolf's momentum bleeds");
 
 // N5. Springs — slowly mend the hero, but only to the cap.
 const ntSp = ww.buildArena(ww.levelById("thornwick"));

@@ -19,11 +19,15 @@ the fourth is a Lovecraftian sibling; the fifth is a werewolf sibling):
   re-themed); the twist is **Sanity**, a second life-bar that tracing the Sign *and* the host's nearness
   both drain — lose your HP and you are *slain*, lose your sanity and you go *mad*. See its full section below.
 - **The Moon's Hunger** (`werewolf.ts` / `werewolf.html`) — a **werewolf sibling spinoff** set in a misty,
-  fog-bound 13th-century Britain. You are a cursed soul who stands still to **bay at the moon** and stoke
-  **Fury**; the twist is a living **day/night moon cycle** that drives your **Form** — by moonlight fury
-  swells until you **turn beast** (the only form that can attack: standing still as the wolf traces a
-  blood-moon **maw** that rends the village watch), and by daylight it bleeds you back to a hunted man. Cut
-  down the finite watch to claim the village. See its full section below.
+  fog-bound 13th-century Britain. **Unlike its four siblings it does NOT share the "stand still → AoE sigil"
+  verb** — it is a **predator chase**: as a hunted **man** you stalk the village unseen and stand still only
+  to **bay at the moon** and stoke **Fury**; a living **day/night moon cycle** drives your **Form** — by
+  moonlight fury swells until you **turn beast**. The **wolf has no stand-and-channel attack** — it builds
+  **Momentum** by running and **runs prey down**, mauling on contact (force scales with momentum) and
+  auto-**pouncing** the straggler ahead. The village **flees and panics** (a spreading **alarm** rouses the
+  armed hunters), and by daylight fury bleeds you back to a man — so feed (kill) to hold the change. The
+  whole loop is **pure joystick** (no attack button). Cut down the finite watch to claim the village. See
+  its full section below.
 - **The Light-Bringer** (`app.ts` / `index.html`) — the original *contemplative* turn-based inversion game.
   It is **code-frozen**: it still ships and must keep building, but make **no code changes** to it.
 
@@ -618,13 +622,15 @@ Shipping rules: `eldritch.html`/`eldritch.js`/`eldritch.webmanifest` are in `sw.
 ## The Moon's Hunger — the werewolf spinoff (`werewolf.ts` / `werewolf.html`)
 
 `werewolf.ts` (→ `werewolf.js`) + `werewolf.html` are a fifth action spinoff, set in a misty, fog-bound
-**13th-century Britain** of thatch villages and standing stones. It reuses the proven "you ARE the weapon,
-stand still" core of the Burning Vigil — re-themed onto the **lycanthrope's curse**: you walk a cursed soul
-through a sleeping village and, when the moon swells, **turn beast** and rend the watch that hunts you. Clear
-the finite watch (`greenCount × FOE_PER_GREEN` + seeded variants) to **claim the village** and win. Like its
-siblings it is a TS module (`export {};`, `<script type="module">`), real-time per-frame
-(`stepHunt(s, dt, move)`), with the pure-sim/read-only-render split and a test seam
-(`globalThis.__WW_TEST__` → `globalThis.__ww`, driven by `tools/werewolf-test.mjs`).
+**13th-century Britain** of thatch villages and standing stones. **It deliberately BREAKS the siblings'
+shared "you ARE the weapon, stand still → AoE sigil" core** — it is a **predator chase** instead, the one
+thing only a werewolf game would do. You walk a cursed soul through a sleeping village; when the moon swells
+you **turn beast** and **run the watch down**. Clear the finite watch (`greenCount × FOE_PER_GREEN` + seeded
+variants) to **claim the village** and win. Like its siblings it is a TS module (`export {};`,
+`<script type="module">`), real-time per-frame (`stepHunt(s, dt, move)`), with the pure-sim/read-only-render
+split and a test seam (`globalThis.__WW_TEST__` → `globalThis.__ww`, driven by `tools/werewolf-test.mjs`).
+The whole loop is **pure joystick — there is no attack button**; the maul and the pounce both fall out of
+where and how fast you steer (the locomotion the redesign kept).
 
 ### The defining twist — the MOON (a living day/night cycle that drives your FORM)
 
@@ -632,25 +638,31 @@ Nothing else in the repo has this. A hunt runs a continuous **day/night wheel**:
 every frame (`MOON_CYCLE_MS`); `daylight(moon)` is 1 at noon (moon 0/1) and 0 at midnight (0.5), and
 `moonlightOf` is its inverse. The moon drives **Fury** (`hero.fury`, the curse-meter, the second bar), and
 fury drives the **Form** (`hero.form`: `"human" | "wolf"`):
-- As a **MAN** you cannot attack — frail, hunted. Standing still **bays at the moon**: fury swells, fast
-  under moonlight (`FURY_RISE_MS`, scaled by `moonlightOf`), a crawl by daylight. At the crest you **turn
+- As a **MAN** you cannot fight — frail, hunted, but able to **stalk unseen** (a calm/slow man radiates no
+  alarm; see the watch below). Standing still **bays at the moon**: fury swells, fast under moonlight
+  (`FURY_RISE_MS`, scaled by `moonlightOf`, ×1.85 while still), a crawl by daylight. At the crest you **turn
   beast** (`form → "wolf"`).
-- As the **WOLF** you are the weapon, and faster. Standing still traces the **maw** (below). Fury **bleeds**
-  over time (`FURY_DRAIN_MS`, faster by daylight) and every rending **spends** a little (`MAW_FURY_COST`), so
-  you must **feed** to hold the change — every kill stokes fury (`FURY_PER_KILL`). Spent to nothing, you turn
-  back to a man. The rhythm: **night is your hour to rampage; by day you are prey.**
+- As the **WOLF** you are the predator, and faster. Fury **bleeds** over time (`FURY_DRAIN_MS`, faster by
+  daylight), so you must **feed** to hold the change — every kill stokes fury (`FURY_PER_KILL`) and mends a
+  little (`KILL_HEAL`). Spent to nothing, you turn back to a man. The rhythm: **night is your hour to
+  rampage; by day you are prey.**
 
 HP is the only loss bar (lose your blood → `"lost"`); the moon/fury layer is the form gate, not a death.
 
-### The maw — the wolf's weapon (stand-still trace, WOLF-only)
+### The wolf's weapon — MOMENTUM, the maul & the pounce (WOLF-only, pure joystick)
 
-`HERO_STILL_MAXSPEED` gates the trace: standing still ramps `hero.charge` (`CHARGE_MS`, scaled by moonlight),
-moving fades it. `stepMaw` paces the pulses on a cadence once `charge ≥ MAW_BITE_AT` **and only while a
-WOLF** (the gate that makes "attacks when wolf" literal — a man's stand only builds fury). `firePulse` is the
-deterministic heart — AoE `MAW_DMG` to every foe within `MAW_RADIUS`, marking any dark cairn caught, the
-pelt's power, the fury cost, and an **overcharge** erupt. **Overcharge** mirrors the siblings: hold still past
-a full trace to bank it (`OVERCHARGE_MS`), and the next pulse is **empowered** — a wider ring that TERRIFIES
-(flings the host back, `TERROR_KNOCK`) *and* stokes fury (`OVERCHARGE_FURY`), then resets.
+**The predator's weapon is motion — there is no stand-and-channel verb, and no attack button.** The wolf
+builds **`hero.momentum`** (0..1) while it runs near top speed (`MOMENTUM_RISE_MS`, ×`speed/HERO_SPEED_WOLF`)
+and bleeds it when it slows (`MOMENTUM_DECAY_MS`); a **moonwell/glade holds it** even at a standstill, and a
+man carries none. `stepMaul` is the whole weapon (only while a WOLF — the gate that makes the form matter):
+- **The maul** — a contact bite. On the `BITE_CD` cadence it rends the nearest foe in
+  `HERO_RADIUS+FOE_RADIUS+MAUL_REACH` via **`bite(s,e)`** (the deterministic heart, the single-target inverse
+  of the siblings' AoE pulse): damage `MAUL_DMG × (MAUL_MIN_MUL..1 by momentum) × pelt.dmgMul`, a knockback,
+  and a **den claim** if a dark cairn is within `CAIRN_MARK_REACH`.
+- **The pounce** — at `POUNCE_AT` momentum, if prey sits in a **frontal cone** (`frontalFoe`, `POUNCE_RANGE`/
+  `POUNCE_ARC` of `hero.facing`) the wolf auto-**lunges**: a brief locked dash (`hero.lunge`/`lungeVx`/`lungeVy`,
+  `POUNCE_MS`/`POUNCE_SPEED`, overriding joystick velocity in `stepHunt`) that lands a heavy bite
+  (`POUNCE_DMG_MUL`), then `POUNCE_CD`/`POUNCE_SPEND`. The signature straggler-kill, all from your heading.
 
 ### Pelts — the weapon shop (`PELT_TYPES`, moonstones)
 
@@ -658,33 +670,44 @@ The hero dons **one** pelt per hunt (`s.pelt`, resolved from the legacy at build
 with **moonstones** (the currency, mirror of the Vigil's embers / Necro's relics / the Watcher's lore). Four:
 **The Grey Pelt** (`grey`, free, balanced), **The Dire Pelt** (`dire`, power `frenzy` — a kill leaps to the
 next foe), **The Fell Pelt** (`fell`, power `moonblood` — each kill stokes extra fury, the fury pelt), and
-**The Black Pelt** (`black`, power `terror` — every pulse flings the host back). Each carries
-`radiusMul`/`chargeMul`/`pulseMul`/`dmgMul` + a `PeltPower` (`"none"|"frenzy"|"moonblood"|"terror"`).
-`unlockPelt`/`equipPelt` buy and equip; ids live in `WwLegacy` (`unlocked`/`equipped`, defaulted on load).
+**The Black Pelt** (`black`, power `terror` — every **bite** flings its prey). Each carries
+`radiusMul` (maul reach & pounce range) / `chargeMul` (momentum-rise time) / `pulseMul` (bite cadence) /
+`dmgMul` + a `PeltPower` (`"none"|"frenzy"|"moonblood"|"terror"`). `unlockPelt`/`equipPelt` buy and equip;
+ids live in `WwLegacy` (`unlocked`/`equipped`, defaulted on load).
 
-### The watch (variants) & projectiles
+### The watch — PREY that flee/flock & HUNTERS that converge (the inverted AI)
 
-Per-village dials seed variants among the common **villager** host: **hound** (fast, frail), **knight**
-(slow, plated, heavy), **huntsman** (the watch's ranged arm and **only projectile** — never melees; holds a
-standoff and looses **dodgeable silver bolts**, `stepBolts`, on `HUNTSMAN_SHOOT_CD`; a **wall** stops a bolt
-and makes it hold fire, and **MIST hides the hero** from it — punishes the stand-still trace), and **friar**
-(the anti-werewolf — never melees; channels **consecration** that **bleeds the hero's fury** at range with
-line of sight, threatening to force you back to a man; break LoS behind a wall, hide in mist, or close and
-rend it). The watch's AI mirrors the siblings (`stepFoes`: lurk near a green until aggro, then hunt), with a
-werewolf wrinkle: **the watch is slower to rouse to a MAN, or to a beast lost in the fog**
-(`STEALTH_AGGRO_MUL`) — stealth as a man is real.
+The watch is split by role (`isPrey`). **Prey** — the common **villager** and the **hound** (fast, frail) —
+do **not** hunt the wolf: they **flee** it and **flock** (`separate` + `cohesion`, so they break into a
+herd), only **flailing** (`FOE_CONTACT`/`HOUND_CONTACT`) when a wolf is on top of a cornered one. The danger
+is **ALARM** (`Foe.alarm`, 0..1): each frame it radiates from the hero's **conspicuousness** (a wolf reads
+loud, `ALARM_RADIATE_WOLF`; a man only while **sprinting** past `MAN_SPRINT_SPEED`; **muffled** in mist/woods,
+`ALARM_MUFFLE_MUL`), **spreads** prey→prey (`ALARM_SPREAD_R`/`_RATE`, two-phase so it's order-free), and
+**decays** (`ALARM_DECAY`); a kill spikes nearby prey to full (`ALARM_KILL_SPIKE_R`, in `slay`). When the
+**village average** (`villagePanic`) crosses `ALARM_ROUSE`, the armed **HUNTERS** converge: **knight** (slow,
+plated, heavy melee), **huntsman** (the only projectile — never melees; standoff + **dodgeable silver
+bolts**, `stepBolts`/`HUNTSMAN_SHOOT_CD`; a **wall** stops a bolt & makes it hold fire, **mist/woods hide the
+hero**), and **friar** (the anti-werewolf — never melees; **consecration** that **bleeds fury** at range with
+LoS; break LoS behind a wall, hide, or close and rend it). Hunters are **sticky** once roused; their
+proximity-wake shrinks for a muffled/human hero (`STEALTH_AGGRO_MUL`). **Stealth as a man falls out for
+free** — a calm man radiates nothing, so prey ignore him and the hunters sleep. The strategic core: **cull
+the quiet and the isolated; a botched spook raises the alarm and brings the hunters.**
 
 ### Terrain — and two werewolf-specific innovations
 
 All pure, rebuilt at `buildArena`, never persisted: **stones & cottages** (solids, block bodies via
-`pushOut`), **cairns** (the mark sites — `markCairn`/`cleanseCairn`, an ally-emitter aura that grants fury +
-rends the host, with a cleanse scar that bars re-marking, `nearScar`), **hedgerows** (`weaveSegments`, block
-bodies *and* stop bolts / break LoS), **lanes** (`PATH_BOOST`, speed the hero). The two innovations make the
-day/night twist spatial and atmospheric:
-- **Moonwells** (`inMoonwell`, `MOONWELL_AURA`) — pools where the moon always reaches: fury swells and the
-  maw traces at the **night rate whatever the hour**, the wolf's foothold against the day.
+`pushOut`), **cairns = the wolf's DENS** (claim one by making a **kill beside it** — `markCairn` fires from
+`bite`; its aura grants fury + **momentum**, rends the host, AND **panics prey** outward, `stepCairns`/
+`CAIRN_PANIC_PER_SEC`/`CAIRN_SHOVE` — a herding tool; a **hunter** brushing it cleanses it, scar bars
+re-claiming via `nearScar`), **hedgerows** (`weaveSegments`, block bodies *and* stop bolts / break LoS),
+**lanes** (`PATH_BOOST`, speed the hero & feed momentum). The two innovations make the day/night twist
+spatial and atmospheric:
+- **Moonwells** (`inMoonwell`, `MOONWELL_AURA`) — pools where the moon always reaches: fury swells at the
+  **night rate whatever the hour**, AND the wolf's **momentum never bleeds** inside — the wolf's foothold
+  against the day (it can wheel and stalk without going cold).
 - **Mist** (drifting fog banks, `stepMists`/`inMist`) — the misty Britain made mechanical and the wolf's
-  cover: inside a bank a huntsman can't see you (holds fire) and the watch is slower to rouse.
+  cover: inside a bank a huntsman can't see you (holds fire), the hero radiates far less alarm, and the watch
+  is slower to rouse.
 
 **The expanded vocabulary (the maps' expansion).** Fourteen new node kinds, all default-off `LevelDef` count
 dials (e.g. `bogCount`, `geyserCount`), carved in `generateWerewolf`, pure and never persisted. **Four
@@ -695,16 +718,17 @@ obstacles** (solids in `OBSTACLE_KINDS`): **pyre** (also a permanent foe-emitter
 - **Marsh-fire** (`MARSHFIRE_*`, `stepFields`) — burns the watch that crosses it; the hero wades it unharmed.
 - **Bog** (`BOG_*`) slows **every** body; **bramble** (`BRAMBLE_*`) slows **only the watch** — both via
   `terrainSpeedMul(s, x, y, isFoe)`, read in `stepHunt` (hero) and `moveBody` (foes).
-- **Glades** (`GLADE_AURA`, `inGlade`) — trace the maw **while loping** (the moonwell's moving-trace gift).
+- **Glades** (`GLADE_AURA`, `inGlade`) — a lesser moonwell: moonlit footing that **holds the wolf's
+  momentum** at a standstill and swells fury at the night rate.
 - **Springs** (`SPRING_*`, `inNodeAura`) — slowly mend the hero in `stepHunt`, gated by `SPRING_HEAL_CAP`.
 - **Geysers** (`GEYSER_*`, `stepGeysers`, `node.geyserAt`) — erupt a scalding burst on a cadence.
 - **Gales** (`GALE_*`, `stepGale`) — shove the watch out of the aura each frame (the hero is unmoved).
 - **Wolfsbane** (`WOLFSBANE_*`) — the one hazard to the hero: **bleeds his fury** while he stands in it
   (the friar's drain, made ground — it can tip a wolf back to a man).
 - **Woods** (`WOODS_AURA`, `inWoods`) — **concealing cover**, the static cousin of mist and the most thematic
-  terrain of the hunt: the wolf melts into the trees — huntsmen hold fire (no line through the boughs) and the
-  watch is slower to rouse (`STEALTH_AGGRO_MUL`, folded into `stepFoes`'s `stealthy`). Seeded in every village
-  (`woodsCount`).
+  terrain of the hunt: the wolf melts into the trees — huntsmen hold fire (no line through the boughs), the
+  hero radiates far less alarm, and the watch is slower to rouse (`muffled`/`STEALTH_AGGRO_MUL` in `stepFoes`).
+  Seeded in every village (`woodsCount`).
 - (Plus **barrow-hoards** — `HOARD_*`/`stepHoards`: first-footing one **surges the curse** once, then
   `n.spent`; the Vigil's relic-cache re-themed.) New kinds render procedurally (`renderNewTerrain`, trees via
   a `tree()` helper; solids draw their body at the **collision radius** so visual == hitbox); no PNGs.
@@ -720,10 +744,11 @@ dale, carrying the new terrain): **Thornwick** (fair first), **Greymoor** (moor;
 `stoneCount`/`cottageCount`/`cairnCount`/`moonwellCount`, `greenCount`/`greenSpacing`,
 `wallCount`/`pathCount`/`mistCount`, the variant counts
 (`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), the **new terrain/obstacle counts** (above), and
-`sizeScale`. `stepHunt` advances the moon, integrates the hero, resolves the form, runs `stepMaw → stepFoes →
-stepBolts → stepCairns → stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then
-checks terminal states (`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror
-the siblings (`slay`/`hurtFoe`/`nearestFoe`, `aliveFoes`/`clearedPct`/`furyReadout`, `scoreRun`,
+`sizeScale`. `stepHunt` advances the moon, integrates the hero (with the pounce-lunge velocity override),
+updates **momentum** & **facing**, resolves the form, runs `stepMaul → stepFoes → stepBolts → stepCairns →
+stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then checks terminal states
+(`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror the siblings (`bite`/`slay`/`hurtFoe`/
+`nearestFoe`/`frontalFoe`, `isPrey`/`villagePanic`, `aliveFoes`/`clearedPct`/`furyReadout`, `scoreRun`,
 `difficultyMult`). **Blood-motes** (`stepMotes`) are the fury economy's heartbeat: a felled foe may drop one;
 gathering it stokes the curse.
 
