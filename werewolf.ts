@@ -8,12 +8,17 @@
 // finite host of the village and the hunt is yours; lose your blood and you fall.
 //
 // The defining twist is the MOON — a living day/night wheel nothing else in this
-// repo has. You begin a HUMAN: frail, unable to fight, hunted. Standing still bays
-// at the moon and stokes your FURY; under MOONLIGHT it swells fast, by DAYLIGHT it
-// crawls. When fury crests you TRANSFORM into the wolf — fast, and the only form
-// that can attack. As the wolf, standing still inscribes a blood-moon maw that rends
-// the host around you; but the change costs fury, and daylight bleeds it, so you
-// must feed (kill) to stay the beast. Night is your hour; by day you are prey.
+// repo has. You begin a HUMAN: frail, unable to fight, and able to STALK unseen among
+// the village. Standing still bays at the moon and stokes your FURY; under MOONLIGHT it
+// swells fast, by DAYLIGHT it crawls. When fury crests you TRANSFORM into the wolf —
+// faster, and the only form that can fight. The wolf is a PREDATOR: it has no stand-and-
+// channel verb — it builds MOMENTUM by running and RUNS prey down, mauling on contact
+// and auto-POUNCING the straggler ahead. The village FLEES and panics (a spreading
+// alarm rouses the armed hunters); but the change costs fury and daylight bleeds it, so
+// you must feed (kill) to stay the beast. Night is your hour; by day you are prey.
+//
+// The whole loop is pure JOYSTICK — there is no attack button. Where and how fast you
+// steer is the weapon: the maul and the pounce both fall out of your motion.
 //
 // This file is a self-contained TS MODULE (it ends with `export {};`) so its
 // top-level names (W, render, start, LEVELS, …) are module-scoped and never collide
@@ -54,12 +59,19 @@ type Phase = "hunt" | "won" | "lost";
 // Aggro is sticky once roused — the mirror of the sibling games' enemy AI.
 type FoeState = "lurk" | "hunt";
 
-// The five kinds of the watch. Most are melee; the huntsman and friar are the
-// standoff specialists (the huntsman looses silver bolts, the friar drains the curse).
+// The five kinds of the watch, split by ROLE. The unarmed PREY — villager & hound —
+// flee the beast and flock; their panic (alarm) is the danger, not their teeth. The
+// armed HUNTERS — knight, huntsman, friar — converge on the wolf and are the real
+// threat (the huntsman looses silver bolts, the friar bleeds the curse).
 type FoeKind = "villager" | "hound" | "knight" | "huntsman" | "friar";
 
-// The cursed soul wears one of two shapes. HUMAN cannot fight (only flee and stoke
-// fury); WOLF is the weapon. The moon drives the change.
+// Prey flee; hunters converge. The one predicate that splits the watch's behaviour.
+function isPrey(v: FoeKind): boolean {
+  return v === "villager" || v === "hound";
+}
+
+// The cursed soul wears one of two shapes. HUMAN cannot fight (only stalk, blend in,
+// and stoke fury); WOLF is the predator — it runs prey down. The moon drives the change.
 type HeroForm = "human" | "wolf";
 
 // A built node. A CAIRN can be marked (`lit`) by the wolf's maw — its aura grants
@@ -83,12 +95,14 @@ interface Hero {
   x: number; y: number; vx: number; vy: number;
   hp: number; maxHp: number;
   fury: number; maxFury: number; // the curse-meter; crest it to turn beast
-  form: HeroForm;                // human (cannot attack) or wolf (the weapon)
+  form: HeroForm;                // human (cannot fight) or wolf (the predator)
   hurt: number;       // remaining i-frame ms after a blow (0 = vulnerable)
-  charge: number;     // 0..1 — how fully the maw is traced (ramps while still)
-  overcharge: number; // 0..1 — banked past a full trace (hold longer); empowers the next pulse
-  mawCd: number;      // ms until the traced maw pulses again (cadence)
-  angle: number;      // the blood-moon sigil's slow cosmetic spin, in degrees
+  momentum: number;   // 0..1 — the running predator's speed-charge; the wolf's whole weapon
+  facing: number;     // heading (radians) the wolf last ran — the pounce cone & the body's face
+  biteCd: number;     // ms until the maul can rend again (the contact-bite cadence)
+  pounceCd: number;   // ms until the wolf can pounce again
+  lunge: number;      // ms remaining of an active pounce-lunge (0 = none)
+  lungeVx: number; lungeVy: number; // the lunge's locked velocity while it runs
   transformAt: number; // s.elapsed of the last change (for the transform flourish)
 }
 
@@ -105,6 +119,7 @@ interface Foe {
   shootCd: number;              // ms until a huntsman can loose another bolt
   hit: number;                  // s.elapsed until which it flashes from a fresh blow
   bornAt: number;               // s.elapsed it mustered (for the rise flourish)
+  alarm: number;                // 0..1 — a prey's panic; spreads to its neighbours and rouses the hunters
   aiming?: boolean;             // transient (per-frame): a huntsman loosing a bolt this frame
   channeling?: boolean;         // transient (per-frame): a friar draining the curse this frame
   beamX?: number; beamY?: number; // transient: the friar's beam endpoint (the hero)
@@ -162,30 +177,57 @@ const HERO_HP = 100;
 const HERO_IFRAMES_MS = 600;     // grace after a blow, no further damage (the watch bites through sooner)
 const HERO_KNOCKBACK = 56;       // units the hero is shoved back by a blow
 
-// The maw — the wolf's weapon and the gate on every rending. Standing still TRACES
-// it (charge ramps to 1); moving lets it fade (you dodge). It pulses only once
-// sufficiently traced AND only while a WOLF (stepMaw gates on both) — a rending is a
-// deliberate stand by the beast, the stand-still verb the Vigil pioneered turned to
-// the curse. Each pulse spends a little fury, so a wolf must feed (kill) to hold.
-const HERO_STILL_MAXSPEED = 40;  // travel slower than this (units/s) to trace
-const CHARGE_MS = 440;           // time stationary to fully trace the maw (and to fade)
-const MAW_BITE_AT = 0.6;         // the maw rends once at least this traced
-const MAW_RADIUS = 132;          // the rending reach around the wolf
-const MAW_PULSE_MS = 520;        // ms between rending pulses while the maw holds
-const MAW_DMG = 17;              // damage a pulse deals to every foe in reach
-const MAW_FURY_COST = 0.02;      // fury each rending spends (feed to outpace it — hold the beast harder)
-const SIGIL_SPIN = 0.05;         // degrees of blood-moon rotation per ms (cosmetic)
-const PULSE_FX_MS = 360;         // how long a rending ring lingers
+// THE PREDATOR'S WEAPON IS MOTION. A wolf does not stand and channel — it RUNS prey
+// down. MOMENTUM (0..1) builds while the beast runs near top speed and bleeds when it
+// slows; a bite's bite scales with it, so the verb is "build speed, run them down".
+// The literal inverse of the siblings' stand-still sigil. Pure-joystick: nothing here
+// is a button — the maul and the pounce both fall out of where you steer.
+const HERO_STILL_MAXSPEED = 40;  // below this (units/s) a MAN bays at the moon (stokes fury)
+const MOMENTUM_RISE_MS = 900;    // time at full wolf-run to fill momentum 0→1
+const MOMENTUM_DECAY_MS = 650;   // time slowed/stopped to bleed momentum 1→0
+const MOMENTUM_MIN_SPEED = 120;  // must travel faster than this (units/s) to build momentum
 
-// Overcharge — the risk/reward on the core verb (mirror of the siblings). Hold still
-// PAST a full trace and an overcharge banks (0→1 over OVERCHARGE_MS); any movement
-// spends it back to nothing. When the next pulse fires with a full overcharge it is
-// EMPOWERED: a wider ring that TERRIFIES the host (flings it back) AND stokes the
-// curse (restores fury), then resets. Hold the stand longer — more power, more peril.
-const OVERCHARGE_MS = 720;       // time past a full trace to bank one overcharge
-const OVERCHARGE_RADIUS_MUL = 1.7; // an empowered pulse's reach × the maw's reach
-const OVERCHARGE_FURY = 0.25;    // fury an empowered pulse restores
-const TERROR_KNOCK = 64;         // units an empowered (or Black-pelt) pulse flings the host
+// The maul — the wolf's contact bite. Each BITE_CD, a wolf whose body reaches a foe
+// rends the nearest one; the blow scales from MAUL_MIN_MUL (a near-standing graze) up
+// to full at peak momentum. A connecting kill FEEDS the beast (KILL_HEAL, in slay).
+const MAUL_REACH = 30;           // bite contact reach, over and above the two radii
+const MAUL_DMG = 26;             // a full-momentum bite (× MAUL_MIN_MUL..1 by momentum × pelt)
+const BITE_CD = 300;             // ms between contact bites (the maul cadence)
+const MAUL_MIN_MUL = 0.45;       // a standing bite is this fraction of a full-run bite
+const MAUL_KNOCK = 18;           // units a plain bite shoves its prey
+const KILL_HEAL = 6;             // HP the predator feeds on a kill (the lit-dwelling heal, inverted)
+const PULSE_FX_MS = 360;         // how long a bite/pounce ring lingers
+const TERROR_KNOCK = 64;         // units a pounce (or a Black-pelt bite) flings its prey
+
+// The pounce — the signature kill, and the reward for running fast. At POUNCE_AT
+// momentum, if prey sits in a frontal cone the wolf auto-LUNGES onto it (a brief dash)
+// and lands a heavy bite. No input of its own — it fires from your heading and speed.
+const POUNCE_AT = 0.7;           // momentum needed to auto-pounce
+const POUNCE_RANGE = 230;        // a frontal foe within this is pounced
+const POUNCE_ARC = 0.72;         // half-angle (radians) of the pounce cone (~41°)
+const POUNCE_MS = 170;           // how long the lunge-dash runs
+const POUNCE_SPEED = 760;        // the lunge's travel, units/s
+const POUNCE_CD = 850;           // ms between pounces
+const POUNCE_SPEND = 0.35;       // momentum left after a pounce
+const POUNCE_DMG_MUL = 2.2;      // a bite landed mid-lunge × this (the heavy pounce-bite)
+
+// ALARM — the village's panic, and the one social meter. A prey near the hero gains
+// alarm scaled by his CONSPICUOUSNESS (a wolf reads loud; a calm man blends in; mist &
+// woods muffle him); it SPREADS prey→prey and DECAYS. Alarmed prey FLEE; a high village
+// average ROUSES the hunters. This is the stealth-predator core: cull quiet & isolated.
+const ALARM_RADIATE_WOLF = 1.7;  // alarm/sec a wolf radiates to a prey right beside it
+const ALARM_RADIATE_MAN = 0.6;   // …a MAN reads this loud only while SPRINTING (else he blends in)
+const MAN_SPRINT_SPEED = 170;    // a man travelling faster than this looks wrong (radiates alarm)
+const ALARM_RADIATE_REACH = 240; // radiation falls linearly to 0 at this distance
+const ALARM_MUFFLE_MUL = 0.25;   // radiation × this while the hero is in mist or woods
+const ALARM_SPREAD_R = 130;      // prey within this of a panicked neighbour catch its panic
+const ALARM_SPREAD_RATE = 0.9;   // how fast alarm equalises toward a louder neighbour, /sec
+const ALARM_DECAY = 0.22;        // alarm/sec a prey sheds when nothing feeds it
+const ALARM_KILL_SPIKE_R = 180;  // a kill terrifies prey within this to full alarm (a loud kill)
+const ALARM_ROUSE = 0.34;        // village-average alarm at/above which the hunters converge
+const PREY_FLEE_ALARM = 0.4;     // a prey this alarmed breaks and flees
+const PREY_FLEE_SPEED_MUL = 1.12;// prey flee a touch faster than they idle
+const PREY_COHESION = 0.55;      // flock pull toward nearby prey (herding) vs. raw flight
 
 // THE MOON — the day/night wheel, and the soul of this spinoff. It drives the FURY,
 // and fury drives the SHAPE. By moonlight fury swells; by daylight it crawls (human)
@@ -206,22 +248,22 @@ const MOTE_FURY = 0.18;          // fury a gathered blood-mote stokes
 const HIT_FLASH_MS = 150;        // how long a body flashes from a fresh blow
 
 // ---------- Pelts (unlockable wolf-form variants) ----------
-// Each pelt is a different beast with its own maw dials and a passive POWER, mirror
+// Each pelt is a different beast with its own maul dials and a passive POWER, mirror
 // of the Vigil's PentaPower and the siblings' powers. "none" is a plain stat-lean;
 // "frenzy" arcs a kill's bloodlust to a nearby foe; "moonblood" stokes the curse on
-// each kill (the fury pelt); "terror" flings the host back on every pulse. Powers
-// fire automatically — the only choice is which pelt to don.
+// each kill (the fury pelt); "terror" flings prey on every bite. Powers fire
+// automatically — the only choice is which pelt to don.
 type PeltPower = "none" | "frenzy" | "moonblood" | "terror";
 
 interface PeltType {
   id: string; name: string; desc: string; cost: number;
-  radiusMul: number;  // rending reach  × MAW_RADIUS
-  chargeMul: number;  // trace time     × CHARGE_MS (a slower beast)
-  pulseMul: number;   // pulse cadence  × MAW_PULSE_MS
-  dmgMul: number;     // pulse damage   × MAW_DMG
+  radiusMul: number;  // maul reach & pounce range × their bases (a longer-limbed beast)
+  chargeMul: number;  // momentum-rise time × MOMENTUM_RISE_MS (a heavier beast winds up slower)
+  pulseMul: number;   // bite cadence × BITE_CD (a faster-biting beast)
+  dmgMul: number;     // bite damage × MAUL_DMG
   power: PeltPower;   // the pelt's passive behaviour
-  ring: string;       // the rending ring's signature hue
-  star: string;       // the blood-moon sigil's stroke hue
+  ring: string;       // the speed-streak / bite-ring signature hue
+  star: string;       // the claw-flash stroke hue
 }
 
 const PELT_TYPES: PeltType[] = [
@@ -233,19 +275,19 @@ const PELT_TYPES: PeltType[] = [
   },
   {
     id: "dire", name: "The Dire Pelt", cost: 120,
-    desc: "A great old wolf — wider, slower, harder-biting. A kill's frenzy leaps to the next throat near.",
+    desc: "A great old wolf — longer reach, harder bite, slower to wind to a sprint. A kill's frenzy leaps to the next throat near.",
     radiusMul: 1.32, chargeMul: 1.2, pulseMul: 1.28, dmgMul: 1.5, power: "frenzy",
     ring: "#e0b070", star: "#ffe6b0",
   },
   {
     id: "fell", name: "The Fell Pelt", cost: 160,
-    desc: "A lean, quick runner — tight fast rends, and every kill swells the curse anew.",
+    desc: "A lean, quick runner — winds to a sprint fast and bites fast, and every kill swells the curse anew.",
     radiusMul: 0.84, chargeMul: 0.72, pulseMul: 0.66, dmgMul: 0.78, power: "moonblood",
     ring: "#9bd8ff", star: "#d8f0ff",
   },
   {
     id: "black", name: "The Black Pelt", cost: 240,
-    desc: "The moon-touched beast — every rending erupts and scatters the watch in terror.",
+    desc: "The moon-touched beast — every bite flings its prey, and scatters the watch in terror.",
     radiusMul: 1.12, chargeMul: 1.12, pulseMul: 1.0, dmgMul: 1.15, power: "terror",
     ring: "#b06aff", star: "#e6c0ff",
   },
@@ -259,32 +301,34 @@ function peltTypeById(id: string): PeltType {
 // Most of the watch are villagers; the rest are seeded among them per place. Each
 // block is the design surface for that kind.
 
-// The villager — the common body of the watch. By night, or when the beast is near,
-// they grab pitchfork and brand and close to strike; the maw's bread-and-butter.
-const FOE_HP = 38;               // a hardier watch — the maw takes a beat longer to fell each
+// The villager — the common PREY. They do not hunt the wolf; they FLEE it and flock.
+// A villager only lashes out (FOE_CONTACT, a panicked flail) when truly cornered with
+// the beast on top of it — the danger of a herd is the ALARM it raises, not its teeth.
+const FOE_HP = 38;               // a hardier watch — the maul takes a beat longer to fell each
 const FOE_SPEED = 110;           // travel, units/s
 const FOE_RADIUS = 14;
-const FOE_CONTACT = 12;          // damage a strike deals to the hero
-const FOE_ATTACK_CD = 740;       // ms between a foe's strikes
-const FOE_ATTACK_REACH = 16;     // within this (+radii) of the hero it can strike
-const FOE_SEP = 26;              // foes push apart within this (so they swarm, not stack)
-const FOE_AGGRO = 440;           // a lurking foe within this of the hero rouses to hunt (wakes wider)
+const FOE_CONTACT = 8;           // a cornered prey's panicked flail at the hero
+const FOE_ATTACK_CD = 740;       // ms between a prey's flails
+const FOE_ATTACK_REACH = 16;     // within this (+radii) of the hero it can flail
+const FOE_SEP = 26;              // bodies push apart within this (so they herd, not stack)
+const FOE_AGGRO = 440;           // a prey within this of a conspicuous hero breaks and flees
 const FOE_WANDER_SPEED = 32;     // idle drift while lurking, units/s
 const FOE_LEASH = 240;           // a lurker steers home if it drifts past this from its green
-const FOE_PER_GREEN = 5;         // villagers each green musters (a denser host)
+const FOE_PER_GREEN = 5;         // villagers each green musters (a denser flock)
 const CLEANUP_AGGRO_FRAC = 0.2;  // once this few remain, all rouse so a hunt always ends
 const RISE_MS = 600;             // a freshly-mustered foe's rise flourish (cosmetic)
 
-// As a HUMAN — or hidden in MIST — the cursed soul reads as one of their own; the
-// watch is slower to rouse. As the WOLF, they know you at once.
-const STEALTH_AGGRO_MUL = 0.5;   // aggro range × this when the hero is human or in mist
+// Stealth — a calm MAN reads as one of their own and the watch sleeps; a man hidden in
+// MIST or WOODS is muffled too. A hunter still roused stays roused (alarm is sticky).
+const STEALTH_AGGRO_MUL = 0.5;   // a hunter's proximity-rouse range × this while the hero is muffled
 
-// Hound — fast, frail beast the houndsmen loose; closes before the maw ramps.
+// Hound — fast, frail PREY the houndsmen loosed; it flees faster than it can be run down.
 const HOUND_HP_MUL = 0.55;       // a hound's hp × a villager's
 const HOUND_SPEED_MUL = 1.7;     // …its travel speed ×
 const HOUND_CONTACT = 7;         // …its bite damage
 
-// Knight (man-at-arms) — slow, plated, heavy. Forces the wolf to hold the maw.
+// Knight (man-at-arms) — a HUNTER: slow, plated, heavy. It converges on the wolf and
+// punishes a beast that lingers in the open; focus-fire it or lead it off.
 const KNIGHT_HP_MUL = 3.2;       // a knight's hp × a villager's
 const KNIGHT_SPEED_MUL = 0.66;   // …its travel speed ×
 const KNIGHT_CONTACT = 18;       // …its blow (a heavy one)
@@ -342,9 +386,10 @@ const WALL_VIS_THICK = 24;       // drawn thickness of the wall
 const PATH_HALF = 30;            // half-width of a lane
 const PATH_BOOST = 1.4;          // hero speed multiplier while on a lane
 
-// Moonwells — pale pools where the moon always reaches. The hero's fury swells (and
-// the maw traces) at the NIGHT rate within their aura, whatever the hour — a refuge
-// of the moon, and the wolf's foothold against the day. Live-play, never persisted.
+// Moonwells — pale pools where the moon always reaches. Within their aura the hero's
+// fury swells at the NIGHT rate whatever the hour, AND the wolf's momentum never bleeds
+// (it can wheel and stalk without going cold) — a refuge of the moon and the wolf's
+// foothold against the day. Live-play, never persisted.
 const MOONWELL_AURA = 150;       // a moonwell's radius of moonlight
 
 // Mist — drifting fog banks (the misty Britain made mechanical, and the wolf's cover).
@@ -384,10 +429,9 @@ const BOG_SLOW = 0.55;           // speed multiplier for any body in the bog
 const BRAMBLE_AURA = 114;        // radius of the snaring briars
 const BRAMBLE_SLOW = 0.5;        // speed multiplier for a foe in the bramble
 
-// Glades — small moonlit clearings. Within the aura the hero traces the maw EVEN
-// WHILE LOPING (like a moonwell's gift, but only the moving-trace half), a place to
-// keep the rending alive on the run.
-const GLADE_AURA = 120;          // radius within which the hero traces while moving
+// Glades — small moonlit clearings: a lesser moonwell. Within the aura fury swells at
+// the night rate and the wolf's momentum holds — a foothold of moonlight on the run.
+const GLADE_AURA = 120;          // radius of the glade's moonlit footing
 
 // Springs — a clear, cold spring. Standing in the aura slowly mends the hero,
 // gated by a cap so it tops you up but can't facetank the watch.
@@ -425,16 +469,20 @@ const HOARD_FURY = 0.22;         // fury the curse surges when a hoard is cracke
 // to break a standoff or vanish from a swarm. Passable.
 const WOODS_AURA = 150;          // radius of a stand's concealing canopy
 
-// Cairns — marking one (with the maw, as a wolf) lights it: its aura GRANTS fury and
-// RENDS the host that strays in. A foe brushing a marked cairn CLEANSES it (dark
-// again, and a scar bars re-marking). All live-play, never persisted.
-const CAIRN_MARK_REACH = 30;     // a cairn this close to the maw's reach is marked by a pulse
-const CAIRN_MARK_FURY = 0.1;     // fury marking a cairn stokes
-const CAIRN_AURA = 132;          // the marked cairn's aura radius
+// Cairns — the wolf's DENS. Make a kill beside a dark cairn (bite a foe within reach of
+// it) and the beast CLAIMS it: its aura grants fury & momentum, rends the watch that
+// strays in, and PANICS the prey within (alarm + an outward shove — a herding tool). A
+// hunter brushing a claimed den CLEANSES it (dark again, a scar bars re-claiming). All
+// live-play, never persisted — the ally-emitter / scar inversion the siblings share.
+const CAIRN_MARK_REACH = 96;     // a kill this close to a dark den claims it
+const CAIRN_MARK_FURY = 0.1;     // fury claiming a den stokes
+const CAIRN_AURA = 132;          // the claimed den's aura radius
 const CAIRN_FURY_PER_SEC = 0.12; // fury/sec the aura grants a hero within it
 const CAIRN_DMG = 11;            // damage/sec the aura deals a foe within it (ally emitter)
-const CLEANSE_REACH = 24;        // a foe this close to a marked cairn cleanses it
-const CLEANSE_MS = 6000;         // a cleansed cairn's scar bars re-marking this long
+const CAIRN_PANIC_PER_SEC = 0.5; // alarm/sec the aura drives into prey within it (herding)
+const CAIRN_SHOVE = 28;          // units/s the aura shoves panicked prey outward
+const CLEANSE_REACH = 24;        // a hunter this close to a claimed den cleanses it
+const CLEANSE_MS = 6000;         // a cleansed den's scar bars re-claiming this long
 const SCAR_RADIUS = 56;          // the scar's drawn reach
 
 // Scoring — claiming the hunt banks a score. Tuned for relationships, not magnitudes:
@@ -768,7 +816,8 @@ function buildArena(level: LevelDef): WwState {
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP,
     fury: 0, maxFury: 1, form: "human",
-    hurt: 0, charge: 0, overcharge: 0, mawCd: 0, angle: 0, transformAt: 0,
+    hurt: 0, momentum: 0, facing: -Math.PI / 2, biteCd: 0, pounceCd: 0,
+    lunge: 0, lungeVx: 0, lungeVy: 0, transformAt: 0,
   };
   const foes: Foe[] = [];
   const houndCount = Math.min(level.houndCount ?? 0, greens.length);
@@ -788,7 +837,7 @@ function buildArena(level: LevelDef): WwState {
       state: "lurk", variant,
       wanderAngle: Math.random() * Math.PI * 2,
       homeX: green.x, homeY: green.y,
-      attackCd: 0, shootCd: Math.random() * HUNTSMAN_SHOOT_CD, hit: 0, bornAt: 0,
+      attackCd: 0, shootCd: Math.random() * HUNTSMAN_SHOOT_CD, hit: 0, bornAt: 0, alarm: 0,
     });
   };
   greens.forEach((green, gi) => {
@@ -864,10 +913,11 @@ function clearedPct(s: WwState): number {
   return s.total ? s.slain / s.total : 0;
 }
 
-// The HUD's secondary readout: the shape, the hour, and the cairns marked.
+// The HUD's secondary readout: the shape, the hour, and how roused the village is.
 function furyReadout(s: WwState): string {
   const shape = s.hero.form === "wolf" ? "Wolf" : "Man";
-  return `${shape} · ${moonWord(s)} · ${s.litCount}/${s.cairnsTotal} cairns`;
+  const panic = Math.round(villagePanic(s) * 100);
+  return `${shape} · ${moonWord(s)} · village ${panic}% roused`;
 }
 
 function difficultyMult(level: LevelDef): number {
@@ -900,11 +950,20 @@ function slay(s: WwState, e: Foe): void {
   if (e.dead) return;
   e.dead = true;
   s.slain += 1;
-  // Feeding the beast: a kill always stokes the curse a little.
-  s.hero.fury = clamp(s.hero.fury + FURY_PER_KILL, 0, s.hero.maxFury);
+  const h = s.hero;
+  // Feeding the beast: a kill always stokes the curse a little AND mends the predator
+  // (the lit-dwelling heal of the Vigil, inverted to the kill).
+  h.fury = clamp(h.fury + FURY_PER_KILL, 0, h.maxFury);
+  h.hp = Math.min(h.maxHp, h.hp + KILL_HEAL);
+  // A kill is LOUD: it terrifies the prey that witness it to full alarm. Killing in the
+  // open spreads panic; an isolated kill stays quiet — the stealth-predator's craft.
+  for (const o of s.foes) {
+    if (o.dead || !isPrey(o.variant)) continue;
+    if (Math.hypot(o.x - e.x, o.y - e.y) <= ALARM_KILL_SPIKE_R) o.alarm = 1;
+  }
   // The pelt's on-kill powers.
   if (s.pelt.power === "moonblood") {
-    s.hero.fury = clamp(s.hero.fury + MOONBLOOD_FURY, 0, s.hero.maxFury);
+    h.fury = clamp(h.fury + MOONBLOOD_FURY, 0, h.maxFury);
   }
   if (s.pelt.power === "frenzy") {
     const idx = nearestFoe(s, e.x, e.y, FRENZY_RANGE);
@@ -1055,51 +1114,87 @@ function stepHoards(s: WwState): void {
   }
 }
 
-// Fire one rending pulse from the wolf — AoE damage to the watch in reach, marking
-// any dark cairn caught, the pelt's power, a fury cost, and an empowered erupt if an
-// overcharge is banked. The deterministic heart of the weapon; stepMaw gates and
-// paces it, the test calls it directly. (Assumes the wolf shape; stepMaw guarantees.)
-function firePulse(s: WwState): void {
+// The wolf rends ONE foe — a contact bite whose force scales with MOMENTUM (a graze at
+// a standstill, a maiming at a full run; heavier still mid-lunge). It feeds the beast
+// on a kill, claims a dark DEN nearby, and is the deterministic heart of the weapon.
+// stepMaul finds the target and paces it; the test calls this directly. (Assumes a
+// wolf; stepMaul guarantees it. The single-target inverse of the siblings' AoE pulse.)
+function bite(s: WwState, e: Foe): void {
   const h = s.hero;
-  const empowered = h.overcharge >= 1;
-  const radius = MAW_RADIUS * s.pelt.radiusMul * (empowered ? OVERCHARGE_RADIUS_MUL : 1);
-  const dmg = MAW_DMG * s.pelt.dmgMul;
-  // Every rending spends a little fury (feed to outpace it; an empowered pulse repays).
-  h.fury = clamp(h.fury - MAW_FURY_COST, 0, h.maxFury);
-  for (const e of s.foes) {
-    if (e.dead) continue;
-    const d = Math.hypot(e.x - h.x, e.y - h.y);
-    if (d > radius + FOE_RADIUS) continue;
-    if (empowered || s.pelt.power === "terror") {
-      const a = Math.atan2(e.y - h.y, e.x - h.x);
-      e.x += Math.cos(a) * TERROR_KNOCK;
-      e.y += Math.sin(a) * TERROR_KNOCK;
-    }
-    hurtFoe(s, e, dmg);
-  }
-  // Mark any dark cairn the ring caught (a secondary objective folded into the verb).
+  if (e.dead) return;
+  const lunging = h.lunge > 0;
+  const momMul = MAUL_MIN_MUL + (1 - MAUL_MIN_MUL) * h.momentum;
+  let dmg = MAUL_DMG * momMul * s.pelt.dmgMul;
+  if (lunging) dmg *= POUNCE_DMG_MUL;
+  // Shove the prey — a plain bite nudges, a pounce or a Black-pelt bite flings.
+  const a = Math.atan2(e.y - h.y, e.x - h.x);
+  const knock = (lunging || s.pelt.power === "terror") ? TERROR_KNOCK : MAUL_KNOCK;
+  e.x += Math.cos(a) * knock;
+  e.y += Math.sin(a) * knock;
+  hurtFoe(s, e, dmg);
+  // Claim a dark DEN if the kill (or bite) fell beside one — territory the wolf marks.
   for (const n of s.cairns) {
     if (n.lit) continue;
     if (n.cleansed && n.cleansed > s.elapsed) continue;
-    if (Math.hypot(n.x - h.x, n.y - h.y) <= radius + CAIRN_MARK_REACH) markCairn(s, n);
+    if (Math.hypot(n.x - h.x, n.y - h.y) <= CAIRN_MARK_REACH) markCairn(s, n);
   }
-  if (empowered) {
-    h.fury = clamp(h.fury + OVERCHARGE_FURY, 0, h.maxFury);
-    h.overcharge = 0;
-  }
-  s.pulses.push({ x: h.x, y: h.y, r: radius, until: s.elapsed + PULSE_FX_MS });
+  // A short rend-ring at the throat (the bite FX; a pounce's reads bigger).
+  s.pulses.push({
+    x: e.x, y: e.y, r: (HERO_RADIUS + FOE_RADIUS) * (lunging ? 1.8 : 1),
+    until: s.elapsed + PULSE_FX_MS,
+  });
 }
 
-// Pace the maw: only a WOLF, with a sufficiently-traced maw, rends — and only on its
-// cadence. (Human form cannot attack; this is the gate that enforces it.)
-function stepMaw(s: WwState, dt = 16): void {
+// Index of the nearest non-dead foe within `range` AND within `arc` (radians) of the
+// wolf's facing — the pounce's target search (a frontal cone, so a pounce commits the
+// way you steer). -1 if none.
+function frontalFoe(s: WwState, range: number, arc: number): number {
+  const h = s.hero;
+  let best = -1, bestD = range;
+  for (let i = 0; i < s.foes.length; i++) {
+    const e = s.foes[i];
+    if (e.dead) continue;
+    const d = Math.hypot(e.x - h.x, e.y - h.y);
+    if (d >= bestD) continue;
+    const a = Math.atan2(e.y - h.y, e.x - h.x);
+    let da = Math.abs(a - h.facing);
+    if (da > Math.PI) da = 2 * Math.PI - da;
+    if (da <= arc) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+// Pace the maul — the WOLF's weapon, all of it. Only a wolf rends (a man cannot fight,
+// the gate that makes the form matter). On the bite cadence it rends the nearest foe in
+// contact reach; and at high momentum, if prey sits in the frontal cone, it auto-POUNCES
+// — a brief locked lunge that closes the gap and lands a heavy bite. Pure joystick:
+// both fall out of where and how fast you steer; there is no attack button.
+function stepMaul(s: WwState, dt = 16): void {
   const h = s.hero;
   if (h.form !== "wolf") return;
-  if (h.charge < MAW_BITE_AT) return;
-  h.mawCd -= dt;
-  if (h.mawCd > 0) return;
-  h.mawCd = MAW_PULSE_MS * s.pelt.pulseMul;
-  firePulse(s);
+  if (h.biteCd > 0) h.biteCd -= dt;
+  if (h.pounceCd > 0) h.pounceCd -= dt;
+  // Contact bite: rend the nearest foe the wolf's body reaches, on the cadence.
+  const reach = HERO_RADIUS + FOE_RADIUS + MAUL_REACH * s.pelt.radiusMul;
+  if (h.biteCd <= 0) {
+    const idx = nearestFoe(s, h.x, h.y, reach);
+    if (idx >= 0) { bite(s, s.foes[idx]); h.biteCd = BITE_CD * s.pelt.pulseMul; }
+  }
+  // Auto-pounce: enough momentum + a frontal foe → lunge onto it (handled next frame in
+  // stepHunt, which overrides the hero's velocity while h.lunge runs).
+  if (h.lunge <= 0 && h.pounceCd <= 0 && h.momentum >= POUNCE_AT) {
+    const idx = frontalFoe(s, POUNCE_RANGE * s.pelt.radiusMul, POUNCE_ARC);
+    if (idx >= 0) {
+      const e = s.foes[idx];
+      const a = Math.atan2(e.y - h.y, e.x - h.x);
+      h.lunge = POUNCE_MS;
+      h.lungeVx = Math.cos(a) * POUNCE_SPEED;
+      h.lungeVy = Math.sin(a) * POUNCE_SPEED;
+      h.facing = a;
+      h.pounceCd = POUNCE_CD;
+      h.momentum = Math.min(h.momentum, POUNCE_SPEND);
+    }
+  }
 }
 
 // Move a body by a desired velocity for dt, then push it out of terrain. Shared by
@@ -1113,7 +1208,7 @@ function moveBody(s: WwState, e: Foe, vx: number, vy: number, dt: number, radius
   e.x = p.x; e.y = p.y;
 }
 
-// Separation: nudge a foe away from its crowded neighbours so the watch swarms rather
+// Separation: nudge a body away from its crowded neighbours so they herd/swarm rather
 // than stacking into one point.
 function separate(s: WwState, e: Foe): { x: number; y: number } {
   let sx = 0, sy = 0;
@@ -1126,44 +1221,135 @@ function separate(s: WwState, e: Foe): { x: number; y: number } {
   return { x: sx, y: sy };
 }
 
-// The watch AI. A foe lurks near its green until the hero comes within aggro (smaller
-// while he's a man or hidden in mist) or the cleanup sweep rouses it, then hunts.
-// Melee kinds close and strike; the huntsman holds a standoff and looses bolts; the
-// friar holds back and bleeds the curse.
+// Cohesion: pull a fleeing prey toward the centroid of its nearby flock — the flocking
+// that makes the watch break into a HERD (curve toward kin) instead of scattering as
+// loose dots. Returned at a fraction of travel speed so flight still wins.
+function cohesion(s: WwState, e: Foe): { x: number; y: number } {
+  let cx = 0, cy = 0, n = 0;
+  for (const o of s.foes) {
+    if (o === e || o.dead || !isPrey(o.variant)) continue;
+    if (Math.hypot(o.x - e.x, o.y - e.y) < ALARM_SPREAD_R) { cx += o.x; cy += o.y; n++; }
+  }
+  if (n === 0) return { x: 0, y: 0 };
+  cx = cx / n - e.x; cy = cy / n - e.y;
+  const d = Math.hypot(cx, cy) || 1;
+  return { x: (cx / d) * PREY_COHESION * FOE_SPEED, y: (cy / d) * PREY_COHESION * FOE_SPEED };
+}
+
+// Idle drift on a leash around a body's green (shared by un-roused prey and hunters).
+function wander(s: WwState, e: Foe, dt: number): void {
+  e.wanderAngle += (Math.random() - 0.5) * 0.5;
+  let wx = Math.cos(e.wanderAngle) * FOE_WANDER_SPEED;
+  let wy = Math.sin(e.wanderAngle) * FOE_WANDER_SPEED;
+  const dHome = Math.hypot(e.x - e.homeX, e.y - e.homeY);
+  if (dHome > FOE_LEASH) {
+    wx = ((e.homeX - e.x) / dHome) * FOE_WANDER_SPEED;
+    wy = ((e.homeY - e.y) / dHome) * FOE_WANDER_SPEED;
+  }
+  moveBody(s, e, wx, wy, dt, FOE_RADIUS);
+}
+
+// The village's panic — the average alarm across the living prey (0..1). Drives the
+// HUD readout and, at/above ALARM_ROUSE, sends the hunters converging.
+function villagePanic(s: WwState): number {
+  let sum = 0, n = 0;
+  for (const e of s.foes) if (!e.dead && isPrey(e.variant)) { sum += e.alarm; n++; }
+  return n ? sum / n : 0;
+}
+
+// The watch AI — the predator-hunt's other half. PREY (villager/hound) flee the hero
+// and FLOCK; their ALARM radiates from the hero's conspicuousness, spreads prey→prey,
+// and decays — so cull quiet and isolated to keep the village calm. A roused village
+// (or the wolf at close range) sends the armed HUNTERS (knight/huntsman/friar)
+// converging: they are the real threat. Stealth as a man falls out for free (a calm man
+// radiates nothing).
 function stepFoes(s: WwState, dt: number): void {
   const h = s.hero;
   const fewLeft = aliveFoes(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
-  // The watch is slower to rouse to a man, or to a beast lost in the fog or the trees.
-  const stealthy = h.form === "human" || inMist(s, h.x, h.y) || inWoods(s, h.x, h.y);
-  const aggro = FOE_AGGRO * (stealthy ? STEALTH_AGGRO_MUL : 1);
+  const muffled = inMist(s, h.x, h.y) || inWoods(s, h.x, h.y);
+  // How loud the hero reads to the flock this frame (the alarm he radiates). A calm or
+  // slow man reads as one of their own (0); a sprinting man, or any wolf, is loud.
+  const spd = Math.hypot(h.vx, h.vy);
+  let conspic = h.form === "wolf" ? ALARM_RADIATE_WOLF
+    : spd > MAN_SPRINT_SPEED ? ALARM_RADIATE_MAN : 0;
+  if (muffled) conspic *= ALARM_MUFFLE_MUL;
+
+  // ---- Alarm pass: radiate from the hero into nearby prey, spread prey→prey, decay. ----
+  const prey: Foe[] = [];
+  for (const e of s.foes) if (!e.dead && isPrey(e.variant)) prey.push(e);
+  for (const e of prey) {
+    const d = Math.hypot(e.x - h.x, e.y - h.y);
+    let a = e.alarm - (ALARM_DECAY * dt) / 1000;
+    if (conspic > 0 && d < ALARM_RADIATE_REACH) {
+      a += conspic * (1 - d / ALARM_RADIATE_REACH) * dt / 1000;
+    }
+    e.alarm = clamp(a, 0, 1);
+  }
+  // Spread (two-phase, so the result is order-independent): each prey eases toward the
+  // alarm of its loudest near neighbour.
+  if (prey.length > 1) {
+    const add = new Array<number>(prey.length).fill(0);
+    for (let i = 0; i < prey.length; i++) {
+      let loud = prey[i].alarm;
+      for (let j = 0; j < prey.length; j++) {
+        if (i === j) continue;
+        if (Math.hypot(prey[i].x - prey[j].x, prey[i].y - prey[j].y) < ALARM_SPREAD_R
+          && prey[j].alarm > loud) loud = prey[j].alarm;
+      }
+      add[i] = (loud - prey[i].alarm) * ALARM_SPREAD_RATE * dt / 1000;
+    }
+    for (let i = 0; i < prey.length; i++) prey[i].alarm = clamp(prey[i].alarm + add[i], 0, 1);
+  }
+  // The village average — what rouses the hunters.
+  let alarmSum = 0;
+  for (const e of prey) alarmSum += e.alarm;
+  const roused = (prey.length ? alarmSum / prey.length : 0) >= ALARM_ROUSE || fewLeft;
+
   for (const e of s.foes) {
     if (e.dead) continue;
     e.aiming = false; e.channeling = false;
     const dxh = h.x - e.x, dyh = h.y - e.y;
     const dh = Math.hypot(dxh, dyh) || 1;
 
-    if (e.state === "lurk") {
-      if (dh < aggro || fewLeft) {
-        e.state = "hunt";
-      } else {
-        // Idle drift on a leash around the green.
-        e.wanderAngle += (Math.random() - 0.5) * 0.5;
-        let wx = Math.cos(e.wanderAngle) * FOE_WANDER_SPEED;
-        let wy = Math.sin(e.wanderAngle) * FOE_WANDER_SPEED;
-        const dHome = Math.hypot(e.x - e.homeX, e.y - e.homeY);
-        if (dHome > FOE_LEASH) {
-          wx = ((e.homeX - e.x) / dHome) * FOE_WANDER_SPEED;
-          wy = ((e.homeY - e.y) / dHome) * FOE_WANDER_SPEED;
-        }
-        moveBody(s, e, wx, wy, dt, FOE_RADIUS);
-        continue;
+    // ----- PREY: flee + flock. Not sticky — they calm as their alarm fades (slip into
+    // mist and the herd settles). A wolf on top of a cornered prey takes a panic flail.
+    if (isPrey(e.variant)) {
+      // Flee on alarm, or on a CONSPICUOUS hero close by — but a muffled hero (in mist
+      // or woods) must come much nearer to spook a prey by sight alone.
+      const seeRange = FOE_AGGRO * (muffled ? STEALTH_AGGRO_MUL : 1);
+      const flee = e.alarm >= PREY_FLEE_ALARM || (conspic > 0 && dh < seeRange) || fewLeft;
+      e.state = flee ? "hunt" : "lurk";
+      if (!flee) { wander(s, e, dt); continue; }
+      const sep = separate(s, e);
+      const coh = cohesion(s, e);
+      const speed = FOE_SPEED * (e.variant === "hound" ? HOUND_SPEED_MUL : 1) * PREY_FLEE_SPEED_MUL;
+      moveBody(s, e, (-dxh / dh) * speed + sep.x + coh.x, (-dyh / dh) * speed + sep.y + coh.y, dt, FOE_RADIUS);
+      if (e.attackCd > 0) e.attackCd -= dt;
+      const reach = HERO_RADIUS + FOE_RADIUS + FOE_ATTACK_REACH;
+      if (h.form === "wolf" && dh <= reach && e.attackCd <= 0 && h.hurt <= 0) {
+        e.attackCd = FOE_ATTACK_CD;
+        h.hp -= e.variant === "hound" ? HOUND_CONTACT : FOE_CONTACT;
+        h.hurt = HERO_IFRAMES_MS;
+        s.hits += 1;
+        h.x = clamp(h.x + (dxh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.w - HERO_RADIUS);
+        h.y = clamp(h.y + (dyh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.h - HERO_RADIUS);
       }
+      cleanseNearCairn(s, e);
+      continue;
+    }
+
+    // ----- HUNTERS: converge when the village is roused or the wolf is near; sticky
+    // once roused (armed pursuers do not give up). Muffled/human shrinks the proximity-wake.
+    if (e.state === "lurk") {
+      const near = dh < FOE_AGGRO * (muffled || h.form === "human" ? STEALTH_AGGRO_MUL : 1);
+      if (roused || near) e.state = "hunt";
+      else { wander(s, e, dt); continue; }
     }
 
     const sep = separate(s, e);
 
     if (e.variant === "huntsman") {
-      // Hold a standoff; loose a silver bolt with line of sight (not through mist).
+      // Hold a standoff; loose a silver bolt with line of sight (not through mist/woods).
       const speed = FOE_SPEED * HUNTSMAN_SPEED_MUL;
       let dirx = 0, diry = 0;
       if (dh < HUNTSMAN_STANDOFF) { dirx = -dxh / dh; diry = -dyh / dh; }   // kite away
@@ -1196,23 +1382,18 @@ function stepFoes(s: WwState, dt: number): void {
       continue;
     }
 
-    // Melee kinds (villager / hound / knight): close and strike.
-    const speed = FOE_SPEED *
-      (e.variant === "hound" ? HOUND_SPEED_MUL : e.variant === "knight" ? KNIGHT_SPEED_MUL : 1);
+    // Knight — a heavy hunter: close and strike.
+    const speed = FOE_SPEED * KNIGHT_SPEED_MUL;
     moveBody(s, e, (dxh / dh) * speed + sep.x, (dyh / dh) * speed + sep.y, dt, FOE_RADIUS);
     if (e.attackCd > 0) e.attackCd -= dt;
     const reach = HERO_RADIUS + FOE_RADIUS + FOE_ATTACK_REACH;
-    if (dh <= reach && e.attackCd <= 0) {
+    if (dh <= reach && e.attackCd <= 0 && h.hurt <= 0) {
       e.attackCd = FOE_ATTACK_CD;
-      if (h.hurt <= 0) {
-        const contact = e.variant === "hound" ? HOUND_CONTACT
-          : e.variant === "knight" ? KNIGHT_CONTACT : FOE_CONTACT;
-        h.hp -= contact;
-        h.hurt = HERO_IFRAMES_MS;
-        s.hits += 1;
-        h.x = clamp(h.x + (dxh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.w - HERO_RADIUS);
-        h.y = clamp(h.y + (dyh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.h - HERO_RADIUS);
-      }
+      h.hp -= KNIGHT_CONTACT;
+      h.hurt = HERO_IFRAMES_MS;
+      s.hits += 1;
+      h.x = clamp(h.x + (dxh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.w - HERO_RADIUS);
+      h.y = clamp(h.y + (dyh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.h - HERO_RADIUS);
     }
     cleanseNearCairn(s, e);
   }
@@ -1268,18 +1449,28 @@ function nearScar(s: WwState, x: number, y: number): boolean {
   return false;
 }
 
-// Marked cairns as ally emitters: the aura grants the hero fury and rends the watch
-// that strays in.
+// Claimed dens as ally emitters: the aura grants the hero fury (and tops up the wolf's
+// momentum, the moon's foothold), rends the watch that strays in, and PANICS the prey
+// within — driving alarm and shoving them outward, a herding tool for the predator.
 function stepCairns(s: WwState, dt: number): void {
   const h = s.hero;
   for (const n of s.cairns) {
     if (!n.lit) continue;
     if (Math.hypot(h.x - n.x, h.y - n.y) <= CAIRN_AURA) {
       h.fury = clamp(h.fury + (CAIRN_FURY_PER_SEC * dt) / 1000, 0, h.maxFury);
+      if (h.form === "wolf") h.momentum = Math.min(1, h.momentum + (CAIRN_FURY_PER_SEC * dt) / 1000);
     }
     for (const e of s.foes) {
       if (e.dead) continue;
-      if (Math.hypot(e.x - n.x, e.y - n.y) <= CAIRN_AURA) hurtFoe(s, e, (CAIRN_DMG * dt) / 1000);
+      const ed = Math.hypot(e.x - n.x, e.y - n.y);
+      if (ed > CAIRN_AURA) continue;
+      hurtFoe(s, e, (CAIRN_DMG * dt) / 1000);
+      if (isPrey(e.variant) && ed > 0) {
+        e.alarm = clamp(e.alarm + (CAIRN_PANIC_PER_SEC * dt) / 1000, 0, 1);
+        const push = (CAIRN_SHOVE * dt) / 1000;
+        const p = pushOut(s, e.x + ((e.x - n.x) / ed) * push, e.y + ((e.y - n.y) / ed) * push, FOE_RADIUS);
+        e.x = p.x; e.y = p.y;
+      }
     }
   }
 }
@@ -1320,43 +1511,50 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
   const h = s.hero;
 
   // Running a village lane carries the hero swift; off it, normal — and the wolf is
-  // the swifter body.
+  // the swifter body. A lane speeds him; a bog bogs him (terrainSpeedMul, hero = not a
+  // foe, so a bramble leaves him be). The two compose — a boosted lane through a bog.
   const onPath = s.paths.some(
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= PATH_HALF,
   );
   const baseSpeed = h.form === "wolf" ? HERO_SPEED_WOLF : HERO_SPEED_HUMAN;
-  // A lane speeds the hero; a bog bogs him (terrainSpeedMul, hero = not a foe, so a
-  // bramble leaves him be). The two compose — a boosted lane through a bog.
   const speed = baseSpeed * (onPath ? PATH_BOOST : 1) * terrainSpeedMul(s, h.x, h.y, false);
-  h.vx = move.x * speed;
-  h.vy = move.y * speed;
+  // While a pounce-lunge runs, the wolf's velocity is locked to the lunge (it commits);
+  // otherwise the joystick drives it. The lunge is the only place momentum overrides input.
+  if (h.lunge > 0) {
+    h.lunge = Math.max(0, h.lunge - dt);
+    h.vx = h.lungeVx;
+    h.vy = h.lungeVy;
+  } else {
+    h.vx = move.x * speed;
+    h.vy = move.y * speed;
+  }
   {
     const p = pushOut(s, h.x + (h.vx * dt) / 1000, h.y + (h.vy * dt) / 1000, HERO_RADIUS);
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
 
-  // Moonlight here — full inside a moonwell, whatever the hour.
-  const well = inMoonwell(s, h.x, h.y);
-  const ml = well ? 1 : moonlightOf(s.moon);
-  const dl = well ? 0 : daylight(s.moon);
+  // The wolf faces where it runs — the pounce cone and the drawn body both read off it.
+  const movdSpeed = Math.hypot(h.vx, h.vy);
+  if (movdSpeed > HERO_STILL_MAXSPEED) h.facing = Math.atan2(h.vy, h.vx);
 
-  // The maw traces while the hero holds still and fades as he moves; past a full
-  // trace the held stand banks an overcharge (the next pulse erupts, see firePulse).
-  // (As a man this stand instead bays at the moon — see the fury swell below.)
-  const chargeMs = CHARGE_MS * s.pelt.chargeMul;
-  const still = Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED;
-  // A moonlit glade lets the maw trace even while loping (like a moonwell's gift).
-  const tracing = still || inGlade(s, h.x, h.y);
-  if (tracing) {
-    h.charge = Math.min(1, h.charge + (dt / chargeMs) * (0.35 + 0.9 * ml));
+  // Moonlit footing — full moonlight inside a moonwell or a glade, whatever the hour.
+  // There the wolf's MOMENTUM never bleeds (it can wheel and stalk without going cold).
+  const moonlit = inMoonwell(s, h.x, h.y) || inGlade(s, h.x, h.y);
+  const ml = moonlit ? 1 : moonlightOf(s.moon);
+  const dl = moonlit ? 0 : daylight(s.moon);
+
+  // MOMENTUM — the wolf's whole weapon. It builds while the beast runs near top speed
+  // and bleeds when it slows (held, at moonlit footing). A man carries none.
+  if (h.form === "wolf") {
+    if (movdSpeed > MOMENTUM_MIN_SPEED) {
+      h.momentum = Math.min(1, h.momentum + (dt / (MOMENTUM_RISE_MS * s.pelt.chargeMul)) * (movdSpeed / HERO_SPEED_WOLF));
+    } else if (!moonlit) {
+      h.momentum = Math.max(0, h.momentum - dt / MOMENTUM_DECAY_MS);
+    }
   } else {
-    h.charge = Math.max(0, h.charge - dt / chargeMs);
+    h.momentum = 0;
   }
-  // Overcharge banks only on a true held STAND; loping (even in a glade) spends it.
-  if (still && h.charge >= 1) h.overcharge = Math.min(1, h.overcharge + dt / OVERCHARGE_MS);
-  else if (!still) h.overcharge = 0;
-  h.angle = (h.angle + dt * SIGIL_SPIN) % 360;
 
   // A bane-patch (wolfsbane) bleeds the hero's fury while he stands in it; a clear
   // spring slowly mends his wounds (gated by a cap, so it can't facetank the watch).
@@ -1368,21 +1566,22 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
     h.hp = Math.min(ceil, h.hp + (SPRING_HEAL_DPS * dt) / 1000);
   }
 
-  // THE SHAPE — the moon drives the fury, the fury drives the form. A man's fury
-  // swells under moonlight (faster as he bays — stands and charges); at the crest he
-  // TURNS. A wolf's fury bleeds (faster by daylight); spent, he turns back to a man.
+  // THE SHAPE — the moon drives the fury, the fury drives the form. A MAN's fury swells
+  // under moonlight (faster as he holds still and BAYS); at the crest he TURNS. A WOLF's
+  // fury bleeds (faster by daylight); spent, he turns back to a hunted man.
+  const still = movdSpeed < HERO_STILL_MAXSPEED;
   if (h.form === "human") {
-    h.fury = clamp(h.fury + (dt / FURY_RISE_MS) * (0.15 + ml) * (1 + h.charge * 0.8), 0, h.maxFury);
-    if (h.fury >= h.maxFury) { h.form = "wolf"; h.transformAt = s.elapsed; }
+    h.fury = clamp(h.fury + (dt / FURY_RISE_MS) * (0.15 + ml) * (still ? 1.85 : 1), 0, h.maxFury);
+    if (h.fury >= h.maxFury) { h.form = "wolf"; h.transformAt = s.elapsed; h.momentum = 0; }
   } else {
     h.fury = clamp(h.fury - (dt / FURY_DRAIN_MS) * (0.5 + dl * 1.5), 0, h.maxFury);
-    if (h.fury <= 0) { h.form = "human"; h.transformAt = s.elapsed; h.charge = 0; }
+    if (h.fury <= 0) { h.form = "human"; h.transformAt = s.elapsed; h.momentum = 0; h.lunge = 0; }
   }
 
-  stepMaw(s, dt);     // a wolf with a traced maw rends the host in reach (spends fury)
-  stepFoes(s, dt);    // the watch lurks / hunts the hero, strikes, looses bolts, consecrates
+  stepMaul(s, dt);    // a wolf rends in contact reach (momentum-scaled) and auto-pounces
+  stepFoes(s, dt);    // prey flee & flock; the alarm rouses the hunters to converge
   stepBolts(s, dt);   // silver bolts in flight
-  stepCairns(s, dt);  // marked cairns grant fury and rend the host in their aura
+  stepCairns(s, dt);  // claimed dens grant fury/momentum, rend & panic the watch in aura
   stepFields(s, dt);  // pyre/wisp/marsh-fire emitters burn the watch in their auras
   stepGeysers(s, dt); // hot springs erupt a burst on their cadence
   stepGale(s, dt);    // moor-winds shove the watch out of their auras
@@ -1834,23 +2033,27 @@ function render(s: WwState, layer: SVGGElement): void {
     }));
   }
 
-  // The hero — the blood-moon maw traced beneath (only a wolf rends), then the body.
+  // The hero — a speed-streak that swells with the wolf's MOMENTUM (and flares mid-
+  // pounce), drawn beneath the body, then the body itself (oriented to its heading).
   const h = s.hero;
   const wolf = h.form === "wolf";
-  if (wolf && h.charge > 0.02) {
-    const traced = h.charge >= MAW_BITE_AT;
-    const rr = MAW_RADIUS * s.pelt.radiusMul * (h.overcharge >= 1 ? OVERCHARGE_RADIUS_MUL : 1);
-    if (traced) layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: rr * h.charge, fill: "url(#mawGlow)" }));
-    layer.appendChild(el("path", {
-      d: pentagramPath(h.x, h.y, 24 + 10 * h.charge, h.angle),
-      fill: "none", stroke: s.pelt.star, "stroke-width": 2 + 2 * h.charge,
-      opacity: 0.35 + 0.6 * h.charge, filter: "url(#glow)",
+  const deg = (h.facing * 180) / Math.PI;
+  if (wolf && (h.momentum > 0.05 || h.lunge > 0)) {
+    const trail = (24 + 70 * h.momentum) * (h.lunge > 0 ? 1.5 : 1);
+    const bx = h.x - Math.cos(h.facing) * trail, by = h.y - Math.sin(h.facing) * trail;
+    layer.appendChild(el("line", {
+      x1: bx, y1: by, x2: h.x, y2: h.y,
+      stroke: s.pelt.ring, "stroke-width": 4 + 7 * h.momentum,
+      "stroke-linecap": "round", opacity: 0.18 + 0.4 * h.momentum + (h.lunge > 0 ? 0.3 : 0),
+      filter: "url(#glow)",
     }));
-    if (h.overcharge > 0) {
+    // A leading claw-arc when the beast is at a full sprint (the pounce is imminent).
+    if (h.momentum >= POUNCE_AT) {
+      const fx = h.x + Math.cos(h.facing) * (HERO_RADIUS + 10);
+      const fy = h.y + Math.sin(h.facing) * (HERO_RADIUS + 10);
       layer.appendChild(el("circle", {
-        cx: h.x, cy: h.y, r: 30 + 6 * h.overcharge,
-        fill: "none", stroke: "#fff", "stroke-width": 1.5, opacity: 0.3 + 0.5 * h.overcharge,
-        "stroke-dasharray": "3 6",
+        cx: fx, cy: fy, r: 6, fill: "none", stroke: s.pelt.star,
+        "stroke-width": 2, opacity: 0.55, filter: "url(#glow)",
       }));
     }
   }
@@ -1859,18 +2062,22 @@ function render(s: WwState, layer: SVGGElement): void {
   else {
     const hurt = h.hurt > 0 && Math.floor(s.elapsed / 80) % 2 === 0;
     if (wolf) {
-      // The beast — a dark hunched body, ears, and two cold eyes.
+      // The beast — a dark hunched body (stretched along its heading), ears, cold eyes.
+      const g = el("g", { transform: `rotate(${deg.toFixed(1)} ${h.x} ${h.y})` });
       const rad = HERO_RADIUS + 3;
-      layer.appendChild(el("ellipse", {
-        cx: h.x, cy: h.y, rx: rad * 1.2, ry: rad,
+      const stretch = 1.2 + 0.5 * h.momentum;
+      g.appendChild(el("ellipse", {
+        cx: h.x, cy: h.y, rx: rad * stretch, ry: rad * 0.92,
         fill: hurt ? "#5a3a3a" : "#241f26", stroke: "#7a708a", "stroke-width": 2.5, filter: "url(#glow)",
       }));
-      layer.appendChild(el("path", {
-        d: `M${h.x - rad * 0.7} ${h.y - rad * 0.7}l-3 -8 7 4Z M${h.x + rad * 0.7} ${h.y - rad * 0.7}l3 -8 -7 4Z`,
+      // Ears at the leading (snout) end — drawn in the un-rotated frame, then spun by g.
+      g.appendChild(el("path", {
+        d: `M${h.x + rad * 0.8} ${h.y - rad * 0.6}l8 -3 -2 7Z M${h.x + rad * 0.8} ${h.y + rad * 0.6}l8 3 -2 -7Z`,
         fill: "#241f26", stroke: "#7a708a", "stroke-width": 1.5,
       }));
-      layer.appendChild(el("circle", { cx: h.x - 5, cy: h.y - 2, r: 2.4, fill: "#ffe04a" }));
-      layer.appendChild(el("circle", { cx: h.x + 5, cy: h.y - 2, r: 2.4, fill: "#ffe04a" }));
+      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y - 3, r: 2.2, fill: "#ffe04a" }));
+      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y + 3, r: 2.2, fill: "#ffe04a" }));
+      layer.appendChild(g);
     } else {
       // The man — a smaller cloaked figure.
       layer.appendChild(el("circle", {
@@ -1997,6 +2204,7 @@ function start(): void {
   const ovBtn2 = byId("ov-btn2") as HTMLButtonElement;
   const hpFill = byId("hp");
   const furyFill = byId("fury");
+  const momFill = byId("mom");
   const foesEl = byId("foes");
   const furyEl = byId("souls");
   const cityEl = byId("cityname");
@@ -2138,6 +2346,11 @@ function start(): void {
     furyFill.style.width = Math.max(0, (s.hero.fury / s.hero.maxFury) * 100) + "%";
     // The fury bar glows gold once it crests into the beast.
     furyFill.style.filter = s.hero.form === "wolf" ? "drop-shadow(0 0 6px #ffd06a)" : "";
+    // Momentum — the wolf's weapon-charge; only meaningful (and only shown) as a beast.
+    const wolf = s.hero.form === "wolf";
+    momFill.style.width = Math.max(0, (wolf ? s.hero.momentum : 0) * 100) + "%";
+    (momFill.parentElement as HTMLElement).style.opacity = wolf ? "1" : "0.25";
+    momFill.style.filter = wolf && s.hero.momentum >= 0.7 ? "drop-shadow(0 0 6px #e0566a)" : "";
     cityEl.textContent = s.level.name;
     furyEl.textContent = furyReadout(s);
     const alive = aliveFoes(s);
@@ -2292,15 +2505,15 @@ function start(): void {
     const l = recordHunt(s.level, ms, cairns, moonstones);
     const best = l.best[s.level.id];
     const cairnLine = (cairns >= total && total > 0
-      ? `You marked every cairn — <em>${total}</em>. The village is yours, stone and soul.`
-      : `You marked <em>${cairns}</em> of ${total} cairns.`)
+      ? `You claimed every den — <em>${total}</em>. The village is yours, stone and soul.`
+      : `You claimed <em>${cairns}</em> of ${total} dens.`)
       + (s.cleansedCount ? ` The watch cleansed <em>${s.cleansedCount}</em> back to dark.` : "");
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
     const breakdown =
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Watch cut down", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
-      row("Cairns marked", `${sc.cairns}`) +
+      row("Dens claimed", `${sc.cairns}`) +
       row("Survival", `${sc.survival}`) +
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Village difficulty", `×${sc.mult}`) +
@@ -2327,7 +2540,7 @@ function start(): void {
       "You are brought down",
       `The watch of <em>${s.level.name}</em> dragged you down with ` +
       `<em>${aliveFoes(s)}</em> still abroad.` +
-      `<br><br>You had cut down <em>${s.slain}</em> of ${s.total} and marked <em>${s.litCount}</em> cairns.<br><br>` +
+      `<br><br>You had cut down <em>${s.slain}</em> of ${s.total} and claimed <em>${s.litCount}</em> dens.<br><br>` +
       (moonstones > 0 ? `The blood you spilled leaves <em>+${moonstones}</em> moonstones behind. ` : ``) +
       `<em>The moon will rise again. Hunt again.</em>`,
       "Try again", () => startCity(s!.level),
@@ -2387,7 +2600,7 @@ function start(): void {
         `<div class="legacy"><div class="legacy-head">Your hunts</div><dl>` +
         `<div><dt>Hunts</dt><dd>${l.runs}</dd></div>` +
         `<div><dt>Villages claimed</dt><dd>${l.hunts}</dd></div>` +
-        `<div><dt>Cairns marked</dt><dd>${l.cairnsMarked}</dd></div>` +
+        `<div><dt>Dens claimed</dt><dd>${l.cairnsMarked}</dd></div>` +
         `<div><dt>Watch cut down</dt><dd>${l.slain}</dd></div></dl></div>`;
     }
 
@@ -2488,9 +2701,9 @@ const testGlobal = globalThis as unknown as {
 if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
   testGlobal.__ww = {
     generateWerewolf, buildArena, freshHunt, stepHunt,
-    stepMaw, firePulse, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
+    stepMaul, bite, frontalFoe, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
     stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, inWoods, terrainSpeedMul,
-    slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe,
+    slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe, isPrey, villagePanic,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
@@ -2500,9 +2713,13 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     PELT_TYPES, peltTypeById, unlockPelt, equipPelt,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED_HUMAN, HERO_SPEED_WOLF, HERO_KNOCKBACK,
-      HERO_STILL_MAXSPEED, CHARGE_MS, MAW_BITE_AT, MAW_RADIUS, MAW_PULSE_MS,
-      MAW_DMG, MAW_FURY_COST, SIGIL_SPIN, PULSE_FX_MS,
-      OVERCHARGE_MS, OVERCHARGE_RADIUS_MUL, OVERCHARGE_FURY, TERROR_KNOCK,
+      HERO_STILL_MAXSPEED, PULSE_FX_MS, TERROR_KNOCK,
+      MOMENTUM_RISE_MS, MOMENTUM_DECAY_MS, MOMENTUM_MIN_SPEED,
+      MAUL_REACH, MAUL_DMG, BITE_CD, MAUL_MIN_MUL, MAUL_KNOCK, KILL_HEAL,
+      POUNCE_AT, POUNCE_RANGE, POUNCE_ARC, POUNCE_MS, POUNCE_SPEED, POUNCE_CD, POUNCE_SPEND, POUNCE_DMG_MUL,
+      ALARM_RADIATE_WOLF, ALARM_RADIATE_MAN, MAN_SPRINT_SPEED, ALARM_RADIATE_REACH, ALARM_MUFFLE_MUL,
+      ALARM_SPREAD_R, ALARM_SPREAD_RATE, ALARM_DECAY, ALARM_KILL_SPIKE_R, ALARM_ROUSE,
+      PREY_FLEE_ALARM, PREY_FLEE_SPEED_MUL, PREY_COHESION,
       MOON_CYCLE_MS, MOON_START, FURY_RISE_MS, FURY_DRAIN_MS, FURY_PER_KILL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_FURY, HIT_FLASH_MS,
       FOE_HP, FOE_SPEED, FOE_RADIUS, FOE_CONTACT, FOE_ATTACK_CD,
@@ -2516,6 +2733,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       FRENZY_RANGE, FRENZY_DMG, MOONBLOOD_FURY,
       OBSTACLE_RADIUS, WALL_HALF, PATH_HALF, PATH_BOOST, MOONWELL_AURA, MIST_DRIFT,
       CAIRN_MARK_REACH, CAIRN_MARK_FURY, CAIRN_AURA, CAIRN_FURY_PER_SEC, CAIRN_DMG,
+      CAIRN_PANIC_PER_SEC, CAIRN_SHOVE,
       CLEANSE_REACH, CLEANSE_MS, SCAR_RADIUS,
       PYRE_AURA, PYRE_DPS, WISP_AURA, WISP_DPS, MARSHFIRE_AURA, MARSHFIRE_DPS,
       BOG_AURA, BOG_SLOW, BRAMBLE_AURA, BRAMBLE_SLOW, GLADE_AURA,

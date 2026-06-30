@@ -100,13 +100,15 @@
      shape + hour + cairn readout — the hunter's running tally. */
   #foes { color: var(--cold); font-weight: 700; }
   #souls { color: var(--gold); opacity: 0.82; font-size: 11px; }
-  /* Two stacked bars: blood (red) and fury (gold) — the curse-meter is the twist. */
+  /* Three stacked bars: blood (red), fury (gold), and the wolf's momentum (pale) —
+     the curse-meter and the predator's speed-charge are the twin twists. */
   .bars { display: flex; flex-direction: column; gap: 3px; }
   .hpbar {
     width: 132px; height: 8px; border: 1px solid rgba(224,86,106,0.5);
     border-radius: 4px; background: rgba(40,14,18,0.55); overflow: hidden;
   }
   .hpbar.fury { border-color: rgba(255,208,106,0.5); background: rgba(40,30,10,0.55); }
+  .hpbar.mom { height: 6px; border-color: rgba(205,214,230,0.45); background: rgba(20,24,34,0.55); transition: opacity .25s ease; }
   #hp {
     height: 100%; width: 100%;
     background: linear-gradient(90deg, #b03040, #e0566a);
@@ -118,6 +120,12 @@
     background: linear-gradient(90deg, #c89030, #ffd06a);
     box-shadow: 0 0 10px rgba(255,208,106,0.5);
     transition: width .14s ease, filter .2s ease;
+  }
+  #mom {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #6a7384, #cdd6e6);
+    box-shadow: 0 0 8px rgba(205,214,230,0.5);
+    transition: width .1s linear, filter .2s ease;
   }
   #reset, #refresh {
     pointer-events: auto;
@@ -327,6 +335,7 @@
       <div class="bars">
         <div class="hpbar"><div id="hp"></div></div>
         <div class="hpbar fury"><div id="fury"></div></div>
+        <div class="hpbar mom" title="Momentum — the wolf's speed-charge"><div id="mom"></div></div>
       </div>
       <button id="reset" title="Return to the village select">Choose village</button>
       <a class="xlink" id="origin-link" href="./index.html?classic" title="The Light-Bringer — the original contemplative game in this world" style="color:#9fb0d0;">The Light-Bringer</a>
@@ -342,7 +351,7 @@
   </div>
 
   <!-- Glanceable overview of the arena you can't see all at once: the watch that
-       remains, the marked cairns, the hero, and the camera's window. Drawn by
+       remains, the claimed dens, the hero, and the camera's window. Drawn by
        minimap() each hunt frame; hidden in the picker. -->
   <svg id="minimap" aria-hidden="true"></svg>
 
@@ -354,7 +363,7 @@
 
   <div id="toast"></div>
 
-  <div id="help">Move with the joystick or WASD to slink through the fog and weave the hedgerows. You begin a MAN — stand STILL to bay at the moon and stoke your FURY; under moonlight it swells fast and you TURN BEAST. As the wolf, stand still to trace a blood-moon maw that rends the watch around you; move to dodge and it fades. Feed to hold the change, mark the cairns, dodge the silver bolts. Cut down every soul to claim the village; lose your blood and you fall.</div>
+  <div id="help">Move with the joystick or WASD — that is your only control. As a MAN you pass for a villager: walk calm (or hide in mist & woods) to stalk unseen, and stand STILL to bay at the moon and stoke your FURY. At the crest you TURN BEAST. The wolf is a PREDATOR — it cannot stand and fight; it builds MOMENTUM by running and RUNS prey down, mauling on contact and POUNCING the straggler ahead. The village FLEES and panics — its alarm spreads and rouses the armed hunters, so cull the quiet and the isolated. Feed (kill) to hold the change before daylight bleeds it. Claim dens, dodge silver bolts. Cut down every soul to claim the village; lose your blood and you fall.</div>
 
   <div id="overlay" class="hidden">
     <div id="ov-panel">
