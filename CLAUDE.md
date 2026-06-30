@@ -5,8 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 The Light-Bringer is a set of action games shipped as installable, offline-capable **PWAs** in one
-repository. There are **five** games (the first three share one world — a city taught that *light burns*;
-the fourth is a Lovecraftian sibling; the fifth is a werewolf sibling):
+repository, unified behind a **class-select front door**: the site root (`index.html`) is a hub where the
+player **chooses a class**, and that choice launches one of the games (for now each class simply *is* one of
+the games). There are **four** games (the first three share one world — a city taught that *light burns*;
+the fourth is a Lovecraftian sibling) plus a werewolf sibling:
 
 - **The Burning Vigil** (`pentagram.ts` / `pentagram.html`) — the **primary** game: an Archero-style
   action-combat descent. You stand still to inscribe a burning pentagram that scorches the city's risen
@@ -28,13 +30,17 @@ the fourth is a Lovecraftian sibling; the fifth is a werewolf sibling):
   armed hunters), and by daylight fury bleeds you back to a man — so feed (kill) to hold the change. The
   whole loop is **pure joystick** (no attack button). Cut down the finite watch to claim the village. See
   its full section below.
-- **The Light-Bringer** (`app.ts` / `index.html`) — the original *contemplative* turn-based inversion game.
-  It is **code-frozen**: it still ships and must keep building, but make **no code changes** to it.
+> **Retired:** the original *contemplative* turn-based inversion game (`app.ts` / the old `index.html`
+> content) has been **dropped**. Its source, its smoke-test (`tools/smoke-test.mjs`), and its build/cache/
+> deploy wiring are gone; `index.html` is now the class-select hub. The four action games carry the shared
+> lineage forward — comments in the spinoff modules still reference `app.ts` as the historical origin of
+> their patterns (the pure-sim/render split, the per-node invariants, the cities-as-levels machinery).
 
 The codebase is plain HTML/CSS + hand-written TypeScript modules rendering layered SVG. `tsc` compiles
-`app.ts` → `app.js`, `pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`, `eldritch.ts` →
-`eldritch.js`, and `werewolf.ts` → `werewolf.js`; those `.js` files are what GitHub Pages serves. All five
-games **cross-link** from each other's title/header.
+`pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`, `eldritch.ts` → `eldritch.js`, and `werewolf.ts` →
+`werewolf.js`; those `.js` files are what GitHub Pages serves. The hub (`index.html`) and each game
+**cross-link**: every game's header has a **⌂ Class Select** link back to the hub plus quick links to its
+siblings.
 
 Today the shipped runtime has zero third-party dependencies (the only dependency is `typescript` itself, a
 devDependency). Treat "zero dependencies" and "fully offline" as **guidelines, not hard rules** — worth
@@ -43,26 +49,24 @@ intended future direction** (trading, async/PvP duels, shared profiles), and lan
 a backend and/or runtime dependencies. Weigh new dependencies on their merits.
 
 > **The Burning Vigil (`pentagram.ts`) is the primary game; The Necromancer's March (`necro.ts`) is its
-> active sibling spinoff; the original (`app.ts` / `index.html`) is CODE-FROZEN.** New gameplay work happens
-> in `pentagram.ts` or `necro.ts`. The original still **ships** — keep it building (it must compile clean
-> and stay in `sw.js`/the deploy) — but make **no code changes** to `app.ts` / `index.html`: it is
-> feature-frozen, not retired. All three share art and are cross-linked from each other's title screens.
+> active sibling spinoff.** New gameplay work happens in `pentagram.ts` or `necro.ts` (or the other two
+> spinoffs). All four share art and are reached from the class-select hub (`index.html`), which is a plain
+> static page — picking a class navigates to that game's shell.
 
 ## Commands
 
 ```sh
 npm install                      # one-time: install the TypeScript compiler
 
-npm run build                    # compile app.ts/pentagram.ts/necro.ts/eldritch.ts/werewolf.ts -> .js
+npm run build                    # compile pentagram.ts/necro.ts/eldritch.ts/werewolf.ts -> .js
 npm run typecheck                # type-check only, no emit (tsc --noEmit)
-npm test                         # build, then run all five headless tests
+npm test                         # build, then run all four headless tests
 npm start                        # build, then serve over HTTP on :8000
 
 # Run locally by hand — must be over HTTP, not file://, because the service
 # worker needs a real origin. Build first so the .js files exist.
-npm run build && python3 -m http.server 8000   # then open http://localhost:8000/
+npm run build && python3 -m http.server 8000   # then open http://localhost:8000/ (the class-select hub)
 
-node tools/smoke-test.mjs        # original Light-Bringer sim test (against app.js)
 node tools/pentagram-test.mjs    # The Burning Vigil combat test (against pentagram.js)
 node tools/necro-test.mjs        # The Necromancer's March march test (against necro.js)
 node tools/eldritch-test.mjs     # The Watcher at the Threshold watch test (against eldritch.js)
@@ -71,11 +75,11 @@ node tools/gen-icons.mjs         # regenerate the parent icons/*.png from code
 node tools/gen-ww-icons.mjs      # regenerate the werewolf icons/werewolf-*.png from code
 ```
 
-`npm test` runs `tsc && node tools/smoke-test.mjs && node tools/pentagram-test.mjs && node
+`npm test` runs `tsc && node tools/pentagram-test.mjs && node
 tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs` — compile, then all
-five suites in sequence.
+four suites in sequence.
 
-The `.js` files (`app.js`, `pentagram.js`, `necro.js`, `eldritch.js`, `werewolf.js`) are **build artifacts** — git-ignored, regenerated by
+The `.js` files (`pentagram.js`, `necro.js`, `eldritch.js`, `werewolf.js`) are **build artifacts** — git-ignored, regenerated by
 `tsc`. Never edit them directly; edit the `.ts`. Each test imports its compiled `.js`, so always
 `npm run build` (or `npm test`, which does it) before running a test by hand.
 
@@ -83,13 +87,13 @@ There is no single-test runner; each `tools/*-test.mjs` is one file of assertion
 To narrow your work, edit/comment assertions locally — don't add a framework. The `tools/*.mjs` scripts are
 plain Node ESM, not part of the TS build.
 
-`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all five
-files compiling clean (`npm run typecheck`). Its `include` is `["app.ts", "pentagram.ts", "necro.ts",
+`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all four
+files compiling clean (`npm run typecheck`). Its `include` is `["pentagram.ts", "necro.ts",
 "eldritch.ts", "werewolf.ts"]`; `lightbringer.ts` is excluded (reference-only prototype).
 
 ## Architecture
 
-### The pure-sim / read-only-render split (all five games)
+### The pure-sim / read-only-render split (all four games)
 
 Every game keeps the same discipline: the **simulation** functions take a plain state object and never touch
 the DOM; **rendering** is a separate pass that reads the state and rebuilds the SVG. Sim mutates state,
@@ -101,7 +105,6 @@ stubs a minimal `localStorage`/`document`, then imports the compiled `.js`:
 
 | Game | Test flag | Exports object |
 | --- | --- | --- |
-| `app.ts` | `globalThis.__LB_TEST__` | `globalThis.__lb` |
 | `pentagram.ts` | `globalThis.__PG_TEST__` | `globalThis.__pg` |
 | `necro.ts` | `globalThis.__NECRO_TEST__` | `globalThis.__necro` |
 | `eldritch.ts` | `globalThis.__ELD_TEST__` | `globalThis.__eld` |
@@ -109,23 +112,26 @@ stubs a minimal `localStorage`/`document`, then imports the compiled `.js`:
 
 If you add a sim function a test needs, export it through that object.
 
-**Module vs global script — an important difference.** `app.ts` has **no** `import`/`export` statements, so
-`tsc` emits a plain classic script (loaded as `<script src>` and as a dynamic `import()` identically) — keep
-it that way. `pentagram.ts`, `necro.ts`, `eldritch.ts` and `werewolf.ts` **are TS modules** (each ends with
-`export {};`) loaded via `<script type="module">`. This is required: all five are in `tsconfig.json`'s
-`include`, and scriptless files would collide on every top-level name (`W`, `el`, `render`, `start`, …).
-Module scope keeps the four spinoffs isolated from `app.ts` and from each other. Don't remove the
-`export {};` or convert them.
+**Module vs global script — an important difference.** `pentagram.ts`, `necro.ts`, `eldritch.ts` and
+`werewolf.ts` **are TS modules** (each ends with `export {};`) loaded via `<script type="module">`. This is
+required: all four are in `tsconfig.json`'s `include`, and scriptless files would collide on every top-level
+name (`W`, `el`, `render`, `start`, …). Module scope keeps the four games isolated from each other. Don't
+remove the `export {};` or convert them. (The removed original, `app.ts`, was the one classic global script —
+which is why the modules' comments still note "no `import`/`export`, like `app.ts`": that contrast is
+historical now.)
 
-### `app.ts` — the original game (CODE-FROZEN)
+### The removed original (`app.ts`) — the lineage the games inherit
 
-Everything for the original lives in `app.ts`: types, tuning constants, city generation, simulation, SVG
+> `app.ts` (the original contemplative game) has been **removed** from the repo. The text below is kept as
+> **historical lineage** — it documents the patterns and invariants the four action games copied and
+> re-themed (Vigil's scar, Necro's reconsecration, the cities-as-levels machinery). There is no file to
+> change; this is reference only.
+
+Everything for the original lived in `app.ts`: types, tuning constants, city generation, simulation, SVG
 rendering, persistence, and the game shell, in clearly-commented sections (Types → Tuning → Districts → City
-generation → Simulation → Rendering → Game shell). The constants block near the top is the design surface.
-The core sim functions (`generateCity`, `freshGame`, `simulateTicks`, `stepSpread`, `stepAwakened`,
-`stepKeepers`, `kindle`, `awaken`, `snuff`, `litStats`, `applyDawn`, `saveGame`, `loadGame`, …) are pure.
-**Do not change this file** — it's documented here only so you understand the shared lineage and invariants
-the spinoffs inherit.
+generation → Simulation → Rendering → Game shell). The core sim functions (`generateCity`, `freshGame`,
+`simulateTicks`, `stepSpread`, `stepAwakened`, `stepKeepers`, `kindle`, `awaken`, `snuff`, `litStats`,
+`applyDawn`, `saveGame`, `loadGame`, …) were pure — the discipline the spinoffs carry forward.
 
 #### The city is turn-based: it breathes only when the player acts
 
@@ -177,28 +183,23 @@ raising-rite shop both mirror.)*
 
 | Game | Save key (per-run) | Legacy key (lifetime) |
 | --- | --- | --- |
-| `app.ts` | `lightbringer.save.v5` (`SAVE_KEY`) | `lightbringer.legacy.v1` (`LEGACY_KEY`) |
 | `pentagram.ts` | *no mid-combat save* | `pentagram.legacy.v1` (`PG_LEGACY_KEY`) |
 | `necro.ts` | *no mid-march save* | `necromancer.legacy.v1` (`NECRO_LEGACY_KEY`) |
 | `eldritch.ts` | *no mid-watch save* | `eldritch.legacy.v1` (`ELD_LEGACY_KEY`) |
 | `werewolf.ts` | *no mid-hunt save* | `werewolf.legacy.v1` (`WW_LEGACY_KEY`) |
 
-`app.ts`'s `saveGame`/`loadGame` store the city id plus per-node scalars as compact arrays — **edges and
-adjacency are NOT saved**; `finalizeCity` rebuilds them deterministically from node geometry + the city's
-districts on load. Transient per-node fields (`decoy`) are not saved. If you change the save shape, bump the
-version (`v`, `SAVE_KEY`, and the guard in `loadGame`).
-
-The cross-run **legacy** keys are deliberately separate from the save: they survive "Begin again", and each
-gains fields **defaulted on load with no key bump**. They are write-once-per-run-end (fold in exactly once at
-each genuine end transition). The two action games have **no mid-run save at all** (runs are short), so their
-only persistence is the legacy.
+The four action games have **no mid-run save at all** (runs are short), so their only persistence is the
+cross-run **legacy** key. Those keys survive "Begin again", and each gains fields **defaulted on load with no
+key bump**. They are write-once-per-run-end (fold in exactly once at each genuine end transition). The hub
+(`index.html`) keeps only a tiny `lightbringer.lastClass` hint (which class was picked last) — pure
+progressive enhancement, safe to ignore.
 
 ### Service worker cache versioning
 
-`sw.js` is the offline app-shell cache for **all five games**, with an explicit `ASSETS` list and a `CACHE`
-version string (currently `lightbringer-v96`). It is **network-first for the shells** (`isShell`: `/`,
-`index.html`, `app.js`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`, `eldritch.html`,
-`eldritch.js`, `werewolf.html`, `werewolf.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
+`sw.js` is the offline app-shell cache for the **class-select hub and all four games**, with an explicit
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v105`). It is **network-first for the
+shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
+`eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
 404s, so every file in `ASSETS` must exist.
 
@@ -770,7 +771,7 @@ Shipping rules: `werewolf.html`/`werewolf.js`/`werewolf.webmanifest` and the `ic
 
 ## Deploy
 
-`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all five `.ts` → `.js`), prunes
+`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all four `.ts` → `.js`), prunes
 `node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual
 `workflow_dispatch`). One-time setup: Settings → Pages → Source: "GitHub Actions". The site **is** the
 repository root — there is no `dist/`.
