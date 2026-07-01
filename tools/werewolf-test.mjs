@@ -790,5 +790,70 @@ ok(wdW.state === "lurk", "the woods dull aggro — a foe that would rouse stays 
 ok(ww.buildArena(ww.levelById("ashthorn")).scenery.some((n) => n.kind === "woods"),
   "Ashthorn is forested (woods seed as tactical cover)");
 
+// Q1. The Night's Quarry — nightfall marks one living soul of the watch; the mark
+//     holds through the night; dawn fades an unclaimed mark; a new night marks anew.
+const q = ww.buildArena(ww.levelById(id));
+stowAll(q);
+ok(q.quarry === -1 && !q.quarryNight, "a fresh hunt has no quarry marked");
+q.moon = 0.5; // midnight — true night
+ww.stepQuarry(q);
+ok(q.quarryNight && q.quarry >= 0 && !q.foes[q.quarry].dead, "nightfall marks a living quarry");
+const qFirst = q.quarry;
+ww.stepQuarry(q);
+ok(q.quarry === qFirst, "the mark holds through the night (no re-roll)");
+
+// Q2. The moon prefers a hunter while any stands; with none, a prey is marked.
+const qh = ww.buildArena(ww.levelById("hollowby")); // musters knights/huntsmen/friars
+qh.moon = 0.5;
+ww.stepQuarry(qh);
+ok(qh.quarry >= 0 && !ww.isPrey(qh.foes[qh.quarry].variant), "the moon marks a hunter while any stands");
+const qp = ww.buildArena(ww.levelById(id)); // thornwick musters prey only
+qp.moon = 0.5;
+ww.stepQuarry(qp);
+ok(qp.quarry >= 0 && ww.isPrey(qp.foes[qp.quarry].variant), "with no hunter standing, a prey is marked");
+
+// Q3. The blood-price — running the quarry down surges fury, mends deeper than a plain
+//     kill, fills a wolf's momentum, counts the claim, and banks score.
+sprint(q);
+q.hero.fury = 0.4; q.hero.momentum = 0.2; q.hero.hp = 50;
+ww.slay(q, q.foes[q.quarry]);
+ok(q.quarry === -1 && q.quarrySlain === 1, "running the quarry down claims the mark");
+ok(q.hero.fury > 0.4 + K.QUARRY_FURY, "the blood-price surges fury beyond a plain kill's");
+ok(q.hero.momentum === 1, "the blood-price fills the wolf's momentum");
+ok(q.hero.hp >= 50 + K.QUARRY_HEAL, "the blood-price mends deeper than a plain kill");
+ok(ww.scoreRun(q).quarry === K.SCORE_QUARRY, "score banks the quarry run down");
+
+// Q4. One mark per night: no re-mark after a claim until the next nightfall; dawn
+//     fades an unclaimed mark (missed); a dead quarry index clears safely.
+ww.stepQuarry(q);
+ok(q.quarry === -1, "no second mark the same night after a claim");
+q.moon = 0.0; ww.stepQuarry(q); // noon
+ok(!q.quarryNight && q.quarry === -1, "day holds no mark");
+q.moon = 0.5; ww.stepQuarry(q);
+ok(q.quarry >= 0, "the next nightfall marks anew");
+q.moon = 0.0; ww.stepQuarry(q);
+ok(q.quarry === -1 && q.quarrySlain === 1, "dawn fades an unclaimed mark (missed, unclaimed)");
+q.moon = 0.5; ww.stepQuarry(q);
+q.foes[q.quarry].dead = true;
+ww.stepQuarry(q);
+ok(q.quarry === -1, "a quarry felled outside slay clears the stale mark safely");
+
+// Q5. A win banks the hunt's kills into the lifetime slain (loss already did).
+ww.saveWwLegacy(ww.emptyWwLegacy());
+ww.recordHunt(ww.levelById(id), 60000, 2, 10, 7);
+ok(ww.loadWwLegacy().slain === 7, "a claimed village banks its kills into the lifetime slain");
+
+// Q6. Render draws the quarry halo, the panicked cry, and the new watch silhouettes
+//     headlessly with zero sprites (each foe kind is exercised).
+const qr = ww.buildArena(ww.levelById(id));
+qr.moon = 0.5; ww.stepQuarry(qr);
+qr.foes[0].alarm = 1; // a panicked prey (the "!" glyph)
+const kinds = ["villager", "hound", "knight", "huntsman", "friar"];
+kinds.forEach((v, i) => { if (qr.foes[i]) qr.foes[i].variant = v; });
+qr.hero.form = "wolf"; qr.hero.momentum = 0.9;
+let qThrew = false;
+try { ww.render(qr, makeNode()); } catch (err) { qThrew = true; console.error(err); }
+ok(!qThrew, "render draws the quarry mark and the new watch silhouettes headlessly");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

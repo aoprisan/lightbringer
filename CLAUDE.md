@@ -746,12 +746,18 @@ dale, carrying the new terrain): **Thornwick** (fair first), **Greymoor** (moor;
 `wallCount`/`pathCount`/`mistCount`, the variant counts
 (`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), the **new terrain/obstacle counts** (above), and
 `sizeScale`. `stepHunt` advances the moon, integrates the hero (with the pounce-lunge velocity override),
-updates **momentum** & **facing**, resolves the form, runs `stepMaul → stepFoes → stepBolts → stepCairns →
-stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then checks terminal states
-(`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror the siblings (`bite`/`slay`/`hurtFoe`/
+updates **momentum** & **facing**, resolves the form, runs `stepQuarry → stepMaul → stepFoes → stepBolts →
+stepCairns → stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then checks terminal
+states (`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror the siblings (`bite`/`slay`/`hurtFoe`/
 `nearestFoe`/`frontalFoe`, `isPrey`/`villagePanic`, `aliveFoes`/`clearedPct`/`furyReadout`, `scoreRun`,
 `difficultyMult`). **Blood-motes** (`stepMotes`) are the fury economy's heartbeat: a felled foe may drop one;
-gathering it stokes the curse.
+gathering it stokes the curse. **The Night's Quarry** (`stepQuarry`, `s.quarry`/`s.quarryNight`/`s.quarrySlain`)
+is the moon's own bounty-board: each **true night** (daylight below `QUARRY_NIGHT_DL`) the moon **marks one
+living soul** of the watch (a hunter while any stands, else a prey — `pickQuarry`), drawn with a pulsing gold
+halo + crescent (and a gold ring on the minimap). **Run the quarry down before dawn** and `slay` pays the
+**blood-price** (`QUARRY_FURY` fury, `QUARRY_HEAL`, a full head of wolf momentum, and `SCORE_QUARRY` per claim
+in `scoreRun`); at dawn an unclaimed mark fades. One mark per night, no new input — every night gets a
+direction without breaking the pure-joystick loop.
 
 ### Persistence & art
 

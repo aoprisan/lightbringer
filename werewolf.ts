@@ -150,6 +150,9 @@ interface WwState {
   motes: Mote[];          // gatherable blood-motes dropped by the felled
   mists: Mist[];          // drifting fog banks (the wolf's cover from the watch)
   moon: number;           // 0..1 — the day/night wheel (0/1 = noon, 0.5 = midnight)
+  quarry: number;         // index into foes of the night's marked quarry (-1 = none)
+  quarryNight: boolean;   // are we inside the true-night window (edge-detects the mark)
+  quarrySlain: number;    // marked quarry run down this hunt (each pays a blood-price)
   elapsed: number;        // ms since the hunt began (clear time)
   slain: number;          // foes cut down
   hits: number;           // times the watch has landed a blow on the hero
@@ -251,6 +254,16 @@ const MOTE_DROP_CHANCE = 0.42;   // fraction of kills that leave a blood-mote
 const MOTE_TTL_MS = 7000;        // how long a blood-mote waits to be gathered
 const MOTE_RADIUS = 18;          // gather reach (over and above the hero's radius)
 const MOTE_FURY = 0.18;          // fury a gathered blood-mote stokes
+
+// THE NIGHT'S QUARRY — each true night the moon MARKS one soul of the watch (a
+// hunter when any still stands, else the boldest prey). Run the quarry down before
+// dawn and the kill pays a BLOOD-PRICE: a surge of fury, a full head of momentum,
+// a mend, and score. At dawn an unclaimed mark fades. The moon's own bounty-board:
+// it gives the sandbox a direction each night without adding a single input.
+const QUARRY_NIGHT_DL = 0.3;     // daylight below this is "true night" — the mark holds
+const QUARRY_FURY = 0.3;         // fury the blood-price surges
+const QUARRY_HEAL = 12;          // HP the blood-price mends
+const SCORE_QUARRY = 180;        // score banked per quarry run down
 
 const HIT_FLASH_MS = 150;        // how long a body flashes from a fresh blow
 
@@ -908,6 +921,7 @@ function buildArena(level: LevelDef): WwState {
     hero, pelt, foes,
     bolts: [], pulses: [], motes: [], mists,
     moon: MOON_START,
+    quarry: -1, quarryNight: false, quarrySlain: 0,
     elapsed: 0, slain: 0, hits: 0, total: foes.length,
     cairnsTotal: scenery.filter((n) => n.kind === "cairn").length,
     litCount: 0, cleansedCount: 0,
@@ -948,11 +962,13 @@ function clearedPct(s: WwState): number {
   return s.total ? s.slain / s.total : 0;
 }
 
-// The HUD's secondary readout: the shape, the hour, and how roused the village is.
+// The HUD's secondary readout: the shape, the hour, how roused the village is, and
+// whether the moon's quarry is marked (the night's bounty, waiting to be run down).
 function furyReadout(s: WwState): string {
   const shape = s.hero.form === "wolf" ? "Wolf" : "Man";
   const panic = Math.round(villagePanic(s) * 100);
-  return `${shape} · ${moonWord(s)} · village ${panic}% roused`;
+  const mark = s.quarry >= 0 ? " · QUARRY marked" : "";
+  return `${shape} · ${moonWord(s)} · village ${panic}% roused${mark}`;
 }
 
 function difficultyMult(level: LevelDef): number {
@@ -963,7 +979,7 @@ function difficultyMult(level: LevelDef): number {
 }
 
 interface ScoreBreakdown {
-  base: number; speed: number; cairns: number; survival: number;
+  base: number; speed: number; cairns: number; quarry: number; survival: number;
   untouched: number; mult: number; total: number;
 }
 function scoreRun(s: WwState): ScoreBreakdown {
@@ -971,11 +987,12 @@ function scoreRun(s: WwState): ScoreBreakdown {
   const target = s.total * SCORE_TARGET_PER_KILL;
   const speed = Math.max(0, Math.round(((target - s.elapsed) / 1000) * SCORE_SPEED_PER_SEC));
   const cairns = s.cairnsTotal ? Math.round((s.litCount / s.cairnsTotal) * SCORE_CAIRNS_MAX) : 0;
+  const quarry = s.quarrySlain * SCORE_QUARRY;
   const survival = Math.round((s.hero.hp / s.hero.maxHp) * SCORE_SURVIVAL_MAX);
   const untouched = s.hits === 0 ? SCORE_UNTOUCHED : 0;
   const mult = difficultyMult(s.level);
-  const total = Math.round((base + speed + cairns + survival + untouched) * mult);
-  return { base, speed, cairns, survival, untouched, mult, total };
+  const total = Math.round((base + speed + cairns + quarry + survival + untouched) * mult);
+  return { base, speed, cairns, quarry, survival, untouched, mult, total };
 }
 
 // Centralized foe-death path — so every kill (maw pulse, cairn aura, frenzy leap)
@@ -995,6 +1012,16 @@ function slay(s: WwState, e: Foe): void {
   for (const o of s.foes) {
     if (o.dead || !isPrey(o.variant)) continue;
     if (Math.hypot(o.x - e.x, o.y - e.y) <= ALARM_KILL_SPIKE_R) o.alarm = 1;
+  }
+  // The night's QUARRY run down — the blood-price: a surge of the curse, a full head
+  // of momentum (the chase rewarded in the chase's own coin), and a deeper mend.
+  if (s.quarry >= 0 && s.foes[s.quarry] === e) {
+    s.quarry = -1;
+    s.quarrySlain += 1;
+    h.fury = clamp(h.fury + QUARRY_FURY, 0, h.maxFury);
+    h.hp = Math.min(h.maxHp, h.hp + QUARRY_HEAL);
+    if (h.form === "wolf") h.momentum = 1;
+    s.pulses.push({ x: e.x, y: e.y, r: 90, until: s.elapsed + PULSE_FX_MS * 2 });
   }
   // The pelt's on-kill powers.
   if (s.pelt.power === "moonblood") {
@@ -1536,6 +1563,38 @@ function stepMotes(s: WwState): void {
   }
 }
 
+// ---------- The Night's Quarry ----------
+
+// Choose the soul the moon marks: a hunter when any still stands (the watch's
+// champion is the worthier prey), else among the prey. Random within the pool, so
+// each night sends the wolf somewhere new.
+function pickQuarry(s: WwState): number {
+  const hunters: number[] = [], preyIdx: number[] = [];
+  for (let i = 0; i < s.foes.length; i++) {
+    const e = s.foes[i];
+    if (e.dead) continue;
+    (isPrey(e.variant) ? preyIdx : hunters).push(i);
+  }
+  const pool = hunters.length ? hunters : preyIdx;
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : -1;
+}
+
+// Edge-detect the true-night window off the moon: as night falls the moon marks one
+// living soul as the QUARRY; at dawn an unclaimed mark fades (missed — the moon does
+// not wait). The reward lives in slay(), so any kill route (bite, den, pyre) claims it.
+function stepQuarry(s: WwState): void {
+  const night = daylight(s.moon) < QUARRY_NIGHT_DL;
+  if (night && !s.quarryNight) {
+    s.quarryNight = true;
+    s.quarry = pickQuarry(s);
+  } else if (!night && s.quarryNight) {
+    s.quarryNight = false;
+    s.quarry = -1; // dawn — the mark fades unclaimed
+  }
+  // Safety: a quarry felled by a route that predates the mark (or a stale index).
+  if (s.quarry >= 0 && s.foes[s.quarry].dead) s.quarry = -1;
+}
+
 // The per-frame entry. Advances the moon, integrates the hero, runs the watch, the
 // bolts, the cairns, mist and motes, resolves the SHAPE, then checks the terminal
 // states (fall, or the watch cut down).
@@ -1613,6 +1672,7 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
     if (h.fury <= 0) { h.form = "human"; h.transformAt = s.elapsed; h.momentum = 0; h.lunge = 0; }
   }
 
+  stepQuarry(s);      // nightfall marks the moon's quarry; dawn fades an unclaimed mark
   stepMaul(s, dt);    // a wolf rends in contact reach (momentum-scaled) and auto-pounces
   stepFoes(s, dt);    // prey flee & flock; the alarm rouses the hunters to converge
   stepBolts(s, dt);   // silver bolts in flight
@@ -1818,6 +1878,119 @@ function scenerySprite(s: WwState, n: ArenaNode): string {
 const FOE_HUE: Record<FoeKind, string> = {
   villager: "#9a8a6a", hound: "#7a6a4a", knight: "#8a909a", huntsman: "#6a8a5a", friar: "#b0a890",
 };
+
+// Draw one of the watch procedurally — each kind its own silhouette, so the five
+// roles read at a glance with zero PNGs: the hooded villager, the coursing hound,
+// the plated knight, the bowed huntsman, the robed friar. A panicked prey cries out
+// (the "!" that makes the alarm layer visible). Pure render, no sim reads back.
+function drawFoe(s: WwState, e: Foe, layer: SVGGElement, r: number): void {
+  const flash = e.hit > s.elapsed;
+  const op = e.state === "lurk" ? 0.7 : 1;
+  const stroke = e.state === "hunt" ? "#0a0d12" : "#2a3038";
+  const body = (fill: string) => layer.appendChild(el("circle", {
+    cx: e.x, cy: e.y, r, fill: flash ? "#ffffff" : fill, stroke, "stroke-width": 2, opacity: op,
+  }));
+  switch (e.variant) {
+    case "hound": {
+      // A coursing hound — a low body stretched along its run, ears pricked, a tail.
+      const a = (Math.atan2(e.vy, e.vx) * 180) / Math.PI;
+      const g = el("g", { transform: `rotate(${a.toFixed(1)} ${e.x} ${e.y})`, opacity: op });
+      g.appendChild(el("line", {
+        x1: e.x - r * 1.3, y1: e.y, x2: e.x - r * 2.0, y2: e.y - r * 0.5,
+        stroke: "#4a3c28", "stroke-width": 2.5, "stroke-linecap": "round",
+      }));
+      g.appendChild(el("ellipse", {
+        cx: e.x, cy: e.y, rx: r * 1.45, ry: r * 0.72,
+        fill: flash ? "#ffffff" : FOE_HUE.hound, stroke, "stroke-width": 2,
+      }));
+      g.appendChild(el("path", {
+        d: `M${e.x + r * 0.8} ${e.y - r * 0.5}l7 -6 -1 7Z`,
+        fill: "#4a3c28", stroke: "#2a2014", "stroke-width": 1,
+      }));
+      g.appendChild(el("circle", { cx: e.x + r * 1.15, cy: e.y, r: 2, fill: "#1a1d22" }));
+      layer.appendChild(g);
+      break;
+    }
+    case "knight": {
+      body(FOE_HUE.knight);
+      // A kite shield on the arm; the great helm (visor slit); the drawn sword.
+      layer.appendChild(el("path", {
+        d: `M${e.x - r - 7} ${e.y - 8}q7 -5 14 0l-2 11q-5 8 -10 0Z`,
+        fill: "#5a2a2a", stroke: "#aeb6c0", "stroke-width": 1.5, opacity: op,
+      }));
+      layer.appendChild(el("rect", {
+        x: e.x - 6, y: e.y - r - 4, width: 12, height: 11, rx: 2,
+        fill: "#aeb6c0", stroke: "#3a4048", "stroke-width": 1.5, opacity: op,
+      }));
+      layer.appendChild(el("line", {
+        x1: e.x - 4, y1: e.y - r + 1, x2: e.x + 4, y2: e.y - r + 1,
+        stroke: "#14181e", "stroke-width": 1.6, opacity: op,
+      }));
+      layer.appendChild(el("line", {
+        x1: e.x + r, y1: e.y + 4, x2: e.x + r + 12, y2: e.y - 10,
+        stroke: "#d8dee8", "stroke-width": 2.2, "stroke-linecap": "round", opacity: op,
+      }));
+      break;
+    }
+    case "huntsman": {
+      body(FOE_HUE.huntsman);
+      // A deep hood; the drawn bow and its string; a quiver at the back.
+      layer.appendChild(el("circle", { cx: e.x, cy: e.y - r * 0.25, r: 4.5, fill: "#243018", opacity: op }));
+      layer.appendChild(el("path", {
+        d: `M${e.x + r - 2} ${e.y - r + 2}Q${e.x + r + 8} ${e.y} ${e.x + r - 2} ${e.y + r - 2}`,
+        fill: "none", stroke: "#caa86a", "stroke-width": 2, opacity: op,
+      }));
+      layer.appendChild(el("line", {
+        x1: e.x + r - 2, y1: e.y - r + 2, x2: e.x + r - 2, y2: e.y + r - 2,
+        stroke: "#e8ecf6", "stroke-width": 0.8, opacity: op * 0.8,
+      }));
+      layer.appendChild(el("rect", {
+        x: e.x - r - 4, y: e.y - 8, width: 5, height: 14, rx: 2,
+        fill: "#4a3520", stroke: "#2a1e10", "stroke-width": 1, opacity: op,
+      }));
+      break;
+    }
+    case "friar": {
+      body(FOE_HUE.friar);
+      // The tonsured head under the cowl, and the raised cross — aglow as it channels.
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y - r * 0.3, r: 4.5,
+        fill: "#c9b896", stroke: "#7a6a4a", "stroke-width": 1, opacity: op,
+      }));
+      layer.appendChild(el("path", {
+        d: `M${e.x - 6} ${e.y - r * 0.3}a6 6 0 0 1 12 0`,
+        fill: "none", stroke: "#8a7a58", "stroke-width": 2, opacity: op,
+      }));
+      const cop = e.channeling ? 1 : 0.85;
+      layer.appendChild(el("rect", {
+        x: e.x + r - 1, y: e.y - r - 8, width: 2.6, height: 14, fill: "#e6e0b0",
+        opacity: cop, filter: e.channeling ? "url(#glow)" : undefined as unknown as string,
+      }));
+      layer.appendChild(el("rect", {
+        x: e.x + r - 5, y: e.y - r - 4, width: 10.6, height: 2.6, fill: "#e6e0b0", opacity: cop,
+      }));
+      break;
+    }
+    default: {
+      // Villager — a hooded head over a plain tunic.
+      body(FOE_HUE.villager);
+      layer.appendChild(el("circle", { cx: e.x, cy: e.y - r * 0.25, r: 4, fill: "#3a2e1e", opacity: op }));
+      layer.appendChild(el("path", {
+        d: `M${e.x - 5.5} ${e.y - r * 0.25}a5.5 5.5 0 0 1 11 0`,
+        fill: "none", stroke: "#6a5a3e", "stroke-width": 2, opacity: op,
+      }));
+      break;
+    }
+  }
+  // A panicked prey cries out — the alarm made visible at a glance.
+  if (isPrey(e.variant) && e.alarm >= PREY_FLEE_ALARM && !flash) {
+    const cry = layer.appendChild(el("text", {
+      x: e.x + r * 0.9, y: e.y - r - 6, fill: "#ffd06a",
+      "font-size": 13, "font-weight": 700, "text-anchor": "middle", opacity: 0.9,
+    }));
+    cry.textContent = "!";
+  }
+}
 
 // Draw one of the expanded maps' new terrain/obstacle nodes procedurally. Returns
 // true when it handled `n` (so the scenery loop skips its generic path). No PNGs
@@ -2050,10 +2223,10 @@ function render(s: WwState, layer: SVGGElement): void {
   }
 
   // The watch.
+  const quarryFoe = s.quarry >= 0 ? s.foes[s.quarry] : null;
   for (const e of s.foes) {
     if (e.dead) continue;
     const r = e.variant === "knight" ? 18 : e.variant === "hound" ? 11 : 14;
-    const flash = e.hit > s.elapsed;
     // A friar's consecration beam.
     if (e.channeling && e.beamX != null && e.beamY != null) {
       layer.appendChild(el("line", {
@@ -2061,24 +2234,21 @@ function render(s: WwState, layer: SVGGElement): void {
         stroke: "#e6e0b0", "stroke-width": 2, opacity: 0.55, "stroke-dasharray": "3 5",
       }));
     }
+    // The moon's mark — a pulsing gold halo and a crescent over the night's quarry.
+    if (e === quarryFoe) {
+      const qp = 1 + 0.1 * Math.sin(s.elapsed / 180);
+      layer.appendChild(el("circle", {
+        cx: e.x, cy: e.y, r: (r + 9) * qp, fill: "none", stroke: "#ffd06a",
+        "stroke-width": 2.2, "stroke-dasharray": "6 6", opacity: 0.85, filter: "url(#glow)",
+      }));
+      layer.appendChild(el("path", {
+        d: `M${e.x - 5} ${e.y - r - 15}a7 7 0 1 0 10 3a5.6 5.6 0 1 1 -10 -3Z`,
+        fill: "#ffd06a", opacity: 0.95, filter: "url(#glow)",
+      }));
+    }
     const key = spriteFor(s.level, e.variant);
     if (key) { layer.appendChild(spriteImage(key, e.x, e.y, r * 2.6, 0.96)); }
-    else {
-      layer.appendChild(el("circle", {
-        cx: e.x, cy: e.y, r,
-        fill: flash ? "#ffffff" : FOE_HUE[e.variant],
-        stroke: e.state === "hunt" ? "#0a0d12" : "#2a3038", "stroke-width": 2,
-        opacity: e.state === "lurk" ? 0.7 : 1,
-      }));
-      // A small head, and for the huntsman a drawn bow-stroke.
-      layer.appendChild(el("circle", { cx: e.x, cy: e.y - r * 0.2, r: 3, fill: "#1a1d22" }));
-      if (e.variant === "huntsman") {
-        layer.appendChild(el("path", {
-          d: `M${e.x + r - 2} ${e.y - r + 2}Q${e.x + r + 6} ${e.y} ${e.x + r - 2} ${e.y + r - 2}`,
-          fill: "none", stroke: "#caa86a", "stroke-width": 1.6,
-        }));
-      }
-    }
+    else drawFoe(s, e, layer, r);
     // A wounded body's hp pip.
     if (e.hp < e.maxHp && !e.dead) {
       const frac = Math.max(0, e.hp / e.maxHp);
@@ -2135,29 +2305,60 @@ function render(s: WwState, layer: SVGGElement): void {
   else {
     const hurt = h.hurt > 0 && Math.floor(s.elapsed / 80) % 2 === 0;
     if (wolf) {
-      // The beast — a dark hunched body (stretched along its heading), ears, cold eyes.
+      // The beast — a dark hunched body (stretched along its heading), a wedge muzzle,
+      // pricked ears, cold eyes, and a tail streaming harder the faster it runs.
       const g = el("g", { transform: `rotate(${deg.toFixed(1)} ${h.x} ${h.y})` });
       const rad = HERO_RADIUS + 3;
       const stretch = 1.2 + 0.5 * h.momentum;
+      const coat = hurt ? "#5a3a3a" : "#241f26";
+      g.appendChild(el("path", {
+        d: `M${h.x - rad * stretch + 2} ${h.y}q-8 ${-3 - 5 * h.momentum} -15 ${-9 - 7 * h.momentum}`,
+        fill: "none", stroke: coat, "stroke-width": 5, "stroke-linecap": "round",
+      }));
       g.appendChild(el("ellipse", {
         cx: h.x, cy: h.y, rx: rad * stretch, ry: rad * 0.92,
-        fill: hurt ? "#5a3a3a" : "#241f26", stroke: "#7a708a", "stroke-width": 2.5, filter: "url(#glow)",
+        fill: coat, stroke: "#7a708a", "stroke-width": 2.5, filter: "url(#glow)",
+      }));
+      // The muzzle — a wedge past the body's leading edge.
+      g.appendChild(el("path", {
+        d: `M${h.x + rad * stretch - 5} ${h.y - 6}L${h.x + rad * stretch + 9} ${h.y}L${h.x + rad * stretch - 5} ${h.y + 6}Z`,
+        fill: coat, stroke: "#7a708a", "stroke-width": 1.5,
       }));
       // Ears at the leading (snout) end — drawn in the un-rotated frame, then spun by g.
       g.appendChild(el("path", {
-        d: `M${h.x + rad * 0.8} ${h.y - rad * 0.6}l8 -3 -2 7Z M${h.x + rad * 0.8} ${h.y + rad * 0.6}l8 3 -2 -7Z`,
-        fill: "#241f26", stroke: "#7a708a", "stroke-width": 1.5,
+        d: `M${h.x + rad * 0.66} ${h.y - rad * 0.6}l8 -5 -2 9Z M${h.x + rad * 0.66} ${h.y + rad * 0.6}l8 5 -2 -9Z`,
+        fill: coat, stroke: "#7a708a", "stroke-width": 1.5,
       }));
-      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y - 3, r: 2.2, fill: "#ffe04a" }));
-      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y + 3, r: 2.2, fill: "#ffe04a" }));
+      // A pale ridge along the spine, so the body reads as fur, not a blot.
+      g.appendChild(el("line", {
+        x1: h.x - rad * stretch * 0.6, y1: h.y, x2: h.x + rad * stretch * 0.55, y2: h.y,
+        stroke: "#4a4054", "stroke-width": 3, "stroke-linecap": "round", opacity: 0.8,
+      }));
+      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y - 3.5, r: 2.2, fill: "#ffe04a" }));
+      g.appendChild(el("circle", { cx: h.x + rad * 0.9, cy: h.y + 3.5, r: 2.2, fill: "#ffe04a" }));
       layer.appendChild(g);
     } else {
-      // The man — a smaller cloaked figure.
+      // The man — a cloaked, hooded figure; his eyes kindle amber as the fury crests
+      // (the turn, telegraphed on the body itself).
       layer.appendChild(el("circle", {
         cx: h.x, cy: h.y, r: HERO_RADIUS - 1,
         fill: hurt ? "#ffd0d0" : "#b9a98e", stroke: "#7a6a4a", "stroke-width": 2.5,
       }));
-      layer.appendChild(el("circle", { cx: h.x, cy: h.y - 4, r: 4, fill: "#2a2018" }));
+      // The cloak's hem sweeping the lower body.
+      layer.appendChild(el("path", {
+        d: `M${h.x - HERO_RADIUS + 2} ${h.y + 3}a${HERO_RADIUS - 2} ${HERO_RADIUS - 2} 0 0 0 ${(HERO_RADIUS - 2) * 2} 0Z`,
+        fill: "#6a5a40", opacity: 0.9,
+      }));
+      layer.appendChild(el("circle", { cx: h.x, cy: h.y - 4, r: 4.5, fill: "#2a2018" }));
+      // The hood drawn over the head.
+      layer.appendChild(el("path", {
+        d: `M${h.x - 7} ${h.y - 3}a7 7 0 0 1 14 0`,
+        fill: "none", stroke: "#4a3a28", "stroke-width": 2.5,
+      }));
+      if (h.fury > 0.75) {
+        layer.appendChild(el("circle", { cx: h.x - 2.5, cy: h.y - 5, r: 1.4, fill: "#ffd06a", filter: "url(#glow)" }));
+        layer.appendChild(el("circle", { cx: h.x + 2.5, cy: h.y - 5, r: 1.4, fill: "#ffd06a", filter: "url(#glow)" }));
+      }
     }
   }
 
@@ -2216,11 +2417,12 @@ function saveWwLegacy(l: WwLegacy): void {
 }
 
 // Fold a claimed village (a win) into the legacy — write-once at the end transition.
-function recordHunt(level: LevelDef, ms: number, cairns = 0, moonstones = 0): WwLegacy {
+function recordHunt(level: LevelDef, ms: number, cairns = 0, moonstones = 0, slainN = 0): WwLegacy {
   const l = loadWwLegacy();
   l.runs += 1; l.hunts += 1;
   l.cairnsMarked += cairns;
   l.moonstones += moonstones;
+  l.slain += slainN;
   const prev = l.best[level.id];
   if (prev == null || ms < prev) l.best[level.id] = ms;
   saveWwLegacy(l);
@@ -2471,6 +2673,14 @@ function start(): void {
         opacity: 0.95,
       }));
     }
+    // The night's quarry — a gold ring so the mark can be tracked across the village.
+    if (s.quarry >= 0 && !s.foes[s.quarry].dead) {
+      const q = s.foes[s.quarry];
+      mmEl.appendChild(el("circle", {
+        cx: q.x * scale, cy: q.y * scale, r: 3.2,
+        fill: "none", stroke: "#ffd06a", "stroke-width": 0.9, opacity: 0.95,
+      }));
+    }
     const vw = svg.clientWidth, vh = svg.clientHeight;
     mmEl.appendChild(el("rect", {
       x: (-cam.x / cam.k) * scale, y: (-cam.y / cam.k) * scale,
@@ -2561,7 +2771,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Claim the village: CUT DOWN every soul of the watch (count, top-right). You begin a MAN — frail, unable to fight. Stand STILL to bay at the moon and stoke your FURY (top-left, beneath your blood); under MOONLIGHT it swells fast. At its crest you TURN BEAST — then standing still traces a blood-moon maw that RENDS the watch around you. Feed (kill) to hold the change; daylight bleeds it. Hunt the huntsmen's silver bolts and the friars' bells, mark the cairns, and lurk in the fog.");
+    showToast("Claim the village: CUT DOWN every soul of the watch (count, top-right). You begin a MAN — frail, unable to fight. Stand STILL to bay at the moon and stoke your FURY (top-left, beneath your blood); under MOONLIGHT it swells fast. At its crest you TURN BEAST — then standing still traces a blood-moon maw that RENDS the watch around you. Feed (kill) to hold the change; daylight bleeds it. When TRUE NIGHT falls the moon MARKS one of the watch (a gold halo) — run the QUARRY down before dawn for a surge of the curse. Hunt the huntsmen's silver bolts and the friars' bells, mark the cairns, and lurk in the fog.");
     introHold = true;
     clearTimeout(introHoldTimer);
     introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
@@ -2575,18 +2785,20 @@ function start(): void {
     const cairns = s.litCount, total = s.cairnsTotal;
     const sc = scoreRun(s);
     const moonstones = Math.max(1, Math.round(sc.total / MOONSTONE_SCORE_DIV));
-    const l = recordHunt(s.level, ms, cairns, moonstones);
+    const l = recordHunt(s.level, ms, cairns, moonstones, s.slain);
     const best = l.best[s.level.id];
     const cairnLine = (cairns >= total && total > 0
       ? `You claimed every den — <em>${total}</em>. The village is yours, stone and soul.`
       : `You claimed <em>${cairns}</em> of ${total} dens.`)
-      + (s.cleansedCount ? ` The watch cleansed <em>${s.cleansedCount}</em> back to dark.` : "");
+      + (s.cleansedCount ? ` The watch cleansed <em>${s.cleansedCount}</em> back to dark.` : "")
+      + (s.quarrySlain ? ` You ran down <em>${s.quarrySlain}</em> of the moon's marked quarry.` : "");
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
     const breakdown =
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Watch cut down", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
       row("Dens claimed", `${sc.cairns}`) +
+      (sc.quarry ? row("Quarry run down", `${sc.quarry}`) : "") +
       row("Survival", `${sc.survival}`) +
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Village difficulty", `×${sc.mult}`) +
@@ -2776,6 +2988,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     generateWerewolf, buildArena, freshHunt, stepHunt,
     stepMaul, bite, frontalFoe, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
     stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, inWoods, terrainSpeedMul,
+    stepQuarry, pickQuarry,
     slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe, isPrey, villagePanic,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,
@@ -2813,6 +3026,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       SPRING_AURA, SPRING_HEAL_DPS, SPRING_HEAL_CAP,
       GEYSER_CD, GEYSER_RADIUS, GEYSER_DMG, GALE_AURA, GALE_PUSH,
       WOLFSBANE_AURA, WOLFSBANE_DRAIN, HOARD_REACH, HOARD_FURY, WOODS_AURA,
+      QUARRY_NIGHT_DL, QUARRY_FURY, QUARRY_HEAL, SCORE_QUARRY,
       SCORE_PER_KILL, SCORE_SURVIVAL_MAX, SCORE_UNTOUCHED,
       MOONSTONE_SCORE_DIV, MOONSTONE_PER_KILL,
     },
