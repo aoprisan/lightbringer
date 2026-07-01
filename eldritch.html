@@ -367,6 +367,19 @@
     </div>
   </div>
 
+  <script>
+  // Registered here, independently of eldritch.js: this inline script always
+  // runs (a classic script executes at parse time, before the deferred module
+  // below), so offline caching gets set up even if something later throws
+  // during the game module's own top-level init. eldritch.js also registers
+  // (with updateViaCache:"none", to force a fresh sw.js check on every load);
+  // re-registering the same script URL is a no-op, so doing it twice is safe.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw.js").catch(function () {});
+    });
+  }
+  </script>
   <script type="module" src="./eldritch.js"></script>
 </body>
 </html>
