@@ -1,0 +1,31 @@
+ASSET: cairn-cleansed.png — a hunter-cleansed cairn, barred from re-claiming (scarred state)
+OUTPUT: art/cairn-cleansed.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the SAME cairn as cairn.png and cairn-marked.png, now CLEANSED by a
+  hunter: keep the exact same stone-heap silhouette, footprint, and camera —
+  only change the surface dressing and light. It must read as the SAME mound.
+- A hunter (a friar, most likely) has driven the wolf's claim out. This should
+  read as HOLY and PURGING, the opposite register of the feral marked state —
+  pale, cold, ash and chalk, not blood and ice-fire.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch; here, a pale holy-white chalk/ash dressing in place of the curse's
+colours. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+The same dry-stone cairn, scoured clean by a hunter: the bloodied mark is gone,
+replaced by a faint chalk-white warding sigil scrawled across the stones and a
+scatter of cold dead ash, a few dying embers still smoking faintly. Purged,
+barred, holy — the den driven out, the mound left scarred and unable to be
+reclaimed for a time.

@@ -1,0 +1,32 @@
+ASSET: wolf-human.png — the hero in MAN form (the player avatar, weaker state)
+OUTPUT: art/wolf-human.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the PLAYER avatar's HUMAN state. Its sibling, wolf-beast.png, is the
+  same cursed soul transformed. Carry ONE shared identifying detail across both
+  (suggested: a tattered dark travelling cloak, the same fabric/colour) so a
+  player recognizes the same character mid-transformation.
+- Frail and hunted, NOT heroic or armed — he cannot fight in this form. Keep the
+  silhouette readable at small sizes and instantly distinct from the watch (the
+  villagers/hunters): leaner, hooded, furtive, marked by something not quite
+  human about his eyes.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6); a single uncanny cold ice-blue
+glint (#cfe0ff) in the eyes — the only hint of the curse beneath the skin. Soft
+painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A gaunt, hunted man in a tattered dark travelling cloak, hood drawn low, moving
+in a low wary crouch through the night, bare hands half-curled at his sides. His
+face is mostly shadowed beneath the hood, but a single cold ice-blue glint
+catches in his eyes — something unnatural waiting beneath the skin. Frail,
+furtive, sympathetic — a cursed soul trying to stay unseen, not yet turned. Small
+and readable at a glance, distinct from the village's watch.

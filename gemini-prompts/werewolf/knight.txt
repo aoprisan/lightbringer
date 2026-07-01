@@ -1,0 +1,27 @@
+ASSET: knight.png — an armed knight of the village watch, heavy melee
+OUTPUT: art/knight.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- A small game sprite: keep the silhouette readable at small sizes; it must read
+  as a HUMAN DEFENDER — grim and resolute, not a monster. He is hunting the wolf,
+  not the player's friend, but he is the sympathetic side: a man protecting his
+  village against a curse he doesn't understand.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) on his steel; warm hearth-amber
+(#ffcf7a) at his belt-lantern — a mortal warmth opposed to the wolf's cold curse.
+Soft painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A village man-at-arms in dented chainmail and a heavy surcoat, a broad sword or
+warhammer gripped two-handed, advancing with grim, plodding purpose, a small
+lantern guttering at his belt. Heavy, slow, resolute — built to absorb a charge,
+not to chase. A defender roused from his bed to hunt something he fears. No
+unnatural light on him, only cold steel and a single warm lantern-flame.

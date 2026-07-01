@@ -1,0 +1,29 @@
+ASSET: cairn-marked.png — a claimed cairn, the wolf's den (active state)
+OUTPUT: art/cairn-marked.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the SAME cairn as cairn.png, now CLAIMED: keep the exact same stone-heap
+  silhouette, footprint, and camera as cairn.png — only add the kill-mark and the
+  glow. It must read as the SAME mound mid-transformation, not a different object.
+- It is the wolf's den: the aura here grants fury and momentum, AND scares prey
+  away. The glow should feel possessive and feral, not holy.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+The same dry-stone cairn, now claimed as the wolf's den: a fresh kill-mark — a
+bloodied antler or torn pelt-scrap draped across the stones — and a pulsing
+ice-blue and blood-red light glowing up between the rocks, throwing long cold
+shadows. Possessive, feral, territorial. The wolf's mark on the moor, calling it
+home.

@@ -1,0 +1,28 @@
+ASSET: cottage.png — a thatched village dwelling, a solid obstacle
+OUTPUT: art/cottage.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- A small game sprite: keep the silhouette readable at small sizes. This dwelling
+  has no separate lit/dark states (unlike the parent games) — one quiet, sleeping
+  cottage that the hero stalks past.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch — here, one faint warm ember of hearth-light at a shuttered window.
+Soft painterly edges, subtle grain, no outlines, no photorealism. Three-quarter
+top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A modest stone-and-timber thatched cottage, shutters drawn tight against the
+night, a single faint warm ember of hearth-light leaking through a shutter-crack,
+a thin curl of smoke from the chimney. Asleep, defended, unaware of what hunts
+outside. Cold moonlight on the frosted thatch. The home the watch will die
+defending.

@@ -1,0 +1,30 @@
+ASSET: village-hollowby.jpg — establishing card for Hollowby (the walled market town)
+OUTPUT: art/village-hollowby.jpg
+FORMAT: wide 16:9 cinematic, no text, no watermark, no logos, no people's faces.
+
+--- GENERATION RULES ---
+- Establishing art shown on the village picker / intro card. Silent-fail and
+  optional (the game runs without it), so it never needs alpha — a solid JPG.
+- Hollowby is the most DEFENDED of the first four villages: a walled market town
+  under an abbey bell, dense with hedgerow walls, friars, men-at-arms, and
+  bowmen at the gate. This should feel fortified and crowded compared to the
+  open moor of Greymoor — tight streets, a looming abbey tower, many lanterns.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game key art, a fog-bound, frost-edged 13th-
+century English village under a blood-marked hunter's moon, woodcut-and-
+illuminated-manuscript meets minimal poster art. Palette: deep night-indigo
+(#070912), slate mist-blue (#1a223c), pale moonlight silver-white (#e6eaf6) with
+a cold ice-blue glow (#cfe0ff); dense warm hearth-amber (#ffcf7a) and holy
+candle-gold window-light, far more than the other villages — a well-lit, alert
+town. High contrast, deep negative darkness, soft volumetric glow, subtle grain.
+No outlines, no photorealism. Wide 16:9, low horizon, lots of cold empty night.
+
+--- PROMPT ---
+An establishing night view of Hollowby, a walled market town seen from a high
+three-quarter angle: tight rows of timbered houses behind a dense ring of
+hedgerow-and-stone walls, a tall abbey bell-tower rising at the centre with a
+single warm window glowing high up, many small amber lanterns lit along the wall
+and at the gate. Fog pools low in the streets between the buildings. Crowded,
+fortified, alert — the watch here is many and well-armed. Wide 16:9 cinematic
+composition, deep negative darkness around a low horizon.

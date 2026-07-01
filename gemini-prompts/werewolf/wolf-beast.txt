@@ -1,0 +1,33 @@
+ASSET: wolf-beast.png — the hero in WOLF form (the player avatar, predator state)
+OUTPUT: art/wolf-beast.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the PLAYER avatar's WOLF state — the same cursed soul as wolf-human.png,
+  fully turned. Carry the SAME shared identifying detail (a torn scrap of the same
+  dark cloak fabric, now shredded and hanging from a shoulder or the neck) so the
+  two sprites read as one character transforming, not two different creatures.
+- This is the game's signature image: the predator, mid-hunt. It must read
+  instantly as fast, dangerous, and larger than every other sprite in the game —
+  the unmistakable silhouette of something running you down.
+- Pure joystick game — no static "ready" pose. Show it in motion: a low, driving
+  stride or a lunging snarl, never sitting calmly.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) catching the fur; blood-curse red
+(#c83344) and its brighter flare (#ff6a7a) glowing in the eyes and faintly along
+the claws. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A massive black-furred werewolf, low and driving in a full hunting stride, jaws
+parted in a snarl, claws extended, hackles raised and catching cold moonlight
+along its spine. Its eyes burn with a blood-red glow. A torn scrap of dark cloak
+fabric — the same cloak as its human self — hangs shredded from one shoulder,
+the only trace of the man it was. Fearsome, fast, unmistakably a predator at full
+hunt. The largest and most dangerous silhouette in the village.

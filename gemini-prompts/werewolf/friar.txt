@@ -1,0 +1,31 @@
+ASSET: friar.png — a friar, the watch's anti-werewolf caster
+OUTPUT: art/friar.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- A small game sprite: keep the silhouette readable at small sizes; he must read
+  as a HUMAN HOLY MAN — devout and unarmoured, not a soldier. He NEVER melees: at
+  range with line of sight he channels a consecration that bleeds the wolf's fury,
+  the single greatest threat to holding the change. Clearly a CASTER: no armour,
+  no weapon — robes, a raised relic, and holy radiance gathering.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6); warm HOLY GOLD and candle-amber
+(#ffe8a0) light gathering at his hand — a sacred warmth distinct from the knight's
+steel and the huntsman's leather, the village's only weapon against the curse
+itself. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+A village friar in plain hooded robes and a knotted cord belt, one hand raised
+holding a small wooden cross or rosary, warm golden light gathering and haloing
+at his palm as he begins a consecration. Devout, frail, unarmoured — a man of
+faith making his stand against the curse itself rather than the man beneath it.
+The gold radiance is his telegraph; he must read at a glance as the caster to
+close on or break line of sight from, distinct from the steel-and-leather watch
+around him.

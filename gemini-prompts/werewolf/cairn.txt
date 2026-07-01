@@ -1,0 +1,27 @@
+ASSET: cairn.png — an unclaimed cairn, the wolf's den-mark site (dormant state)
+OUTPUT: art/cairn.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is the DORMANT state — cold, dark, unclaimed. Two sibling sprites
+  (cairn-marked.png, cairn-cleansed.png) show the same mound claimed and then
+  cleansed; keep the stone-heap silhouette and footprint IDENTICAL across all
+  three so the swap reads as a state change, not a different object.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch. Soft painterly edges, subtle grain, no outlines, no photorealism.
+Three-quarter top-down (about 60°), isolated on a flat solid #070912 background.
+
+--- PROMPT ---
+An ancient dry-stone cairn: a low rounded mound of weathered fieldstones, a
+half-buried antler and a scatter of old bones wedged among the rocks, cold and
+dormant under bare moonlight. No glow, no claim — just an old waiting place on
+the moor, the den the wolf has not yet marked.

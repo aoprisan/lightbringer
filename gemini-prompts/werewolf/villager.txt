@@ -1,0 +1,28 @@
+ASSET: villager.png — a fleeing peasant villager, the common prey
+OUTPUT: art/villager.png
+FORMAT: 1024×1024, square, single centered subject, no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. Generate isolated on a flat solid #070912 (deep night-indigo)
+  background.
+- This is PREY, not a fighter: it flees and flocks rather than attacking. Keep the
+  pose terrified and in flight — never armed, never facing the viewer head-on with
+  resolve. Small game sprite: keep the silhouette readable at small sizes and
+  obviously human, ordinary, defenceless — opposite the wolf in every way.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6); warm hearth-amber (#ffcf7a) on
+the villager's lantern and homespun clothes — the mortal warmth of the village,
+opposed to the wolf's cold curse. Soft painterly edges, subtle grain, no
+outlines, no photorealism. Three-quarter top-down (about 60°), isolated on a flat
+solid #070912 background.
+
+--- PROMPT ---
+A fleeing peasant villager: rough homespun tunic and a woollen shawl, clutching a
+small guttering amber lantern in one fist, caught mid-stride in flight, head
+turned back over a shoulder in raw terror. Ordinary, frail, utterly defenceless —
+a frightened soul running for the nearest door. No weapon, no armour. Small and
+unmistakably human prey.

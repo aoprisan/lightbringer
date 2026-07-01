@@ -1,0 +1,27 @@
+ASSET: ground.png — the village turf/track ground tile (seamless)
+OUTPUT: art/ground.png
+FORMAT: 1024×1024, square, SEAMLESS TILING texture (wraps on all four sides), no text, no watermark, no border.
+
+--- GENERATION RULES ---
+- No transparency. A seamless tiling texture (edges wrap on all four sides).
+- This tiles the whole hunting-ground, so keep it dim and low-contrast; the watch,
+  the hero, and any unnatural glow (fury, holy light, bolts) must read on top of it.
+- Cold moonlight only — no warm light belongs in the ground itself; warmth is
+  reserved for cottages and the watch's lanterns.
+
+--- STYLE BLOCK ---
+Style: hand-painted dark-fantasy game asset, a fog-bound, frost-edged 13th-century
+English village under a blood-marked hunter's moon — woodcut-and-illuminated-
+manuscript feel. Palette: deep night-indigo (#070912) and slate mist-blue
+(#1a223c); pale moonlight silver-white (#e6eaf6) with a cold ice-blue glow
+(#cfe0ff); blood-curse red (#c83344) and its brighter flare (#ff6a7a) reserved for
+the wolf and its mark; warm hearth-amber (#ffcf7a) reserved for the human village
+and its watch — a mortal warmth set against the cold curse. Soft painterly edges,
+subtle grain, no outlines, no photorealism. Flat top-down, even cold moonlight.
+
+--- PROMPT ---
+Trodden village turf between cottages and greens: cold packed earth and frost-
+bitten grass, a scatter of fallen autumn leaves and small flat stones, faint dew
+or rime catching the moonlight in patches, a few half-erased paw-prints pressed
+into the mud. Dim, damp, low-contrast, touched by a thin ground-mist. A seamless
+tiling ground texture, no people, no buildings.
