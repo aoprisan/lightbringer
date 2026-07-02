@@ -687,7 +687,9 @@ loud, `ALARM_RADIATE_WOLF`; a man only while **sprinting** past `MAN_SPRINT_SPEE
 **decays** (`ALARM_DECAY`); a kill spikes nearby prey to full (`ALARM_KILL_SPIKE_R`, in `slay`). When the
 **village average** (`villagePanic`) crosses `ALARM_ROUSE`, the armed **HUNTERS** converge: **knight** (slow,
 plated, heavy melee), **huntsman** (the only projectile — never melees; standoff + **dodgeable silver
-bolts**, `stepBolts`/`HUNTSMAN_SHOOT_CD`; a **wall** stops a bolt & makes it hold fire, **mist/woods hide the
+bolts**, `stepBolts`/`HUNTSMAN_SHOOT_CD`; every shot is **telegraphed** — a `BOLT_AIM_MS` aim wind-up
+(`Foe.aimUntil`, drawn as a sharpening red sight-line) during which it plants its feet, and **breaking its
+sight mid-aim spoils the shot**; a **wall** stops a bolt & makes it hold fire, **mist/woods hide the
 hero**), and **friar** (the anti-werewolf — never melees; **consecration** that **bleeds fury** at range with
 LoS; break LoS behind a wall, hide, or close and rend it). Hunters are **sticky** once roused; their
 proximity-wake shrinks for a muffled/human hero (`STEALTH_AGGRO_MUL`). **Stealth as a man falls out for
@@ -746,12 +748,18 @@ dale, carrying the new terrain): **Thornwick** (fair first), **Greymoor** (moor;
 `wallCount`/`pathCount`/`mistCount`, the variant counts
 (`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), the **new terrain/obstacle counts** (above), and
 `sizeScale`. `stepHunt` advances the moon, integrates the hero (with the pounce-lunge velocity override),
-updates **momentum** & **facing**, resolves the form, runs `stepMaul → stepFoes → stepBolts → stepCairns →
-stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then checks terminal states
-(`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror the siblings (`bite`/`slay`/`hurtFoe`/
+updates **momentum** & **facing**, resolves the form, runs `stepQuarry → stepMaul → stepFoes → stepBolts →
+stepCairns → stepFields → stepGeysers → stepGale → stepMists → stepMotes → stepHoards`, then checks terminal
+states (`hero.hp ≤ 0` → `"lost"`; all foes dead → `"won"`). Helpers mirror the siblings (`bite`/`slay`/`hurtFoe`/
 `nearestFoe`/`frontalFoe`, `isPrey`/`villagePanic`, `aliveFoes`/`clearedPct`/`furyReadout`, `scoreRun`,
 `difficultyMult`). **Blood-motes** (`stepMotes`) are the fury economy's heartbeat: a felled foe may drop one;
-gathering it stokes the curse.
+gathering it stokes the curse. **The Night's Quarry** (`stepQuarry`, `s.quarry`/`s.quarryNight`/`s.quarrySlain`)
+is the moon's own bounty-board: each **true night** (daylight below `QUARRY_NIGHT_DL`) the moon **marks one
+living soul** of the watch (a hunter while any stands, else a prey — `pickQuarry`), drawn with a pulsing gold
+halo + crescent (and a gold ring on the minimap). **Run the quarry down before dawn** and `slay` pays the
+**blood-price** (`QUARRY_FURY` fury, `QUARRY_HEAL`, a full head of wolf momentum, and `SCORE_QUARRY` per claim
+in `scoreRun`); at dawn an unclaimed mark fades. One mark per night, no new input — every night gets a
+direction without breaking the pure-joystick loop.
 
 ### Persistence & art
 
@@ -761,7 +769,10 @@ bump**), via `loadWwLegacy`/`saveWwLegacy`/`emptyWwLegacy` and the write-once-pe
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath` — here a
 blood-moon claw sigil, the render fallbacks: the man, the beast, the watch, the cairns/moonwells/cottages), so
 the game is **fully playable with zero gameplay PNGs** — and it currently ships that way: **no gameplay PNG
-art of its own has shipped yet**. Its **PWA icons DO ship**, though — a blood-clawed full moon generated
+art of its own has shipped yet**. Sound is likewise zero-dep: a **WebAudio synth** (`sfx`, `voice`/`noiseBurst`)
+lives shell-side only — the frame loop **diffs observable sim state** across `stepHunt` and fires the matching
+gesture, so the pure sim never touches audio and the headless tests never do either; the mute toggle persists
+in the tiny `werewolf.sound` hint key (not the legacy). Its **PWA icons DO ship**, though — a blood-clawed full moon generated
 zero-dep by `tools/gen-ww-icons.mjs` (`icons/werewolf-icon-{192,512,180}.png` + maskable), listed in `sw.js`
 `ASSETS`. When the man/beast/watch sprites ship, add them to `ASSETS` **and** bump `CACHE`. Sprite resolution
 mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprites`).

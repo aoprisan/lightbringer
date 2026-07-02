@@ -100,6 +100,10 @@
      shape + hour + cairn readout — the hunter's running tally. */
   #foes { color: var(--cold); font-weight: 700; }
   #souls { color: var(--gold); opacity: 0.82; font-size: 11px; }
+  /* The moon dial — the day/night wheel at a glance: the disc waxes toward midnight
+     and wanes toward noon; a marker rides the wheel's rim; the ring turns gold while
+     the night's quarry is marked. Drawn/updated by the shell's hud(). */
+  #moon { width: 24px; height: 24px; flex: 0 0 auto; display: none; }
   /* Three stacked bars: blood (red), fury (gold), and the wolf's momentum (pale) —
      the curse-meter and the predator's speed-charge are the twin twists. */
   .bars { display: flex; flex-direction: column; gap: 3px; }
@@ -127,14 +131,14 @@
     box-shadow: 0 0 8px rgba(205,214,230,0.5);
     transition: width .1s linear, filter .2s ease;
   }
-  #reset, #refresh {
+  #reset, #refresh, #mute {
     pointer-events: auto;
     font-family: inherit; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
     border: 1px solid transparent; background: none; color: var(--ink-dim);
     opacity: 0.5; cursor: pointer; transition: opacity .2s ease, color .2s ease;
     text-transform: uppercase;
   }
-  #reset:hover, #refresh:hover { opacity: 1; color: var(--ember); }
+  #reset:hover, #refresh:hover, #mute:hover { opacity: 1; color: var(--ember); }
   /* Header cross-links to the sibling games in this world. */
   .xlink {
     pointer-events: auto; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
@@ -329,6 +333,7 @@
   <header>
     <h1>The Moon's Hunger</h1>
     <div class="stats">
+      <svg id="moon" viewBox="0 0 24 24" aria-hidden="true"></svg>
       <span id="cityname"></span>
       <span id="foes"></span>
       <span id="souls"></span>
@@ -337,6 +342,7 @@
         <div class="hpbar fury"><div id="fury"></div></div>
         <div class="hpbar mom" title="Momentum — the wolf's speed-charge"><div id="mom"></div></div>
       </div>
+      <button id="mute" title="Sound on/off">Sound: on</button>
       <button id="reset" title="Return to the village select">Choose village</button>
       <a class="xlink" id="origin-link" href="./index.html" title="Class Select — choose a different class" style="color:#9fb0d0;">⌂ Class Select</a>
       <a class="xlink" id="vigil-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="color:#ff6a3c;">The Burning Vigil</a>
