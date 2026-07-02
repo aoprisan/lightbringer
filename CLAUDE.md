@@ -687,7 +687,9 @@ loud, `ALARM_RADIATE_WOLF`; a man only while **sprinting** past `MAN_SPRINT_SPEE
 **decays** (`ALARM_DECAY`); a kill spikes nearby prey to full (`ALARM_KILL_SPIKE_R`, in `slay`). When the
 **village average** (`villagePanic`) crosses `ALARM_ROUSE`, the armed **HUNTERS** converge: **knight** (slow,
 plated, heavy melee), **huntsman** (the only projectile — never melees; standoff + **dodgeable silver
-bolts**, `stepBolts`/`HUNTSMAN_SHOOT_CD`; a **wall** stops a bolt & makes it hold fire, **mist/woods hide the
+bolts**, `stepBolts`/`HUNTSMAN_SHOOT_CD`; every shot is **telegraphed** — a `BOLT_AIM_MS` aim wind-up
+(`Foe.aimUntil`, drawn as a sharpening red sight-line) during which it plants its feet, and **breaking its
+sight mid-aim spoils the shot**; a **wall** stops a bolt & makes it hold fire, **mist/woods hide the
 hero**), and **friar** (the anti-werewolf — never melees; **consecration** that **bleeds fury** at range with
 LoS; break LoS behind a wall, hide, or close and rend it). Hunters are **sticky** once roused; their
 proximity-wake shrinks for a muffled/human hero (`STEALTH_AGGRO_MUL`). **Stealth as a man falls out for

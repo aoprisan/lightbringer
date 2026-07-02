@@ -42,12 +42,14 @@ All procedural, zero PNGs, in the repo's render-fallback ethos:
 
 ## Five near-term improvements
 
-1. **A moon dial on the HUD** — the day/night wheel drives everything, but the hour is only a word
-   in the readout; a small crescent-to-full dial would make the rhythm plannable.
-2. **Bolt telegraphs** — huntsmen fire instantly on cooldown with line of sight; a brief aim-line
-   wind-up would make silver bolts dodgeable by reaction, not just by cover.
-3. **Score breakdown on a loss too** — `onLost` shows kills/dens but not the score table; showing it
-   (zeroed win-bonuses and all) teaches the scoring language earlier.
+1. **A moon dial on the HUD** *(shipped)* — a small header dial: the disc waxes toward midnight and
+   wanes toward noon, a marker rides the wheel's rim, and the ring turns gold while the night's
+   quarry is marked.
+2. **Bolt telegraphs** *(shipped)* — a huntsman now draws a `BOLT_AIM_MS` aim (a sharpening red
+   sight-line, feet planted) before loosing; breaking its sight mid-aim spoils the shot, so silver
+   bolts are dodgeable by reaction, not just by cover.
+3. **Score breakdown on a loss too** *(shipped)* — `onLost` now shows "the night's tally" (kills,
+   quarry, dens in score points, win-only bonuses named), teaching the scoring language earlier.
 4. **Sound** — a WebAudio layer (bay, bite, alarm bell, the friar's chant) would carry the fog-bound
    mood; the repo is already comfortable shipping zero-dep generated assets.
 5. **Per-village art re-skins** — `loadCitySprites` machinery exists but no `art/<villageId>/` sets

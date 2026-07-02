@@ -117,6 +117,7 @@ interface Foe {
   homeX: number; homeY: number; // its green anchor (the lurk leash centre)
   attackCd: number;             // ms until it can strike again
   shootCd: number;              // ms until a huntsman can loose another bolt
+  aimUntil?: number;            // a huntsman's aim wind-up deadline (s.elapsed); undefined = not aiming
   hit: number;                  // s.elapsed until which it flashes from a fresh blow
   bornAt: number;               // s.elapsed it mustered (for the rise flourish)
   alarm: number;                // 0..1 — a prey's panic; spreads to its neighbours and rouses the hunters
@@ -362,6 +363,8 @@ const HUNTSMAN_SPEED_MUL = 0.9;  // …its travel speed ×
 const HUNTSMAN_RANGE = 320;      // it looses at a hero within this (with line of sight)
 const HUNTSMAN_STANDOFF = 200;   // it backs from a hero closer than this (kiting)
 const HUNTSMAN_SHOOT_CD = 1500;  // ms between bolts
+const BOLT_AIM_MS = 450;         // the aim wind-up before a bolt looses — the telegraph,
+                                 // and the dodge window: move, or break its sight, to spoil it
 const BOLT_SPEED = 330;          // a silver bolt's travel, units/s
 const BOLT_DMG = 14;             // damage a bolt deals on a hit
 const BOLT_TTL_MS = 2600;        // a bolt's life before it falls spent
@@ -1411,20 +1414,32 @@ function stepFoes(s: WwState, dt: number): void {
     const sep = separate(s, e);
 
     if (e.variant === "huntsman") {
-      // Hold a standoff; loose a silver bolt with line of sight (not through mist/woods).
+      // Hold a standoff; with line of sight it AIMS — a visible wind-up (the telegraph)
+      // — then looses a silver bolt at where the hero stands as the string slips. The
+      // wind-up is the dodge window: keep moving, or break its sight (a wall, mist,
+      // the woods), and the aim is spoiled. It plants its feet while it draws.
       const speed = FOE_SPEED * HUNTSMAN_SPEED_MUL;
       let dirx = 0, diry = 0;
       if (dh < HUNTSMAN_STANDOFF) { dirx = -dxh / dh; diry = -dyh / dh; }   // kite away
       else if (dh > HUNTSMAN_RANGE) { dirx = dxh / dh; diry = dyh / dh; }   // close in
-      moveBody(s, e, dirx * speed + sep.x, diry * speed + sep.y, dt, FOE_RADIUS);
+      if (e.aimUntil === undefined) {
+        moveBody(s, e, dirx * speed + sep.x, diry * speed + sep.y, dt, FOE_RADIUS);
+      }
       if (e.shootCd > 0) e.shootCd -= dt;
       const canSee = dh <= HUNTSMAN_RANGE && !wallBetween(s, e.x, e.y, h.x, h.y)
         && !inMist(s, h.x, h.y) && !inWoods(s, h.x, h.y);
-      if (canSee && e.shootCd <= 0) {
-        e.shootCd = HUNTSMAN_SHOOT_CD;
-        e.aiming = true;
-        const a = Math.atan2(dyh, dxh);
-        s.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * BOLT_SPEED, vy: Math.sin(a) * BOLT_SPEED, dead: false, bornAt: s.elapsed });
+      if (e.aimUntil !== undefined) {
+        if (!canSee) {
+          e.aimUntil = undefined;             // sight broken — the aim is spoiled
+        } else if (s.elapsed >= e.aimUntil) { // the string slips — the bolt looses
+          e.aimUntil = undefined;
+          e.shootCd = HUNTSMAN_SHOOT_CD;
+          e.aiming = true;
+          const a = Math.atan2(dyh, dxh);
+          s.bolts.push({ x: e.x, y: e.y, vx: Math.cos(a) * BOLT_SPEED, vy: Math.sin(a) * BOLT_SPEED, dead: false, bornAt: s.elapsed });
+        }
+      } else if (canSee && e.shootCd <= 0) {
+        e.aimUntil = s.elapsed + BOLT_AIM_MS; // it draws the string — the telegraph begins
       }
       cleanseNearCairn(s, e);
       continue;
@@ -2234,6 +2249,16 @@ function render(s: WwState, layer: SVGGElement): void {
         stroke: "#e6e0b0", "stroke-width": 2, opacity: 0.55, "stroke-dasharray": "3 5",
       }));
     }
+    // A huntsman's aim — the telegraph: a red sight-line that sharpens as the string
+    // is drawn, so the bolt is dodgeable by reaction, not only by cover.
+    if (e.variant === "huntsman" && e.aimUntil !== undefined) {
+      const k = clamp(1 - (e.aimUntil - s.elapsed) / BOLT_AIM_MS, 0, 1);
+      layer.appendChild(el("line", {
+        x1: e.x, y1: e.y, x2: s.hero.x, y2: s.hero.y,
+        stroke: "#e0566a", "stroke-width": 1.2 + k * 1.2,
+        "stroke-dasharray": "2 6", opacity: 0.25 + 0.45 * k,
+      }));
+    }
     // The moon's mark — a pulsing gold halo and a crescent over the night's quarry.
     if (e === quarryFoe) {
       const qp = 1 + 0.1 * Math.sin(s.elapsed / 180);
@@ -2492,6 +2517,24 @@ function start(): void {
   const layer = scaffold(svg);
   let s: WwState | null = null;
 
+  // ----- The moon dial (header) — built once, updated by hud(). The disc waxes
+  // toward midnight (full) and wanes toward noon (dark); a marker rides the wheel's
+  // rim; the ring turns gold while the night's quarry is marked. -----
+  const moonEl = byId("moon");
+  {
+    const mdefs = el("defs", {});
+    mdefs.innerHTML = `<clipPath id="mclip"><circle cx="12" cy="12" r="7"/></clipPath>`;
+    moonEl.appendChild(mdefs);
+  }
+  const moonRing = el("circle", { cx: 12, cy: 12, r: 10.5, fill: "none", stroke: "#4a5468", "stroke-width": 1.2, opacity: 0.9 });
+  const moonDisc = el("circle", { cx: 12, cy: 12, r: 7, fill: "#eef2ff", opacity: 0.95 });
+  const moonShade = el("circle", { cx: 12, cy: 12, r: 7.4, fill: "#0a0d14", opacity: 0.88, "clip-path": "url(#mclip)" });
+  const moonMark = el("circle", { cx: 12, cy: 1.5, r: 1.8, fill: "#cdd6ea" });
+  moonEl.appendChild(moonRing);
+  moonEl.appendChild(moonDisc);
+  moonEl.appendChild(moonShade);
+  moonEl.appendChild(moonMark);
+
   // ----- Camera: follows the hero; pinch / wheel zoom. -----
   const cam = { x: 0, y: 0, k: 1 };
   let minK = 0.4, maxK = 2.4;
@@ -2628,6 +2671,15 @@ function start(): void {
     momFill.style.filter = wolf && s.hero.momentum >= 0.7 ? "drop-shadow(0 0 6px #e0566a)" : "";
     cityEl.textContent = s.level.name;
     furyEl.textContent = furyReadout(s);
+    // The moon dial: the shade slides off the disc toward midnight and covers it
+    // toward noon; the rim-marker rides the wheel (top = noon, bottom = midnight).
+    moonEl.style.display = "block";
+    const dl = daylight(s.moon);
+    moonShade.setAttribute("cx", (12 + 15 * (1 - dl)).toFixed(2));
+    const ma = s.moon * Math.PI * 2 - Math.PI / 2;
+    moonMark.setAttribute("cx", (12 + 10.5 * Math.cos(ma)).toFixed(2));
+    moonMark.setAttribute("cy", (12 + 10.5 * Math.sin(ma)).toFixed(2));
+    moonRing.setAttribute("stroke", s.quarry >= 0 ? "#ffd06a" : "#4a5468");
     const alive = aliveFoes(s);
     let foes = alive > 0 ? `Cut down ${alive} / ${s.total}` : `The hunt is yours`;
     if (alive > 0 && alive <= 4) {
@@ -2821,13 +2873,27 @@ function start(): void {
     if (!s) return;
     const moonstones = s.slain * MOONSTONE_PER_KILL;
     recordFall(s.litCount, s.slain, moonstones);
+    // The night's tally — the score language shown even on a fall, so the player
+    // learns what pays before their first claim (win-only bonuses named, zeroed).
+    const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    const densPts = s.cairnsTotal ? Math.round((s.litCount / s.cairnsTotal) * SCORE_CAIRNS_MAX) : 0;
+    const tally =
+      `<div class="legacy"><div class="legacy-head">The night's tally</div><dl>` +
+      row("Watch cut down", `${s.slain * SCORE_PER_KILL}`) +
+      (s.quarrySlain ? row("Quarry run down", `${s.quarrySlain * SCORE_QUARRY}`) : "") +
+      row("Dens claimed", `${densPts}`) +
+      row("Speed · survival · flawless", `— a claim would add these, ×${difficultyMult(s.level)}`) +
+      `</dl></div>`;
     showOverlay(
       "You are brought down",
       `The watch of <em>${s.level.name}</em> dragged you down with ` +
       `<em>${aliveFoes(s)}</em> still abroad.` +
-      `<br><br>You had cut down <em>${s.slain}</em> of ${s.total} and claimed <em>${s.litCount}</em> dens.<br><br>` +
+      `<br><br>You had cut down <em>${s.slain}</em> of ${s.total} and claimed <em>${s.litCount}</em> dens.` +
+      (s.quarrySlain ? ` You ran down <em>${s.quarrySlain}</em> of the moon's marked quarry.` : ``) +
+      `<br><br>` +
       (moonstones > 0 ? `The blood you spilled leaves <em>+${moonstones}</em> moonstones behind. ` : ``) +
-      `<em>The moon will rise again. Hunt again.</em>`,
+      `<em>The moon will rise again. Hunt again.</em>` +
+      tally,
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
@@ -2837,6 +2903,7 @@ function start(): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
+    moonEl.style.display = "none";
     const l = loadWwLegacy();
     const sel = levelById(selId || "") || LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
@@ -2917,6 +2984,7 @@ function start(): void {
   function showStart(): void {
     s = null; running = false;
     mmEl.style.display = "none";
+    moonEl.style.display = "none";
     const body =
       `<img class="start-logo" src="./icons/werewolf-icon-192.png" alt="The Moon's Hunger">` +
       `<p class="frx-quote">“Even a man who is pure in heart, and says his prayers by night, may become a wolf when the wolfsbane blooms and the moon is full and bright.”</p>` +
@@ -3014,7 +3082,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       HOUND_HP_MUL, HOUND_SPEED_MUL, HOUND_CONTACT,
       KNIGHT_HP_MUL, KNIGHT_SPEED_MUL, KNIGHT_CONTACT,
       HUNTSMAN_HP_MUL, HUNTSMAN_SPEED_MUL, HUNTSMAN_RANGE, HUNTSMAN_STANDOFF, HUNTSMAN_SHOOT_CD,
-      BOLT_SPEED, BOLT_DMG, BOLT_TTL_MS, BOLT_RADIUS,
+      BOLT_AIM_MS, BOLT_SPEED, BOLT_DMG, BOLT_TTL_MS, BOLT_RADIUS,
       FRIAR_HP_MUL, FRIAR_SPEED_MUL, FRIAR_RANGE, FRIAR_STANDOFF, FRIAR_FURY_DRAIN,
       FRENZY_RANGE, FRENZY_DMG, MOONBLOOD_FURY,
       OBSTACLE_RADIUS, WALL_HALF, PATH_HALF, PATH_BOOST, MOONWELL_AURA, MIST_DRIFT,

@@ -258,8 +258,24 @@ const hunter = sH.foes.find((e) => e.variant === "huntsman") ?? sH.foes[0];
 hunter.variant = "huntsman"; wake(hunter); hunter.x = 800; hunter.y = 800; hunter.shootCd = 0;
 sH.hero.x = 800 + (K.HUNTSMAN_RANGE - 40); sH.hero.y = 800;
 sH.foes = [hunter]; sH.bolts = [];
+// The telegraph: sight starts an AIM (no bolt yet); the bolt looses once the
+// wind-up has run; breaking sight mid-aim spoils it.
 ww.stepFoes(sH, 16);
-ok(sH.bolts.length > 0, "a huntsman with line of sight looses a silver bolt");
+ok(sH.bolts.length === 0 && hunter.aimUntil !== undefined,
+  "sight starts the huntsman's aim — the telegraph, not yet the bolt");
+for (let t = 0; t < K.BOLT_AIM_MS + 64 && sH.bolts.length === 0; t += 16) {
+  sH.elapsed += 16; ww.stepFoes(sH, 16);
+}
+ok(sH.bolts.length > 0, "a huntsman with line of sight looses a silver bolt once the aim runs");
+// Mid-aim, hiding spoils the shot: restart an aim, then drop mist on the hero.
+hunter.shootCd = 0; sH.bolts = [];
+ww.stepFoes(sH, 16);
+ok(hunter.aimUntil !== undefined, "the next aim is drawn once the string is free");
+sH.mists = [{ x: sH.hero.x, y: sH.hero.y, r: 120, vx: 0, vy: 0 }];
+sH.elapsed += 16; ww.stepFoes(sH, 16);
+ok(hunter.aimUntil === undefined && sH.bolts.length === 0,
+  "breaking sight mid-aim spoils the shot (no bolt)");
+sH.mists = [];
 // A bolt strikes the hero (and the bolt is consumed).
 sH.bolts = [{ x: sH.hero.x - 60, y: sH.hero.y, vx: K.BOLT_SPEED, vy: 0, dead: false, bornAt: sH.elapsed }];
 const bHp0 = sH.hero.hp;
