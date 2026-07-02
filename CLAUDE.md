@@ -769,7 +769,10 @@ bump**), via `loadWwLegacy`/`saveWwLegacy`/`emptyWwLegacy` and the write-once-pe
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath` — here a
 blood-moon claw sigil, the render fallbacks: the man, the beast, the watch, the cairns/moonwells/cottages), so
 the game is **fully playable with zero gameplay PNGs** — and it currently ships that way: **no gameplay PNG
-art of its own has shipped yet**. Its **PWA icons DO ship**, though — a blood-clawed full moon generated
+art of its own has shipped yet**. Sound is likewise zero-dep: a **WebAudio synth** (`sfx`, `voice`/`noiseBurst`)
+lives shell-side only — the frame loop **diffs observable sim state** across `stepHunt` and fires the matching
+gesture, so the pure sim never touches audio and the headless tests never do either; the mute toggle persists
+in the tiny `werewolf.sound` hint key (not the legacy). Its **PWA icons DO ship**, though — a blood-clawed full moon generated
 zero-dep by `tools/gen-ww-icons.mjs` (`icons/werewolf-icon-{192,512,180}.png` + maskable), listed in `sw.js`
 `ASSETS`. When the man/beast/watch sprites ship, add them to `ASSETS` **and** bump `CACHE`. Sprite resolution
 mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprites`).

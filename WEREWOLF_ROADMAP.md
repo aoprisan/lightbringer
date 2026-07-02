@@ -16,10 +16,11 @@ Findings from this review:
 - **Bug (fixed):** `recordHunt` never folded the hunt's kills into the lifetime `WwLegacy.slain` —
   only losses (`recordFall`) counted them, so a player who always wins showed a lifetime kill count
   of zero. `recordHunt` now takes `slainN` and banks it.
-- **Perf watch-item (not changed):** `terrainSpeedMul` → `inNodeAura` scans all scenery per body per
-  frame; with `CONTENT_SCALE = 9` (tripled villages) that is O(foes × scenery) ≈ hundreds of
-  thousands of distance checks per frame on Direhollow. Fine today, but a per-kind node cache (the
-  way `s.cairns`/`s.moonwells` are cached) is the first thing to reach for if frame time slips.
+- **Perf watch-item (now fixed):** `terrainSpeedMul` → `inNodeAura` scanned all scenery per body per
+  frame; with `CONTENT_SCALE = 9` (tripled villages) that was O(foes × scenery) ≈ hundreds of
+  thousands of distance checks per frame on Direhollow. All terrain queries now read through
+  `nodesOfKind` — a per-kind index keyed by scenery-array identity (WeakMap), so wholesale swaps
+  re-derive it and it can never go stale (kinds are fixed after generation).
 - **Legibility (fixed via the art pass):** the five watch kinds were near-identical circles; the
   alarm level — the game's one social meter — was invisible on the bodies that carry it.
 - **Naming nit (left alone):** the HUD element id `souls` is inherited from Necro's shell; it shows
@@ -50,8 +51,10 @@ All procedural, zero PNGs, in the repo's render-fallback ethos:
    bolts are dodgeable by reaction, not just by cover.
 3. **Score breakdown on a loss too** *(shipped)* — `onLost` now shows "the night's tally" (kills,
    quarry, dens in score points, win-only bonuses named), teaching the scoring language earlier.
-4. **Sound** — a WebAudio layer (bay, bite, alarm bell, the friar's chant) would carry the fog-bound
-   mood; the repo is already comfortable shipping zero-dep generated assets.
+4. **Sound** *(shipped)* — a zero-dep WebAudio synth: the bay of the turn, bite/pounce/kill, the
+   huntsman's bolt-tick, the quarry bells, the den gong, the rousing toll, win/loss cadences. The
+   shell diffs observable sim state per frame and scores what changed (the sim never touches audio);
+   a header button mutes it, persisted in the `werewolf.sound` hint key.
 5. **Per-village art re-skins** — `loadCitySprites` machinery exists but no `art/<villageId>/` sets
    ship; even one establishing card per Outlands village (the first four have them) would help the
    picker.

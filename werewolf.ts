@@ -1073,11 +1073,31 @@ function inMoonwell(s: WwState, x: number, y: number): boolean {
   return false;
 }
 
+// Per-kind node index. Terrain queries (inNodeAura, the emitter/geyser/gale passes)
+// used to scan ALL scenery per body per frame — O(foes × scenery), six figures of
+// distance checks on the biggest villages. The index groups nodes by kind once per
+// scenery array; it is keyed by ARRAY IDENTITY (WeakMap), so a state whose scenery
+// is swapped wholesale (the tests do this) indexes afresh, and node kinds never
+// change after generation so an index never goes stale. Pure derived data — never
+// persisted, in the cached-`s.cairns` ethos.
+const kindIndexCache = new WeakMap<ArenaNode[], Map<NodeKind, ArenaNode[]>>();
+function nodesOfKind(s: WwState, kind: NodeKind): ArenaNode[] {
+  let idx = kindIndexCache.get(s.scenery);
+  if (!idx) {
+    idx = new Map();
+    for (const n of s.scenery) {
+      const bucket = idx.get(n.kind);
+      if (bucket) bucket.push(n); else idx.set(n.kind, [n]);
+    }
+    kindIndexCache.set(s.scenery, idx);
+  }
+  return idx.get(kind) ?? [];
+}
+
 // Generic: is the point within `aura` of any node of `kind`? The workhorse for the
 // new passable-terrain auras (glade/spring/bog/…), so each reads one line.
 function inNodeAura(s: WwState, x: number, y: number, kind: NodeKind, aura: number): boolean {
-  for (const n of s.scenery) {
-    if (n.kind !== kind) continue;
+  for (const n of nodesOfKind(s, kind)) {
     if ((x - n.x) ** 2 + (y - n.y) ** 2 <= aura * aura) return true;
   }
   return false;
@@ -1117,8 +1137,7 @@ function stepFields(s: WwState, dt: number): void {
   ];
   for (const [kind, aura, dps] of EMITTERS) {
     const a2 = aura * aura, dmg = (dps * dt) / 1000;
-    for (const n of s.scenery) {
-      if (n.kind !== kind) continue;
+    for (const n of nodesOfKind(s, kind)) {
       for (const e of s.foes) {
         if (e.dead) continue;
         if ((e.x - n.x) ** 2 + (e.y - n.y) ** 2 <= a2) hurtFoe(s, e, dmg);
@@ -1132,8 +1151,7 @@ function stepFields(s: WwState, dt: number): void {
 // time it is stepped, so they don't all fire in lockstep.
 function stepGeysers(s: WwState, dt: number): void {
   void dt; // cadence is read off s.elapsed, not accumulated here
-  for (const n of s.scenery) {
-    if (n.kind !== "geyser") continue;
+  for (const n of nodesOfKind(s, "geyser")) {
     if (n.geyserAt === undefined) { n.geyserAt = s.elapsed + GEYSER_CD; continue; }
     if (s.elapsed < n.geyserAt) continue;
     n.geyserAt = s.elapsed + GEYSER_CD;
@@ -1150,8 +1168,7 @@ function stepGeysers(s: WwState, dt: number): void {
 // is unmoved). Opens a no-go lane in the watch. A separate pass so it fires whatever
 // the foe's state (lurk or hunt).
 function stepGale(s: WwState, dt: number): void {
-  for (const n of s.scenery) {
-    if (n.kind !== "gale") continue;
+  for (const n of nodesOfKind(s, "gale")) {
     for (const e of s.foes) {
       if (e.dead) continue;
       const gx = e.x - n.x, gy = e.y - n.y, gd = Math.hypot(gx, gy);
@@ -1170,8 +1187,8 @@ function stepGale(s: WwState, dt: number): void {
 function stepHoards(s: WwState): void {
   const h = s.hero;
   const rr = (HERO_RADIUS + HOARD_REACH) ** 2;
-  for (const n of s.scenery) {
-    if (n.kind !== "hoard" || n.spent) continue;
+  for (const n of nodesOfKind(s, "hoard")) {
+    if (n.spent) continue;
     if ((n.x - h.x) ** 2 + (n.y - h.y) ** 2 <= rr) {
       n.spent = true;
       h.fury = clamp(h.fury + HOARD_FURY, 0, h.maxFury);
@@ -2482,6 +2499,145 @@ function equipPelt(id: string): WwLegacy {
   return l;
 }
 
+// ---------- Sound (zero-dep WebAudio synth — the shell's layer, never the sim's) ----------
+// No audio files ship: every sound is a small oscillator/noise gesture synthesized
+// at call time. The context unlocks on the first user gesture (autoplay policy); a
+// header button mutes it, persisted in a tiny hint key (like the hub's lastClass —
+// deliberately NOT part of the legacy). The sim never calls these: the shell diffs
+// observable state across stepHunt and fires the matching gesture, so the pure-sim /
+// shell split holds and the headless tests never touch audio.
+
+const WW_SOUND_KEY = "werewolf.sound";
+let actx: AudioContext | null = null;
+let master: GainNode | null = null;
+let soundOn = true;
+try { soundOn = typeof localStorage !== "undefined" && localStorage.getItem(WW_SOUND_KEY) === "off" ? false : true; } catch { /* default on */ }
+
+function ensureAudio(): void {
+  if (!soundOn || typeof window === "undefined") return;
+  type AC = typeof AudioContext;
+  const w = window as unknown as { AudioContext?: AC; webkitAudioContext?: AC };
+  const Ctor = w.AudioContext || w.webkitAudioContext;
+  if (!Ctor) return;
+  if (!actx) {
+    actx = new Ctor();
+    master = actx.createGain();
+    master.gain.value = 0.22;
+    master.connect(actx.destination);
+  }
+  if (actx.state === "suspended") void actx.resume();
+}
+
+function audioReady(): boolean {
+  return soundOn && !!actx && !!master && actx.state === "running";
+}
+
+// One enveloped oscillator voice: type, a frequency glide f0→f1 over dur, a fast
+// attack and an exponential decay. The building block of every pitched gesture.
+function voice(type: OscillatorType, f0: number, f1: number, at: number, dur: number, peak: number): void {
+  if (!actx || !master) return;
+  const t0 = actx.currentTime + at;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(Math.max(1, f0), t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + Math.min(0.04, dur * 0.25));
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(master);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+
+// A decaying burst of band-passed noise — the bite/thud/rush material.
+function noiseBurst(at: number, dur: number, freq: number, q: number, peak: number): void {
+  if (!actx || !master) return;
+  const t0 = actx.currentTime + at;
+  const n = Math.max(1, Math.ceil(actx.sampleRate * dur));
+  const buf = actx.createBuffer(1, n, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = actx.createBufferSource();
+  src.buffer = buf;
+  const f = actx.createBiquadFilter();
+  f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+  const g = actx.createGain();
+  g.gain.value = peak;
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start(t0);
+}
+
+// The hunt's gestures — named for the beat they score, so the shell reads as prose.
+const sfx = {
+  howl(): void { // the TURN — two detuned voices rising to a long fall (the bay)
+    if (!audioReady()) return;
+    voice("sine", 170, 420, 0, 0.55, 0.14);
+    voice("sine", 176, 432, 0, 0.55, 0.1);
+    voice("sine", 420, 180, 0.55, 0.9, 0.12);
+    voice("sine", 428, 186, 0.55, 0.9, 0.08);
+  },
+  manAgain(): void { // the change spent — a falling sigh
+    if (!audioReady()) return;
+    voice("sine", 320, 130, 0, 0.6, 0.12);
+  },
+  bite(): void {
+    if (!audioReady()) return;
+    noiseBurst(0, 0.07, 950, 1.1, 0.4);
+    voice("triangle", 150, 60, 0, 0.11, 0.22);
+  },
+  pounce(): void { // the lunge — a rushing sweep
+    if (!audioReady()) return;
+    noiseBurst(0, 0.18, 1500, 0.7, 0.22);
+    voice("sawtooth", 800, 220, 0, 0.2, 0.06);
+  },
+  kill(): void {
+    if (!audioReady()) return;
+    noiseBurst(0, 0.14, 420, 0.8, 0.5);
+    voice("sine", 120, 42, 0, 0.28, 0.3);
+  },
+  hurt(): void { // a blow lands on the hero
+    if (!audioReady()) return;
+    voice("sine", 220, 90, 0, 0.18, 0.28);
+    noiseBurst(0, 0.08, 600, 1.0, 0.3);
+  },
+  bolt(): void { // a silver bolt looses — a high tick to glance at
+    if (!audioReady()) return;
+    voice("square", 1500, 950, 0, 0.06, 0.05);
+  },
+  quarryMark(): void { // the moon marks — a soft bell
+    if (!audioReady()) return;
+    voice("sine", 660, 655, 0, 0.7, 0.11);
+    voice("sine", 990, 985, 0, 0.5, 0.05);
+  },
+  quarryClaim(): void { // the blood-price paid — two ascending bells
+    if (!audioReady()) return;
+    voice("sine", 660, 660, 0, 0.4, 0.12);
+    voice("sine", 880, 880, 0.13, 0.55, 0.12);
+  },
+  denClaim(): void { // a den claimed — a low gong
+    if (!audioReady()) return;
+    voice("sine", 196, 182, 0, 0.9, 0.16);
+    voice("sine", 392, 380, 0, 0.5, 0.06);
+  },
+  roused(): void { // the village rouses — a distant toll
+    if (!audioReady()) return;
+    voice("sine", 330, 305, 0, 1.0, 0.1);
+    voice("sine", 660, 640, 0, 0.6, 0.04);
+  },
+  win(): void {
+    if (!audioReady()) return;
+    voice("sine", 392, 392, 0, 0.3, 0.12);
+    voice("sine", 494, 494, 0.16, 0.3, 0.12);
+    voice("sine", 587, 587, 0.32, 0.6, 0.14);
+  },
+  lost(): void {
+    if (!audioReady()) return;
+    voice("sine", 392, 388, 0, 0.35, 0.12);
+    voice("sine", 311, 308, 0.2, 0.4, 0.12);
+    voice("sine", 262, 258, 0.4, 0.8, 0.13);
+  },
+};
+
 // ---------- Game shell ----------
 
 function byId(id: string): HTMLElement {
@@ -2587,6 +2743,7 @@ function start(): void {
 
   svg.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    ensureAudio(); // first gesture unlocks the synth (autoplay policy)
     svg.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
@@ -2639,7 +2796,7 @@ function start(): void {
   const MOVE_KEYS = ["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
-    if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
+    if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); ensureAudio(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
   window.addEventListener("blur", () => keys.clear());
@@ -2803,7 +2960,27 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
+      // Snapshot the observable beats, step, then score what changed — the sound
+      // layer never reaches into the sim; it listens to it.
+      const pv = {
+        form: s.hero.form, hp: s.hero.hp, slain: s.slain,
+        bolts: s.bolts.length, biteCd: s.hero.biteCd, lunge: s.hero.lunge,
+        quarry: s.quarry, quarrySlain: s.quarrySlain, lit: s.litCount,
+        panic: villagePanic(s),
+      };
       stepHunt(s, dt, move);
+      if (audioReady()) {
+        if (s.hero.form !== pv.form) { if (s.hero.form === "wolf") sfx.howl(); else sfx.manAgain(); }
+        if (s.slain > pv.slain) sfx.kill();
+        else if (s.hero.biteCd > pv.biteCd) sfx.bite();
+        if (s.hero.lunge > 0 && pv.lunge <= 0) sfx.pounce();
+        if (s.bolts.length > pv.bolts) sfx.bolt();
+        if (s.hero.hp < pv.hp) sfx.hurt();
+        if (s.quarry >= 0 && pv.quarry < 0) sfx.quarryMark();
+        if (s.quarrySlain > pv.quarrySlain) sfx.quarryClaim();
+        if (s.litCount > pv.lit) sfx.denClaim();
+        if (pv.panic < ALARM_ROUSE && villagePanic(s) >= ALARM_ROUSE) sfx.roused();
+      }
       centerCam(s.hero.x, s.hero.y);
     }
 
@@ -2811,8 +2988,8 @@ function start(): void {
     hud();
     minimap();
 
-    if (s.phase === "won") { running = false; onWin(); return; }
-    if (s.phase === "lost") { running = false; onLost(); return; }
+    if (s.phase === "won") { running = false; sfx.win(); onWin(); return; }
+    if (s.phase === "lost") { running = false; sfx.lost(); onLost(); return; }
     requestAnimationFrame(huntFrame);
   }
 
@@ -3013,6 +3190,19 @@ function start(): void {
 
   byId("reset").addEventListener("click", () => showPicker());
 
+  // The sound toggle — persisted in the tiny hint key; muting suspends the context
+  // (no synthesis cost while off), unmuting resumes/creates it on the same gesture.
+  const muteBtn = byId("mute") as HTMLButtonElement;
+  const syncMute = (): void => { muteBtn.textContent = soundOn ? "Sound: on" : "Sound: off"; };
+  muteBtn.addEventListener("click", () => {
+    soundOn = !soundOn;
+    try { localStorage.setItem(WW_SOUND_KEY, soundOn ? "on" : "off"); } catch { /* ignore */ }
+    if (soundOn) ensureAudio();
+    else if (actx && actx.state === "running") void actx.suspend();
+    syncMute();
+  });
+  syncMute();
+
   const refreshBtn = byId("refresh");
   refreshBtn.addEventListener("click", async () => {
     refreshBtn.textContent = "Updating…";
@@ -3056,7 +3246,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     generateWerewolf, buildArena, freshHunt, stepHunt,
     stepMaul, bite, frontalFoe, stepFoes, stepBolts, stepCairns, stepMists, stepMotes,
     stepFields, stepGeysers, stepGale, stepHoards, inNodeAura, inGlade, inWoods, terrainSpeedMul,
-    stepQuarry, pickQuarry,
+    stepQuarry, pickQuarry, nodesOfKind,
     slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe, isPrey, villagePanic,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,

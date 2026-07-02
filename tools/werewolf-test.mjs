@@ -871,5 +871,18 @@ let qThrew = false;
 try { ww.render(qr, makeNode()); } catch (err) { qThrew = true; console.error(err); }
 ok(!qThrew, "render draws the quarry mark and the new watch silhouettes headlessly");
 
+// Q7. The per-kind node index — terrain queries read through nodesOfKind, and the
+//     index re-derives when the scenery array is swapped wholesale (array identity),
+//     so tests (and any rebuild) that replace s.scenery stay correct.
+const ix = ww.buildArena(ww.levelById(id));
+const ixCairns = ww.nodesOfKind(ix, "cairn");
+ok(ixCairns.length === ix.cairns.length && ix.scenery.filter((n) => n.kind === "cairn").length === ixCairns.length,
+  "nodesOfKind groups the scenery by kind");
+ix.scenery = [{ x: 10, y: 10, kind: "spring" }];
+ok(ww.nodesOfKind(ix, "spring").length === 1 && ww.nodesOfKind(ix, "cairn").length === 0,
+  "a swapped scenery array re-derives the index (identity-keyed)");
+ok(ww.inNodeAura(ix, 10, 10, "spring", K.SPRING_AURA) && !ww.inNodeAura(ix, 10, 10, "bog", K.BOG_AURA),
+  "inNodeAura reads through the index");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

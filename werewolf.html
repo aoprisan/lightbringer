@@ -131,14 +131,14 @@
     box-shadow: 0 0 8px rgba(205,214,230,0.5);
     transition: width .1s linear, filter .2s ease;
   }
-  #reset, #refresh {
+  #reset, #refresh, #mute {
     pointer-events: auto;
     font-family: inherit; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
     border: 1px solid transparent; background: none; color: var(--ink-dim);
     opacity: 0.5; cursor: pointer; transition: opacity .2s ease, color .2s ease;
     text-transform: uppercase;
   }
-  #reset:hover, #refresh:hover { opacity: 1; color: var(--ember); }
+  #reset:hover, #refresh:hover, #mute:hover { opacity: 1; color: var(--ember); }
   /* Header cross-links to the sibling games in this world. */
   .xlink {
     pointer-events: auto; font-size: 10.5px; letter-spacing: 0.1em; padding: 4px 8px;
@@ -342,6 +342,7 @@
         <div class="hpbar fury"><div id="fury"></div></div>
         <div class="hpbar mom" title="Momentum — the wolf's speed-charge"><div id="mom"></div></div>
       </div>
+      <button id="mute" title="Sound on/off">Sound: on</button>
       <button id="reset" title="Return to the village select">Choose village</button>
       <a class="xlink" id="origin-link" href="./index.html" title="Class Select — choose a different class" style="color:#9fb0d0;">⌂ Class Select</a>
       <a class="xlink" id="vigil-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="color:#ff6a3c;">The Burning Vigil</a>
