@@ -803,6 +803,22 @@ necro.saveNecroLegacy(necro.emptyNecroLegacy()); // clean again for the render s
   ok(near.hp < nhp0, "a death-miasma gnaws a knight standing in it");
   ok(far.hp === fhp0, "a knight outside the miasma is spared");
 }
+
+// 12f½. The fallen are pruned — killMinion only flags a corpse (so on-death powers
+//       fire once); the next march step drops it from the array, so a long march's
+//       horde never grows into a boneyard.
+{
+  const spr = necro.buildArena(necro.levelById(id));
+  stowAll(spr); spr.scenery = []; spr.solids = []; spr.barricades = []; spr.causeways = []; spr.graves = [];
+  for (const e of spr.knights) e.dead = true; // an empty field: nothing swings back
+  const mkm = (x) => ({ x, y: 700, vx: 0, vy: 0, hp: K.MINION_HP, maxHp: K.MINION_HP, dead: false, state: "follow", targetIdx: -1, attackCd: 0, hit: 0, bornAt: 0, variant: "grave" });
+  const mA = mkm(700), mB = mkm(730);
+  spr.minions = [mA, mB];
+  necro.killMinion(spr, mA);
+  ok(mA.dead && spr.minions.length === 2, "killMinion flags the corpse in place");
+  necro.stepMarch(spr, 16, still);
+  ok(spr.minions.length === 1 && spr.minions[0] === mB, "the next march step prunes the fallen from the horde");
+}
 {
   // The Bone Colossus rite raises a single towering minion (count forced to 1).
   const lc = necro.loadNecroLegacy(); lc.unlocked.push("colossus"); lc.equipped = "colossus"; necro.saveNecroLegacy(lc);

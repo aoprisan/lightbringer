@@ -810,6 +810,12 @@ const ehp0 = esh.hp;
 saw.penta.charge = 1; // the pulse clock runs while inscribed (hero's own ring is far off)
 for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) pg.stepPentagram(saw, 16);
 ok(esh.hp < ehp0 || esh.dead, "an awakened dwelling pulses shades in its reach");
+// The emitter is autonomous: it keeps biting on the pulse cadence even when the
+// hero's own sigil holds no charge at all (a moved-off hero doesn't switch it off).
+esh.hp = K.SHADE_HP; esh.dead = false;
+saw.penta.charge = 0;
+for (let t = 0; t < K.PENTA_PULSE_MS * 2; t += 16) pg.stepPentagram(saw, 16);
+ok(esh.hp < K.SHADE_HP || esh.dead, "an awakened dwelling bites even while the sigil holds no charge");
 
 // 31. Conduits — a lit dwelling relays its flame down a conduit to the next dark
 //     dwelling, a beat later (the fuse).

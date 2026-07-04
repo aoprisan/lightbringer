@@ -73,6 +73,7 @@ node tools/eldritch-test.mjs     # The Watcher at the Threshold watch test (agai
 node tools/werewolf-test.mjs     # The Moon's Hunger hunt test (against werewolf.js)
 node tools/gen-icons.mjs         # regenerate the parent icons/*.png from code
 node tools/gen-ww-icons.mjs      # regenerate the werewolf icons/werewolf-*.png from code
+node tools/gen-eld-icons.mjs     # regenerate the eldritch icons/eldritch-*.png from code
 ```
 
 `npm test` runs `tsc && node tools/pentagram-test.mjs && node
@@ -197,7 +198,7 @@ progressive enhancement, safe to ignore.
 ### Service worker cache versioning
 
 `sw.js` is the offline app-shell cache for the **class-select hub and all four games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v105`). It is **network-first for the
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v112`). It is **network-first for the
 shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
 `eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
@@ -608,12 +609,13 @@ No mid-watch save. The legacy is `eldritch.legacy.v1` (`EldLegacy`: `runs`, `sea
 `wardsSealed`, `banished`, `lore`, `unlocked`, `equipped` — new fields defaulted on load with **no key
 bump**), via `loadEldLegacy`/`saveEldLegacy`/`emptyEldLegacy` and the write-once-per-end `recordSeal`/
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath`, the render
-fallbacks), so the game is **fully playable with zero PNGs** — and it currently ships that way: **no PNG art
-of its own has shipped yet**, so only the shell (`eldritch.html`/`eldritch.js`/`eldritch.webmanifest`) is in
-`sw.js` `ASSETS` (network-first). Its webmanifest references PWA icons that don't exist yet; the browser
-fetches those (not `addAll`), so the 404s are harmless. When the Watcher/host/ward sprites and icons ship,
-add them to `ASSETS` **and** bump `CACHE`. Sprite resolution mirrors the siblings
-(`spriteFor`/`loadSprites`/`loadCitySprites`).
+fallbacks), so the game is **fully playable with zero gameplay PNGs** — and it currently ships that way:
+**no gameplay PNG art of its own has shipped yet**, so the shell
+(`eldritch.html`/`eldritch.js`/`eldritch.webmanifest`) is in `sw.js` `ASSETS` (network-first). Its **PWA
+icons DO ship**, though — a glowing Elder Sign over the threshold generated zero-dep by
+`tools/gen-eld-icons.mjs` (`icons/eldritch-icon-{192,512,180}.png` + maskable), listed in `sw.js` `ASSETS`.
+When the Watcher/host/ward sprites ship, add them to `ASSETS` **and** bump `CACHE`. Sprite resolution
+mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprites`).
 
 Shipping rules: `eldritch.html`/`eldritch.js`/`eldritch.webmanifest` are in `sw.js` `ASSETS` as shell
 (network-first); bump `CACHE` when their bytes change.

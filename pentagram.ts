@@ -1573,17 +1573,31 @@ function litReadout(s: PgState): string {
 const DIFFICULTY_CEIL = 1.6;             // the most a clear's score can be multiplied
 const THREAT_WEIGHT = {                  // per-unit challenge each menace dial adds
   elite: 0.6, healer: 0.5, obelisk: 0.5, spitter: 0.4, veil: 0.35, darter: 0.3,
+  mire: 0.15,                            // sucking ground punishes the dodge verb
   font: -0.3,                            // a lightwell eases the descent
+  // The expanded vocabulary is mostly player-favourable ground, so each shaves
+  // the multiplier a little (well under a font's ease; the Math.max floor below
+  // keeps the host's own price whole): ally emitters and mending ease the fight,
+  // concealment dulls the whole watch, and burn/herd terrain thins the host.
+  aid: -0.1,                             // per bonfire/lantern/hallow/spring/cache
+  cover: -0.15,                          // per grove/mist bank
+  control: -0.1,                         // per cinder/vent/gust/thicket
 };
 function difficultyMult(level: LevelDef): number {
   const km = level.keeperCount / 6;       // host size: 1.0 at old-city
   const sm = level.sizeScale ?? 1;        // bigger ground = more hunting
   const host = 0.4 * km * sm;
   const w = THREAT_WEIGHT;
+  const aid = (level.bonfireCount ?? 0) + (level.lanternCount ?? 0) + (level.hallowCount ?? 0)
+    + (level.springCount ?? 0) + (level.cacheCount ?? 0);
+  const cover = (level.groveCount ?? 0) + (level.mistCount ?? 0);
+  const control = (level.cinderCount ?? 0) + (level.ventCount ?? 0)
+    + (level.gustCount ?? 0) + (level.thicketCount ?? 0);
   const threat = w.elite * (level.eliteCount ?? 0) + w.healer * (level.healerCount ?? 0)
     + w.obelisk * (level.obeliskCount ?? 0) + w.spitter * (level.spitterCount ?? 0)
     + w.veil * (level.veilCount ?? 0) + w.darter * (level.darterCount ?? 0)
-    + w.font * (level.fontCount ?? 0);
+    + w.mire * (level.mireCount ?? 0)
+    + w.font * (level.fontCount ?? 0) + w.aid * aid + w.cover * cover + w.control * control;
   return +Math.min(DIFFICULTY_CEIL, 0.6 + host + 0.03 * Math.max(0, threat)).toFixed(2);
 }
 
@@ -1962,7 +1976,7 @@ function stepCaches(s: PgState): void {
 // Once only a handful remain, the rest rouse so a clear always reaches its end.
 function stepShades(s: PgState, dt: number): void {
   const h = s.hero;
-  const cleanup = aliveShades(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  const cleanup = aliveShades(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
   // A hero in concealing cover — drifting mist OR a grove's canopy — is harder to
   // find: wandering shades rouse from a shrunken aggro range (the most concealing
   // cover wins), and the ranged watch holds fire (checked per-spitter).
@@ -1973,6 +1987,11 @@ function stepShades(s: PgState, dt: number): void {
   if (inMistNow) aggroMul = Math.min(aggroMul, MIST_AGGRO_MUL);
   if (inGroveNow) aggroMul = Math.min(aggroMul, GROVE_AGGRO_MUL);
   const aggro2 = (AGGRO_RADIUS * aggroMul) ** 2;
+  // Hoisted once per frame: the gust and snuff checks below would otherwise walk
+  // the entire scenery for every shade — most cities seed no gusts at all, and
+  // only a handful of dwellings are lit at a time.
+  const gustNodes = s.scenery.filter((n) => n.kind === "gust");
+  const litDwellings = s.scenery.filter((n) => n.kind === "dwelling" && n.lit);
   for (const e of s.shades) {
     if (e.dead) continue;
 
@@ -2002,10 +2021,15 @@ function stepShades(s: PgState, dt: number): void {
         // A spitter holds standoff range and lobs bolts: back off if the hero
         // crowds it, hold ground in the band, drift in (slowly) if too far.
         speed = SHADE_SPEED * SPITTER_SPEED_MUL;
-        if (dist < SPITTER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
-        else if (dist <= SPITTER_STANDOFF * 1.15) { speed = 0; }
-        e.cooldown = (e.cooldown ?? 0) - dt;
-        if (e.cooldown <= 0 && dist <= SPITTER_RANGE && !heroHidden) {
+        // The cleanup sweep abandons the standoff: the flee band (0.85×standoff)
+        // is wider than the base sigil's radius, so a lone straggler that kept it
+        // could never be caught — it closes like a common shade instead.
+        if (!cleanup) {
+          if (dist < SPITTER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
+          else if (dist <= SPITTER_STANDOFF * 1.15) { speed = 0; }
+        }
+        if ((e.cooldown ?? 0) > 0) e.cooldown = (e.cooldown ?? 0) - dt;
+        if ((e.cooldown ?? 0) <= 0 && dist <= SPITTER_RANGE && !heroHidden) {
           const ax = h.x - e.x, ay = h.y - e.y, ad = Math.hypot(ax, ay) || 1;
           s.bolts.push({ x: e.x, y: e.y, vx: (ax / ad) * BOLT_SPEED, vy: (ay / ad) * BOLT_SPEED, born: s.elapsed });
           e.cooldown = SPITTER_COOLDOWN_MS;
@@ -2017,8 +2041,11 @@ function stepShades(s: PgState, dt: number): void {
         // and draws a mending arc to each, so the player can read who to kill first.
         // It never spawns anything, so the host stays finite.
         speed = SHADE_SPEED * HEALER_SPEED_MUL;
-        if (dist < HEALER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
-        else if (dist <= HEALER_STANDOFF * 1.15) { speed = 0; }
+        // Same cleanup rule as the spitter: a lone mender must be catchable.
+        if (!cleanup) {
+          if (dist < HEALER_STANDOFF * 0.85) { dx = -dx; dy = -dy; }
+          else if (dist <= HEALER_STANDOFF * 1.15) { speed = 0; }
+        }
         if ((e.cooldown ?? 0) > 0) e.cooldown = (e.cooldown ?? 0) - dt;
         if ((e.cooldown ?? 0) <= 0) {
           let mended = false;
@@ -2054,8 +2081,7 @@ function stepShades(s: PgState, dt: number): void {
 
     // A wind-vent (gust) shoves a shade steadily outward while it stands in the
     // aura — the hero, anchored by the flame, is unmoved. Opens a no-go lane.
-    for (const g of s.scenery) {
-      if (g.kind !== "gust") continue;
+    for (const g of gustNodes) {
       const gx = e.x - g.x, gy = e.y - g.y, gd = Math.hypot(gx, gy);
       if (gd > 0 && gd < GUST_AURA) {
         const push = (GUST_PUSH * dt) / 1000;
@@ -2068,8 +2094,8 @@ function stepShades(s: PgState, dt: number): void {
     // stands on consecrated ground: a shrine's aura, or a consecration ring the
     // carrier seared (both protect it).
     const sr2 = (SHADE_RADIUS + SNUFF_REACH) ** 2;
-    for (const n of s.scenery) {
-      if (n.kind !== "dwelling" || !n.lit) continue;
+    for (const n of litDwellings) {
+      if (!n.lit) continue; // an earlier shade this frame may have snuffed it
       if ((n.x - e.x) ** 2 + (n.y - e.y) ** 2 > sr2) continue;
       if (inShrineAura(s, n.x, n.y) || inConsecration(s, n.x, n.y)) continue;
       snuffDwelling(s, n);
@@ -2176,54 +2202,57 @@ function stepPentagram(s: PgState, dt: number): void {
   s.pulseAcc += dt;
   while (s.pulseAcc >= s.fxPulse) {
     s.pulseAcc -= s.fxPulse;
-    if (s.penta.charge <= 0) continue;
     const r2 = s.fxRadius ** 2;
-    const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
-    if (full) consecrate(s); // a full inscription sears warded ground underfoot
-    const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
-    const dmg = s.fxDmg * s.penta.charge * surge;
-    const justKilled: Shade[] = [];
-    for (const e of s.shades) {
-      if (e.dead) continue;
-      if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
-        e.state = "chase"; // a pulse that catches a wanderer rouses it
-        if (e.shielded) {
-          // Shielded: a partial pulse does nothing; a full one shatters the shield.
-          if (full) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
-          continue;
+    const charged = s.penta.charge > 0;
+    if (charged) {
+      const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
+      if (full) consecrate(s); // a full inscription sears warded ground underfoot
+      const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
+      const dmg = s.fxDmg * s.penta.charge * surge;
+      const justKilled: Shade[] = [];
+      for (const e of s.shades) {
+        if (e.dead) continue;
+        if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
+          e.state = "chase"; // a pulse that catches a wanderer rouses it
+          if (e.shielded) {
+            // Shielded: a partial pulse does nothing; a full one shatters the shield.
+            if (full) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
+            continue;
+          }
+          e.hp -= dmg;
+          e.hit = s.elapsed + SHADE_HIT_MS;
+          if (e.hp <= 0) { killShade(s, e); justKilled.push(e); }
         }
-        e.hp -= dmg;
-        e.hit = s.elapsed + SHADE_HIT_MS;
-        if (e.hp <= 0) { killShade(s, e); justKilled.push(e); }
       }
-    }
-    // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
-    if (s.type.power === "chain" && justKilled.length) {
-      const cr2 = CHAIN_RADIUS ** 2, cdmg = dmg * CHAIN_FRAC;
-      for (const k of justKilled) {
-        for (const e of s.shades) {
-          if (e.dead || e.shielded) continue;
-          if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
-            e.state = "chase";
-            e.hp -= cdmg;
-            e.hit = s.elapsed + SHADE_HIT_MS;
-            s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
-            if (e.hp <= 0) killShade(s, e);
+      // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
+      if (s.type.power === "chain" && justKilled.length) {
+        const cr2 = CHAIN_RADIUS ** 2, cdmg = dmg * CHAIN_FRAC;
+        for (const k of justKilled) {
+          for (const e of s.shades) {
+            if (e.dead || e.shielded) continue;
+            if ((e.x - k.x) ** 2 + (e.y - k.y) ** 2 <= cr2) {
+              e.state = "chase";
+              e.hp -= cdmg;
+              e.hit = s.elapsed + SHADE_HIT_MS;
+              s.arcs.push({ x1: k.x, y1: k.y, x2: e.x, y2: e.y, until: s.elapsed + ARC_MS });
+              if (e.hp <= 0) killShade(s, e);
+            }
           }
         }
       }
+      // Scorch (Quick Ember): each pulse stamps the ground under the hero.
+      if (s.type.power === "scorch") {
+        s.scorch.push({ x: hero.x, y: hero.y, until: s.elapsed + SCORCH_MS });
+        if (s.scorch.length > SCORCH_MAX) s.scorch.shift();
+      }
     }
-    // Scorch (Quick Ember): each pulse stamps the ground under the hero.
-    if (s.type.power === "scorch") {
-      s.scorch.push({ x: hero.x, y: hero.y, until: s.elapsed + SCORCH_MS });
-      if (s.scorch.length > SCORCH_MAX) s.scorch.shift();
-    }
-    // Dwellings caught in the ring kindle (mending the hero, and relaying down any
-    // conduit); awakened dwellings answer the pulse, biting the dark around them.
+    // Dwellings caught in the charged ring kindle (mending the hero, and relaying
+    // down any conduit); awakened dwellings answer the pulse cadence whether or not
+    // the hero holds charge — they are autonomous ally emitters.
     for (const n of s.scenery) {
       if (n.kind !== "dwelling") continue;
       if (!n.lit) {
-        if ((n.x - hero.x) ** 2 + (n.y - hero.y) ** 2 <= r2) kindleDwelling(s, n, DWELLING_HEAL);
+        if (charged && (n.x - hero.x) ** 2 + (n.y - hero.y) ** 2 <= r2) kindleDwelling(s, n, DWELLING_HEAL);
         continue;
       }
       if (n.awoke) {
@@ -4280,7 +4309,14 @@ function start(): void {
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    // Drop every live input, not just the keyboard: a pointer capture lost to
+    // the blur would otherwise leave the joystick vector stuck and the hero
+    // walking on their own when focus returns.
+    keys.clear();
+    pointers.clear(); pinch = null;
+    stick = null; move.x = 0; move.y = 0; hideStick();
+  });
   window.addEventListener("resize", () => {
     setupZoom();
     if (s) centerCam(s.hero.x, s.hero.y); else { clampCam(); applyCam(); }
@@ -4585,7 +4621,7 @@ function start(): void {
     showOverlay(
       "The city is cleansed",
       `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them — ` +
-      `and the Veilwarden broken, in <em>${fmtTime(ms)}</em>.<br><br>` +
+      `and the city cleansed, in <em>${fmtTime(ms)}</em>.<br><br>` +
       `${relit}<br><br>` +
       (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`) +
       breakdown,

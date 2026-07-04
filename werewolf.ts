@@ -580,7 +580,6 @@ const LEVELS: LevelDef[] = [
     id: "thornwick",
     name: "Thornwick",
     epigraph: "A small thatched holt under a thin grey moon, its greens deep in snow. The watch is few and slow to rouse. A fair first hunt.",
-    art: "art/village-thornwick.jpg",
     nodeCount: 110, minDist: 72,
     stoneCount: 4, cottageCount: 7, cairnCount: 6, moonwellCount: 2,
     greenCount: 5, greenSpacing: 360,
@@ -591,7 +590,6 @@ const LEVELS: LevelDef[] = [
     id: "greymoor",
     name: "Greymoor",
     epigraph: "Bleak moorland of gorse and standing stones, where houndsmen course the fog and bowmen wait the ridge.",
-    art: "art/village-greymoor.jpg",
     nodeCount: 122, minDist: 66,
     stoneCount: 8, cottageCount: 5, cairnCount: 7, moonwellCount: 2,
     greenCount: 7, greenSpacing: 320,
@@ -601,7 +599,6 @@ const LEVELS: LevelDef[] = [
     id: "hollowby",
     name: "Hollowby",
     epigraph: "A walled market town under the abbey bell. Friars keep their relics, men-at-arms their wall, and the bowmen the gate.",
-    art: "art/village-hollowby.jpg",
     nodeCount: 116, minDist: 70,
     stoneCount: 6, cottageCount: 10, cairnCount: 5, moonwellCount: 1,
     greenCount: 8, greenSpacing: 280,
@@ -612,7 +609,6 @@ const LEVELS: LevelDef[] = [
     id: "wulfmere",
     name: "Wulfmere",
     epigraph: "A drowned fen-village of black water and willow, the moon dead overhead. Every soul of it hunts you, and they are many.",
-    art: "art/village-wulfmere.jpg",
     nodeCount: 104, minDist: 84,
     stoneCount: 10, cottageCount: 4, cairnCount: 4, moonwellCount: 3,
     greenCount: 9, greenSpacing: 300,
@@ -1320,7 +1316,8 @@ function cohesion(s: WwState, e: Foe): { x: number; y: number } {
 
 // Idle drift on a leash around a body's green (shared by un-roused prey and hunters).
 function wander(s: WwState, e: Foe, dt: number): void {
-  e.wanderAngle += (Math.random() - 0.5) * 0.5;
+  // Jitter scaled by dt so the drift's character doesn't change with refresh rate.
+  e.wanderAngle += (Math.random() - 0.5) * 0.5 * (dt / 16.7);
   let wx = Math.cos(e.wanderAngle) * FOE_WANDER_SPEED;
   let wy = Math.sin(e.wanderAngle) * FOE_WANDER_SPEED;
   const dHome = Math.hypot(e.x - e.homeX, e.y - e.homeY);
@@ -1673,7 +1670,10 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
   // MOMENTUM — the wolf's whole weapon. It builds while the beast runs near top speed
   // and bleeds when it slows (held, at moonlit footing). A man carries none.
   if (h.form === "wolf") {
-    if (movdSpeed > MOMENTUM_MIN_SPEED) {
+    // A pounce-lunge doesn't feed the meter it just spent — its locked velocity
+    // (well past top speed) would otherwise rebuild the POUNCE_SPEND within the
+    // dash and defeat the cost.
+    if (movdSpeed > MOMENTUM_MIN_SPEED && h.lunge <= 0) {
       h.momentum = Math.min(1, h.momentum + (dt / (MOMENTUM_RISE_MS * s.pelt.chargeMul)) * (movdSpeed / HERO_SPEED_WOLF));
     } else if (!moonlit) {
       h.momentum = Math.max(0, h.momentum - dt / MOMENTUM_DECAY_MS);
@@ -2799,7 +2799,14 @@ function start(): void {
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); ensureAudio(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    // Drop every live input, not just the keyboard: a pointer capture lost to
+    // the blur would otherwise leave the joystick vector stuck and the hero
+    // walking on their own when focus returns.
+    keys.clear();
+    pointers.clear(); pinch = null;
+    stick = null; move.x = 0; move.y = 0; hideStick();
+  });
   window.addEventListener("resize", () => {
     setupZoom();
     if (s) centerCam(s.hero.x, s.hero.y); else { clampCam(); applyCam(); }
