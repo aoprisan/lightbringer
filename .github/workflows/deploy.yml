@@ -34,7 +34,15 @@ jobs:
       - name: Compile TypeScript modules to JavaScript
         run: npm run build
       - name: Prune non-shipped files from the artifact
-        run: rm -rf node_modules
+        # The published site is the repo root, so everything that isn't served must
+        # be stripped here: TS source, build config, internal planning docs, prompt
+        # scratch, and the tools. What survives is the hub + the four game shells,
+        # their compiled .js, the webmanifests, sw.js, and the art/icons they list.
+        # (upload-pages-artifact already excludes .git and .github from its tar.)
+        run: |
+          rm -rf node_modules tools gemini-prompts art-prompts-output docs
+          rm -f ./*.ts ./*.md LICENSE the-light-bringer.html
+          rm -f package.json package-lock.json tsconfig.json .gitignore
       - uses: actions/configure-pages@v5
       - name: Upload site
         uses: actions/upload-pages-artifact@v3

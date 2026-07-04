@@ -1052,7 +1052,7 @@ function nearestKnight(s: NecroState, x: number, y: number, range: number): numb
 // MINION_FOLLOW_DIST so the horde clusters at his heel. pushOut after the move.
 function stepMinions(s: NecroState, dt: number): void {
   const h = s.hero;
-  const cleanup = aliveKnights(s) > 0 && aliveKnights(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  const cleanup = aliveKnights(s) > 0 && aliveKnights(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
   // While the horde is frenzied (a gathered death-mote), every minion swings faster
   // and bites harder for the window; Swift Dead (a perk) hastens the horde's travel.
   const frenzied = s.elapsed < h.frenzyUntil;
@@ -1132,7 +1132,7 @@ function nearestMinion(s: NecroState, x: number, y: number, range: number): numb
 // (hits++, knockback). Once only a handful remain, the rest rouse so a march ends.
 function stepKnights(s: NecroState, dt: number): void {
   const h = s.hero;
-  const cleanup = aliveKnights(s) <= s.total * CLEANUP_AGGRO_FRAC;
+  const cleanup = aliveKnights(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
 
   // Rally pass — a standard-bearer's banner emboldens the watch around it. Recompute
   // each frame which knights stand within a living bearer's aura (transient, never
@@ -1273,7 +1273,10 @@ function stepKnights(s: NecroState, dt: number): void {
               if (m.dead) continue;
               if ((m.x - e.x) ** 2 + (m.y - e.y) ** 2 <= (KNIGHT_RADIUS + MINION_RADIUS + 4) ** 2) {
                 m.hp -= MARSHAL_IMPACT_DMG; m.hit = s.elapsed + HIT_FLASH_MS;
-                m.x += (dx / kd) * MARSHAL_KNOCKBACK; m.y += (dy / kd) * MARSHAL_KNOCKBACK;
+                // Same courtesy as the hero-impact path above: the flung skeleton
+                // is pushed out of solids rather than teleported into them.
+                const mp = pushOut(s, m.x + (dx / kd) * MARSHAL_KNOCKBACK, m.y + (dy / kd) * MARSHAL_KNOCKBACK, MINION_RADIUS);
+                m.x = mp.x; m.y = mp.y;
                 if (m.hp <= 0) killMinion(s, m);
                 struck = true; break;
               }
@@ -1625,6 +1628,13 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   // Retire spent FX (cheap; only when any are live).
   if (s.raises.length) s.raises = s.raises.filter((r) => r.until > s.elapsed);
   if (s.smites.length) s.smites = s.smites.filter((f) => f.until > s.elapsed);
+
+  // Lay the fallen to rest: killMinion only flags a corpse (so on-death powers fire
+  // exactly once); pruning here keeps a long march's separation loops and render
+  // from wading through an ever-growing boneyard. Live references held across
+  // frames (a priest's smiteTarget) are object refs that re-check .dead, so
+  // dropping corpses from the array is safe.
+  if (s.minions.some((m) => m.dead)) s.minions = s.minions.filter((m) => !m.dead);
 
   // Terminal: the necromancer falls first; else the whole watch is overrun.
   if (h.hp <= 0) { h.hp = 0; s.phase = "lost"; }
@@ -2569,7 +2579,14 @@ function start(): void {
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    // Drop every live input, not just the keyboard: a pointer capture lost to
+    // the blur would otherwise leave the joystick vector stuck and the hero
+    // walking on their own when focus returns.
+    keys.clear();
+    pointers.clear(); pinch = null;
+    stick = null; move.x = 0; move.y = 0; hideStick();
+  });
   window.addEventListener("resize", () => {
     setupZoom();
     if (s) centerCam(s.hero.x, s.hero.y); else { clampCam(); applyCam(); }
@@ -2589,7 +2606,13 @@ function start(): void {
     if (!s) return;
     hpFill.style.width = Math.max(0, (s.hero.hp / s.hero.maxHp) * 100) + "%";
     cityEl.textContent = s.level.name;
-    soulsEl.textContent = `${s.souls} souls · ${aliveMinions(s)} risen`;
+    // The core risk/reward verb gets a readable state: a banked overcharge means
+    // the next raise is empowered (a champion), and a frenzy window is ticking.
+    let standing = `${s.souls} souls · ${aliveMinions(s)} risen`;
+    if (s.hero.overcharge >= 1) standing += " · ◈ empowered";
+    else if (s.hero.overcharge > 0) standing += ` · ◈ ${Math.round(s.hero.overcharge * 100)}%`;
+    if (s.elapsed < s.hero.frenzyUntil) standing += ` · frenzy ${Math.ceil((s.hero.frenzyUntil - s.elapsed) / 1000)}s`;
+    soulsEl.textContent = standing;
     const alive = aliveKnights(s);
     let foes = alive > 0 ? `Overrun ${alive} / ${s.total} knights` : `Village overrun`;
     if (alive > 0 && alive <= 3) {

@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v111";
+const CACHE = "lightbringer-v112";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
@@ -21,14 +21,19 @@ const ASSETS = [
   "./necro.js",
   "./necro.webmanifest",
   // The Watcher at the Threshold — the fourth sibling spinoff (Lovecraftian), its own
-  // page + module. Shell only (network-first via isShell): it ships fully procedural,
-  // with zero PNGs of its own, so no art is listed here yet (the Watcher/host/ward
-  // sprites and PWA icons render from vector primitives until the art ships — add
-  // them to this list AND bump CACHE when it does). The webmanifest's referenced
-  // icons are fetched by the browser, not addAll(), so a missing icon is harmless.
+  // page + module. Shell (network-first via isShell) plus its generated PWA icons:
+  // gameplay stays fully procedural, with zero PNGs of its own, so no art is listed
+  // here yet (the Watcher/host/ward sprites render from vector primitives until that
+  // art ships — add them to this list AND bump CACHE when it does).
   "./eldritch.html",
   "./eldritch.js",
   "./eldritch.webmanifest",
+  // Watcher branding — PWA icons (a glowing Elder Sign over the threshold),
+  // generated zero-dep by tools/gen-eld-icons.mjs. Maskable for adaptive launchers.
+  "./icons/eldritch-icon-192.png",
+  "./icons/eldritch-icon-512.png",
+  "./icons/eldritch-icon-180.png",
+  "./icons/eldritch-maskable-512.png",
   // The Moon's Hunger — the fifth sibling spinoff (werewolf), its own page + module.
   // Shell only (network-first via isShell): it ships fully procedural, with zero
   // gameplay PNGs of its own, so no art is listed here yet (the wolf/watch/cairn

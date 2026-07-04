@@ -753,8 +753,13 @@ function firePulse(s: EldState): void {
     if (d > radius + HORROR_RADIUS) continue;
     if (empowered || s.sign.power === "repel") {
       const a = Math.atan2(e.y - h.y, e.x - h.x);
-      e.x += Math.cos(a) * REPEL_KNOCK;
-      e.y += Math.sin(a) * REPEL_KNOCK;
+      // The shove respects the world: clamped to the arena and pushed out of
+      // solids, so a repelled horror can't be flung through a menhir or off-map.
+      const p = pushOut(s,
+        clamp(e.x + Math.cos(a) * REPEL_KNOCK, HORROR_RADIUS, s.w - HORROR_RADIUS),
+        clamp(e.y + Math.sin(a) * REPEL_KNOCK, HORROR_RADIUS, s.h - HORROR_RADIUS),
+        HORROR_RADIUS);
+      e.x = p.x; e.y = p.y;
     }
     hurtHorror(s, e, dmg);
   }
@@ -832,8 +837,9 @@ function stepHorrors(s: EldState, dt: number): void {
       if (dh < HORROR_AGGRO || fewLeft) {
         e.state = "hunt";
       } else {
-        // Idle drift on a leash around the rift.
-        e.wanderAngle += (Math.random() - 0.5) * 0.5;
+        // Idle drift on a leash around the rift (jitter scaled by dt so the
+        // drift's character doesn't change with the display's refresh rate).
+        e.wanderAngle += (Math.random() - 0.5) * 0.5 * (dt / 16.7);
         let wx = Math.cos(e.wanderAngle) * HORROR_WANDER_SPEED;
         let wy = Math.sin(e.wanderAngle) * HORROR_WANDER_SPEED;
         const dHome = Math.hypot(e.x - e.homeX, e.y - e.homeY);
@@ -890,17 +896,18 @@ function stepHorrors(s: EldState, dt: number): void {
     moveBody(s, e, (dxh / dh) * speed + sep.x, (dyh / dh) * speed + sep.y, dt, HORROR_RADIUS);
     if (e.attackCd > 0) e.attackCd -= dt;
     const reach = HERO_RADIUS + HORROR_RADIUS + HORROR_ATTACK_REACH;
-    if (dh <= reach && e.attackCd <= 0) {
+    // The cooldown is only spent on a landed blow — a horror pawing at an
+    // i-framed Watcher keeps its swing ready for the instant the frames end
+    // (matching the necro knights' melee).
+    if (dh <= reach && e.attackCd <= 0 && h.hurt <= 0) {
       e.attackCd = HORROR_ATTACK_CD;
-      if (h.hurt <= 0) {
-        const contact = e.variant === "darter" ? DARTER_CONTACT
-          : e.variant === "brute" ? BRUTE_CONTACT : HORROR_CONTACT;
-        h.hp -= contact;
-        h.hurt = HERO_IFRAMES_MS;
-        s.hits += 1;
-        h.x = clamp(h.x + (dxh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.w - HERO_RADIUS);
-        h.y = clamp(h.y + (dyh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.h - HERO_RADIUS);
-      }
+      const contact = e.variant === "darter" ? DARTER_CONTACT
+        : e.variant === "brute" ? BRUTE_CONTACT : HORROR_CONTACT;
+      h.hp -= contact;
+      h.hurt = HERO_IFRAMES_MS;
+      s.hits += 1;
+      h.x = clamp(h.x + (dxh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.w - HERO_RADIUS);
+      h.y = clamp(h.y + (dyh / dh) * -HERO_KNOCKBACK, HERO_RADIUS, s.h - HERO_RADIUS);
     }
     defileNearWard(s, e);
   }
@@ -1530,10 +1537,11 @@ function saveEldLegacy(l: EldLegacy): void {
 }
 
 // Fold a sealed threshold (a win) into the legacy — write-once at the end transition.
-function recordSeal(level: LevelDef, ms: number, wards = 0, lore = 0): EldLegacy {
+function recordSeal(level: LevelDef, ms: number, wards = 0, lore = 0, banishedN = 0): EldLegacy {
   const l = loadEldLegacy();
   l.runs += 1; l.seals += 1;
   l.wardsSealed += wards;
+  l.banished += banishedN;
   l.lore += lore;
   const prev = l.best[level.id];
   if (prev == null || ms < prev) l.best[level.id] = ms;
@@ -1710,7 +1718,14 @@ function start(): void {
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
   });
   window.addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); });
-  window.addEventListener("blur", () => keys.clear());
+  window.addEventListener("blur", () => {
+    // Drop every live input, not just the keyboard: a pointer capture lost to
+    // the blur would otherwise leave the joystick vector stuck and the hero
+    // walking on their own when focus returns.
+    keys.clear();
+    pointers.clear(); pinch = null;
+    stick = null; move.x = 0; move.y = 0; hideStick();
+  });
   window.addEventListener("resize", () => {
     setupZoom();
     if (s) centerCam(s.hero.x, s.hero.y); else { clampCam(); applyCam(); }
@@ -1880,7 +1895,7 @@ function start(): void {
     const wards = s.litCount, total = s.wardsTotal;
     const sc = scoreRun(s);
     const lore = Math.max(1, Math.round(sc.total / LORE_SCORE_DIV));
-    const l = recordSeal(s.level, ms, wards, lore);
+    const l = recordSeal(s.level, ms, wards, lore, s.banished);
     const best = l.best[s.level.id];
     const wardLine = (wards >= total && total > 0
       ? `You sealed every ward — <em>${total}</em>. The place is warded whole.`

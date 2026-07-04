@@ -442,6 +442,8 @@ ok(l3.best[id] === 3000, "a faster seal sets a new best");
 const l4 = eld.recordFall(2, 3);
 ok(l4.runs === 4 && l4.seals === 3, "a fall bumps watches but not seals");
 ok(l4.banished === 3, "a fall folds the host banished");
+const l5 = eld.recordSeal(lv, 9000, 0, 0, 5);
+ok(l5.banished === 8, "a seal folds the host banished too (wins count)");
 ok(eld.loadEldLegacy().best[id] === 3000, "the legacy persists to storage");
 // Backward compatibility: an old save without the new fields defaults cleanly.
 store.set(LEGACY_KEY, JSON.stringify({ runs: 2, seals: 1, best: {} }));
