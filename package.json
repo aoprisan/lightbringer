@@ -9,8 +9,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs",
-    "icons": "node tools/gen-icons.mjs && node tools/gen-ww-icons.mjs",
+    "test": "tsc && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs && node tools/bomber-test.mjs",
+    "icons": "node tools/gen-icons.mjs && node tools/gen-ww-icons.mjs && node tools/gen-bomber-icons.mjs",
     "start": "tsc && python3 -m http.server 8000"
   },
   "devDependencies": {

@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The Light-Bringer is a set of action games shipped as installable, offline-capable **PWAs** in one
 repository, unified behind a **class-select front door**: the site root (`index.html`) is a hub where the
 player **chooses a class**, and that choice launches one of the games (for now each class simply *is* one of
-the games). There are **four** games (the first three share one world — a city taught that *light burns*;
-the fourth is a Lovecraftian sibling) plus a werewolf sibling:
+the games). There are **five** games (the first two share one world — a city taught that *light burns*;
+the third is a Lovecraftian sibling, the fourth a werewolf sibling, and the fifth a WW2 bomber sibling):
 
 - **The Burning Vigil** (`pentagram.ts` / `pentagram.html`) — the **primary** game: an Archero-style
   action-combat descent. You stand still to inscribe a burning pentagram that scorches the city's risen
@@ -30,6 +30,15 @@ the fourth is a Lovecraftian sibling) plus a werewolf sibling:
   armed hunters), and by daylight fury bleeds you back to a man — so feed (kill) to hold the change. The
   whole loop is **pure joystick** (no attack button). Cut down the finite watch to claim the village. See
   its full section below.
+- **The Iron Rain** (`bomber.ts` / `bomber.html`) — a **WW2 bomber sibling spinoff** under the leaden skies
+  of a world war. You captain a **heavy bomber that can never stop** (no input = cruise straight on); the
+  family's stand-still verb is inverted into the **bomb run** — *hold a straight and level course* to arm
+  the **bombsight**, and an armed sight releases bombs ahead of the nose. The counter-pressure is **flak**
+  that *leads your predicted line* (a straight run is a predictable run) with telegraphed, dodgeable bursts,
+  plus **fighter squadrons** that scramble from bombable **airfields** — bomb the field first and its
+  grounded squadron burns. Your own **escort fighters** fly a formation ring and tangle with the
+  interceptors. Silence the finite target list (**works** + **army columns**) to complete the raid. See its
+  full section below.
 > **Retired:** the original *contemplative* turn-based inversion game (`app.ts` / the old `index.html`
 > content) has been **dropped**. Its source, its smoke-test (`tools/smoke-test.mjs`), and its build/cache/
 > deploy wiring are gone; `index.html` is now the class-select hub. The four action games carry the shared
@@ -37,8 +46,8 @@ the fourth is a Lovecraftian sibling) plus a werewolf sibling:
 > their patterns (the pure-sim/render split, the per-node invariants, the cities-as-levels machinery).
 
 The codebase is plain HTML/CSS + hand-written TypeScript modules rendering layered SVG. `tsc` compiles
-`pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`, `eldritch.ts` → `eldritch.js`, and `werewolf.ts` →
-`werewolf.js`; those `.js` files are what GitHub Pages serves. The hub (`index.html`) and each game
+`pentagram.ts` → `pentagram.js`, `necro.ts` → `necro.js`, `eldritch.ts` → `eldritch.js`, `werewolf.ts` →
+`werewolf.js`, and `bomber.ts` → `bomber.js`; those `.js` files are what GitHub Pages serves. The hub (`index.html`) and each game
 **cross-link**: every game's header has a **⌂ Class Select** link back to the hub plus quick links to its
 siblings.
 
@@ -49,8 +58,8 @@ intended future direction** (trading, async/PvP duels, shared profiles), and lan
 a backend and/or runtime dependencies. Weigh new dependencies on their merits.
 
 > **The Burning Vigil (`pentagram.ts`) is the primary game; The Necromancer's March (`necro.ts`) is its
-> active sibling spinoff.** New gameplay work happens in `pentagram.ts` or `necro.ts` (or the other two
-> spinoffs). All four share art and are reached from the class-select hub (`index.html`), which is a plain
+> active sibling spinoff.** New gameplay work happens in `pentagram.ts` or `necro.ts` (or the other three
+> spinoffs). All five are reached from the class-select hub (`index.html`), which is a plain
 > static page — picking a class navigates to that game's shell.
 
 ## Commands
@@ -58,9 +67,9 @@ a backend and/or runtime dependencies. Weigh new dependencies on their merits.
 ```sh
 npm install                      # one-time: install the TypeScript compiler
 
-npm run build                    # compile pentagram.ts/necro.ts/eldritch.ts/werewolf.ts -> .js
+npm run build                    # compile pentagram.ts/necro.ts/eldritch.ts/werewolf.ts/bomber.ts -> .js
 npm run typecheck                # type-check only, no emit (tsc --noEmit)
-npm test                         # build, then run all four headless tests
+npm test                         # build, then run all five headless tests
 npm start                        # build, then serve over HTTP on :8000
 
 # Run locally by hand — must be over HTTP, not file://, because the service
@@ -71,16 +80,18 @@ node tools/pentagram-test.mjs    # The Burning Vigil combat test (against pentag
 node tools/necro-test.mjs        # The Necromancer's March march test (against necro.js)
 node tools/eldritch-test.mjs     # The Watcher at the Threshold watch test (against eldritch.js)
 node tools/werewolf-test.mjs     # The Moon's Hunger hunt test (against werewolf.js)
+node tools/bomber-test.mjs       # The Iron Rain raid test (against bomber.js)
 node tools/gen-icons.mjs         # regenerate the parent icons/*.png from code
 node tools/gen-ww-icons.mjs      # regenerate the werewolf icons/werewolf-*.png from code
 node tools/gen-eld-icons.mjs     # regenerate the eldritch icons/eldritch-*.png from code
+node tools/gen-bomber-icons.mjs  # regenerate the bomber icons/bomber-*.png from code
 ```
 
 `npm test` runs `tsc && node tools/pentagram-test.mjs && node
-tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs` — compile, then all
-four suites in sequence.
+tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs && node
+tools/bomber-test.mjs` — compile, then all five suites in sequence.
 
-The `.js` files (`pentagram.js`, `necro.js`, `eldritch.js`, `werewolf.js`) are **build artifacts** — git-ignored, regenerated by
+The `.js` files (`pentagram.js`, `necro.js`, `eldritch.js`, `werewolf.js`, `bomber.js`) are **build artifacts** — git-ignored, regenerated by
 `tsc`. Never edit them directly; edit the `.ts`. Each test imports its compiled `.js`, so always
 `npm run build` (or `npm test`, which does it) before running a test by hand.
 
@@ -88,13 +99,13 @@ There is no single-test runner; each `tools/*-test.mjs` is one file of assertion
 To narrow your work, edit/comment assertions locally — don't add a framework. The `tools/*.mjs` scripts are
 plain Node ESM, not part of the TS build.
 
-`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all four
+`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all five
 files compiling clean (`npm run typecheck`). Its `include` is `["pentagram.ts", "necro.ts",
-"eldritch.ts", "werewolf.ts"]`; `lightbringer.ts` is excluded (reference-only prototype).
+"eldritch.ts", "werewolf.ts", "bomber.ts"]`; `lightbringer.ts` is excluded (reference-only prototype).
 
 ## Architecture
 
-### The pure-sim / read-only-render split (all four games)
+### The pure-sim / read-only-render split (all five games)
 
 Every game keeps the same discipline: the **simulation** functions take a plain state object and never touch
 the DOM; **rendering** is a separate pass that reads the state and rebuilds the SVG. Sim mutates state,
@@ -110,13 +121,14 @@ stubs a minimal `localStorage`/`document`, then imports the compiled `.js`:
 | `necro.ts` | `globalThis.__NECRO_TEST__` | `globalThis.__necro` |
 | `eldritch.ts` | `globalThis.__ELD_TEST__` | `globalThis.__eld` |
 | `werewolf.ts` | `globalThis.__WW_TEST__` | `globalThis.__ww` |
+| `bomber.ts` | `globalThis.__BOMBER_TEST__` | `globalThis.__bomber` |
 
 If you add a sim function a test needs, export it through that object.
 
-**Module vs global script — an important difference.** `pentagram.ts`, `necro.ts`, `eldritch.ts` and
-`werewolf.ts` **are TS modules** (each ends with `export {};`) loaded via `<script type="module">`. This is
-required: all four are in `tsconfig.json`'s `include`, and scriptless files would collide on every top-level
-name (`W`, `el`, `render`, `start`, …). Module scope keeps the four games isolated from each other. Don't
+**Module vs global script — an important difference.** `pentagram.ts`, `necro.ts`, `eldritch.ts`,
+`werewolf.ts` and `bomber.ts` **are TS modules** (each ends with `export {};`) loaded via `<script type="module">`. This is
+required: all five are in `tsconfig.json`'s `include`, and scriptless files would collide on every top-level
+name (`W`, `el`, `render`, `start`, …). Module scope keeps the five games isolated from each other. Don't
 remove the `export {};` or convert them. (The removed original, `app.ts`, was the one classic global script —
 which is why the modules' comments still note "no `import`/`export`, like `app.ts`": that contrast is
 historical now.)
@@ -188,8 +200,9 @@ raising-rite shop both mirror.)*
 | `necro.ts` | *no mid-march save* | `necromancer.legacy.v1` (`NECRO_LEGACY_KEY`) |
 | `eldritch.ts` | *no mid-watch save* | `eldritch.legacy.v1` (`ELD_LEGACY_KEY`) |
 | `werewolf.ts` | *no mid-hunt save* | `werewolf.legacy.v1` (`WW_LEGACY_KEY`) |
+| `bomber.ts` | *no mid-raid save* | `bomber.legacy.v1` (`BOMBER_LEGACY_KEY`) |
 
-The four action games have **no mid-run save at all** (runs are short), so their only persistence is the
+The five action games have **no mid-run save at all** (runs are short), so their only persistence is the
 cross-run **legacy** key. Those keys survive "Begin again", and each gains fields **defaulted on load with no
 key bump**. They are write-once-per-run-end (fold in exactly once at each genuine end transition). The hub
 (`index.html`) keeps only a tiny `lightbringer.lastClass` hint (which class was picked last) — pure
@@ -197,10 +210,10 @@ progressive enhancement, safe to ignore.
 
 ### Service worker cache versioning
 
-`sw.js` is the offline app-shell cache for the **class-select hub and all four games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v112`). It is **network-first for the
+`sw.js` is the offline app-shell cache for the **class-select hub and all five games**, with an explicit
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v113`). It is **network-first for the
 shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
-`eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
+`eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`, `bomber.html`, `bomber.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
 404s, so every file in `ASSETS` must exist.
 
@@ -782,9 +795,114 @@ mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprites`).
 Shipping rules: `werewolf.html`/`werewolf.js`/`werewolf.webmanifest` and the `icons/werewolf-*.png` are in
 `sw.js` `ASSETS` (shell network-first, icons cache-first); bump `CACHE` when their bytes change.
 
+---
+
+## The Iron Rain — the WW2 bomber spinoff (`bomber.ts` / `bomber.html`)
+
+`bomber.ts` (→ `bomber.js`) + `bomber.html` are a sixth action spinoff, set under the **leaden skies of a
+world war**. Where the siblings walk the ground, this one **flies**: you captain a heavy bomber over
+defended country and must **silence every target** — the static **works** (`Structure`: factory / depot /
+hardened **pens** / **airfield**) and the moving **army columns** (`Column`, patrolling between waypoints) —
+to complete the raid; lose your airframe (`hero.hp`) and you go down. Like its siblings it is a TS module
+(`export {};`, `<script type="module">`), real-time per-frame (`stepRaid(s, dt, move)`), with the
+pure-sim/read-only-render split and a test seam (`globalThis.__BOMBER_TEST__` → `globalThis.__bomber`,
+driven by `tools/bomber-test.mjs`).
+
+### The defining twist — a hero that can NEVER STOP, and the BOMB RUN
+
+Nothing else in the repo has this. The bomber has `heading`/`speed` and **always flies**: the joystick
+steers the nose (`TURN_RATE`) and opens the throttle (`SPEED_CRUISE`..`SPEED_MAX`); **no input means cruise,
+straight on**. The family's stand-still verb is therefore inverted into the **bomb run**: holding a
+**straight and level course** (angular velocity under `STEADY_TURN`) arms the **bombsight** (`hero.charge`
+ramps over `SIGHT_CHARGE_MS`); a hard turn bleeds it, and **cloud blinds it** outright. Once armed past
+`SIGHT_ARM_AT`, `stepSight` releases bombs on a cadence (`BOMB_CD_MS`) — each is laid `BOMB_CARRY` ahead of
+the nose, falls `BOMB_FALL_MS` (telegraphed), then `burstBomb` deals AoE `BOMB_DMG` to every work, column
+and battery in reach. **Overcharge** mirrors the siblings': hold the run *past* a full arm to bank one
+(`SIGHT_OVERCHARGE_MS`); the next release is a **blockbuster** (`MASTER_RADIUS_MUL`/`MASTER_DMG_MUL`), and
+any hard turn spends the bank.
+
+### The counter-pressure — FLAK that leads a straight run, and the ALERT
+
+The flak (`FlakGun`, `stepFlak`) is why the run is a *choice*: a battery with the (un-hidden) bomber in
+`FLAK_RANGE` lays a shell at the bomber's **predicted position** (velocity-led over `FLAK_FUSE_MS`, plus
+`FLAK_SCATTER`); the shell is **telegraphed** the whole fuse (a sharpening red reticle), then bursts
+(`FLAK_BURST_R`/`FLAK_DMG`) — **indiscriminately** (any plane, either side, caught inside is hit too). Fly
+straight and the lead is perfect; jink and it bursts behind you — the exact counter-pressure on what the
+bombsight demands. Batteries are **bombable** (`hurtFlak`, `s.flakDown` — a secondary objective, scored) but
+not part of the win gate. **ALERT** (`s.alert`, 0..1) is the defence's temper: every burst raises it
+(`ALERT_PER_BURST`), time bleeds it (`ALERT_DECAY`); high alert quickens the flak (`ALERT_FLAK_HASTE`) and
+stretches the fighters' scramble radius (`ALERT_SCRAMBLE_MUL`) — so a raid breathes: strike, slip away, let
+the guns settle.
+
+### The air war — squadrons, airfields, and YOUR OWN ESCORTS
+
+One roster (`s.planes`, `Plane.axis` splits the sides), run by `stepPlanes`. Each **airfield** holds a
+grounded squadron (`FIGHTER_PER_FIELD`, `state: "base"`) that **scrambles** when the un-hidden bomber comes
+inside its alert-stretched radar reach (`SCRAMBLE_RANGE`) — or **burns on the ground** if you bomb the field
+first (`destroyTarget` kills its `state: "base"` planes; a fighter already aloft survives). A flying axis
+fighter runs the bomber down and fires in bursts (`FIGHTER_RANGE`/`FIGHTER_CD`/`FIGHTER_DMG`, i-framed) —
+unless an **escort** within `FIGHTER_TANGLE_R` pulls it off. **Escorts** (the horde inverted into a wing)
+hold a formation ring (`ESCORT_FORM_R`) around the bomber and peel off to engage any axis fighter within
+`ESCORT_ENGAGE_R` of the fray. A downed axis fighter may leave a **supply chute** (`CHUTE_DROP_CHANCE`,
+`stepChutes`) — catch it to patch the airframe (`PATCH_HEAL`, the mote analog). Bringing escorts home pays
+(`SCORE_ESCORT_MAX`). Damage paths are centralized like the siblings': `hurtTarget`/`destroyTarget`,
+`hurtFlak`, `hurtBomber` (i-framed), `hurtPlane`/`downPlane`.
+
+### Terrain of the sky
+
+All pure, rebuilt at `buildArena`, never persisted. **Barrage balloons** are the sky's only solids
+(`BALLOON_RADIUS`, `pushOut` — nothing on the ground blocks a plane). **Clouds** (`Cloud`, `stepClouds`,
+`inCloud`) are the mist analog with a real trade: inside one the bomber is **hidden** (flak can't lay on
+it, fighters hold fire and won't scramble to it) but the sight is **blind** (charge bleeds). **Streams**
+(`weaveSegments`, `STREAM_HALF`/`STREAM_BOOST`) are tailwind lanes that speed the bomber (the paths analog).
+The cosmetic country — fields, woods, **towns (spared, never bombable)**, rivers — is scenery only.
+
+### Airframes — the weapon shop (`BOMBER_TYPES`, medals)
+
+The captain flies **one** airframe per raid (`s.loadout`, resolved from the legacy at build via
+`bomberTypeById`), bought with **medals** (the currency mirror of embers/relics/lore/moonstones). Four:
+**The Lancaster** (`lanc`, free, balanced), **The Fortress** (`fortress`, power `gunners` — turret gunners
+rake any fighter within `GUNNER_R`; slow, heavy, `hpMul` 1.5), **The Mosquito** (`mosquito`, power
+`evasive` — the flak's scatter doubles against it; fast, frail, quick sight), and **The Firestorm**
+(`firestorm`, power `incendiary` — every burst leaves burning ground, `stepFires`, that gnaws ground targets
+in `FIRE_R`). Each carries `radiusMul`/`chargeMul`/`pulseMul`/`dmgMul` **plus** `speedMul`/`hpMul` + a
+`BomberPower` (`"none"|"gunners"|"evasive"|"incendiary"`). `unlockBomber`/`equipBomber` buy and equip; ids
+live in `BomberLegacy` (`unlocked`/`equipped`, defaulted on load).
+
+### Theatres (four) & sim loop
+
+`LEVELS`: **The Channel Coast** (fair first raid), **The Marshalling Yards**, **The U-Boat Pens** (hardened
+pens + thick balloons), **The Ruhr Valley** (hardest — flak alley). Dials: `sceneryCount`/`minDist`, the
+target counts (`factoryCount`/`depotCount`/`pensCount`/`airfieldCount`/`columnCount`), the defence
+(`flakCount`/`balloonCount`), the sky (`cloudCount`/`streamCount`), `escortCount`, `sizeScale`. Each carries
+a `RaidTheme` (ground/field/wood/town/water hues + haze) so theatres read as distinct country in pure-vector
+mode. `stepRaid` integrates the bomber, arms/bleeds the sight, then runs `stepSight → stepBombs →
+stepColumns → stepFlak → stepShells → stepPlanes → stepGunners → stepFires → stepChutes → stepClouds`,
+decays the alert, and checks terminal states. Helpers mirror the siblings (`aliveTargets`/`clearedPct`/
+`escortsAlive`/`raidReadout`, `scoreRun` — base + speed + guns + escorts + survival + untouched ×
+`difficultyMult`). The sigil analog is `bombsightPath` (a Norden-style reticle: two rings, gapped
+crosshairs, tick marks); every plane renders via `planePath` (a mirrored top-down silhouette) when its
+sprite is absent.
+
+### Persistence & art
+
+No mid-raid save. The legacy is `bomber.legacy.v1` (`BomberLegacy`: `runs`, `raids`, `best` per theatre,
+`targetsDestroyed`, `fightersDowned`, `medals`, `unlocked`, `equipped` — new fields defaulted on load with
+**no key bump**), via `loadBomberLegacy`/`saveBomberLegacy`/`emptyBomberLegacy` and the write-once-per-end
+`recordRaid`/`recordDown`. Every sprite has a **procedural SVG fallback** (`planePath`, `bombsightPath`, the
+per-kind work marks), so the game is **fully playable with zero gameplay PNGs** — and it currently ships
+that way: **no gameplay PNG art of its own has shipped yet**. Its **PWA icons DO ship** — a bomber
+silhouette caught in crossing searchlights, generated zero-dep by `tools/gen-bomber-icons.mjs`
+(`icons/bomber-icon-{192,512,180}.png` + maskable), listed in `sw.js` `ASSETS`. When the bomber/fighter/
+works sprites ship, add them to `ASSETS` **and** bump `CACHE`. Sprite resolution mirrors the siblings
+(`spriteFor`/`loadSprites`/`loadCitySprites`).
+
+Shipping rules: `bomber.html`/`bomber.js`/`bomber.webmanifest` and the `icons/bomber-*.png` are in `sw.js`
+`ASSETS` (shell network-first, icons cache-first); bump `CACHE` when their bytes change.
+
 ## Deploy
 
-`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all four `.ts` → `.js`), prunes
+`.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all five `.ts` → `.js`), prunes
 `node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual
 `workflow_dispatch`). One-time setup: Settings → Pages → Source: "GitHub Actions". The site **is** the
 repository root — there is no `dist/`.
