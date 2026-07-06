@@ -1,0 +1,18 @@
+{
+  "name": "The Iron Rain — a Light-Bringer spinoff",
+  "short_name": "The Iron Rain",
+  "description": "An action raid under the leaden skies of a world war. Captain a heavy bomber that cannot stop: hold a straight and level run to arm the bombsight, dodge the flak that leads your line, and let your escorts hold off the fighters. Silence every target to complete the raid.",
+  "start_url": "./bomber.html",
+  "id": "./bomber.html",
+  "scope": "./bomber.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e12",
+  "theme_color": "#ffb84d",
+  "categories": ["games"],
+  "icons": [
+    { "src": "./icons/bomber-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/bomber-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/bomber-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

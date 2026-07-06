@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v112";
+const CACHE = "lightbringer-v113";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
@@ -48,6 +48,21 @@ const ASSETS = [
   "./icons/werewolf-icon-512.png",
   "./icons/werewolf-icon-180.png",
   "./icons/werewolf-maskable-512.png",
+  // The Iron Rain — the sixth sibling spinoff (WW2 bomber), its own page + module.
+  // Shell only (network-first via isShell): it ships fully procedural, with zero
+  // gameplay PNGs of its own, so no art is listed here yet (the bomber/fighter/
+  // works sprites render from vector primitives until that art ships — add them to
+  // this list AND bump CACHE when it does). Its generated PWA icons DO ship (below).
+  "./bomber.html",
+  "./bomber.js",
+  "./bomber.webmanifest",
+  // Bomber branding — PWA icons (a bomber silhouette caught in crossing
+  // searchlights), generated zero-dep by tools/gen-bomber-icons.mjs. Maskable
+  // variant for adaptive launchers.
+  "./icons/bomber-icon-192.png",
+  "./icons/bomber-icon-512.png",
+  "./icons/bomber-icon-180.png",
+  "./icons/bomber-maskable-512.png",
   // Necro sprites (gemini-prompts/necro/*). Universal village fabric: four house
   // states, well, altar, grave + spent, the necromancer, both knight faces, the
   // skeleton minion, and the tiled barricade/causeway terrain. ground.png is
@@ -210,7 +225,8 @@ function isShell(url) {
     url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
     url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
     url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js") ||
-    url.pathname.endsWith("/werewolf.html") || url.pathname.endsWith("/werewolf.js");
+    url.pathname.endsWith("/werewolf.html") || url.pathname.endsWith("/werewolf.js") ||
+    url.pathname.endsWith("/bomber.html") || url.pathname.endsWith("/bomber.js");
 }
 
 self.addEventListener("fetch", (event) => {
