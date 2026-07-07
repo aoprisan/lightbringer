@@ -1272,6 +1272,127 @@ function planePath(cx: number, cy: number, heading: number, r: number, heavy: bo
   return d + "Z";
 }
 
+// ---------- Procedural aircraft & ordnance art (the redrawn fallbacks) ----------
+//
+// The zero-PNG art the game actually ships. Every airframe, gun and vehicle is
+// authored in a LOCAL frame centred on (cx,cy) with the nose toward +x, then the
+// whole group is rotated to the heading — far cleaner than rotating each point,
+// and it lets a silhouette carry real detail (nacelles, canopy, roundels, tank
+// turrets) that a single stroked outline never could. Shapes are placed at
+// cx+u·r, cy+v·r so the rotate() pivots correctly around the centre.
+
+// A rotated local group for one vehicle; children use pt()/local offsets in r-units.
+function bodyGroup(cx: number, cy: number, headingRad: number): SVGGElement {
+  const deg = (headingRad * 180) / Math.PI;
+  return el("g", { transform: `rotate(${deg.toFixed(1)} ${cx.toFixed(2)} ${cy.toFixed(2)})` });
+}
+
+// The heavy bomber: a long fuselage, broad swept wing carrying four engine
+// nacelles (each with an amber exhaust bloom), a tailplane and fin, a glass nose,
+// and roundels — drawn in the airframe's own trim so each loadout reads distinct.
+function bomberShape(
+  cx: number, cy: number, heading: number, r: number,
+  body: string, trim: string, roundel: string, flash: boolean,
+): SVGGElement {
+  const g = bodyGroup(cx, cy, heading);
+  const X = (u: number) => (cx + u * r).toFixed(1);
+  const Y = (v: number) => (cy + v * r).toFixed(1);
+  const bf = flash ? "#ffffff" : body;
+  // Cast shadow — a soft dark echo offset across the airframe axis, for lift.
+  g.appendChild(el("ellipse", { cx: X(-0.08), cy: Y(0.14), rx: r * 0.95, ry: r * 0.34, fill: "#000", opacity: 0.28 }));
+  // Main wing — swept trapezoid, tip to tip.
+  g.appendChild(el("path", {
+    d: `M${X(0.34)} ${Y(0)}L${X(0.02)} ${Y(-1.18)}L${X(-0.24)} ${Y(-1.18)}L${X(-0.06)} ${Y(0)}`
+      + `L${X(-0.24)} ${Y(1.18)}L${X(0.02)} ${Y(1.18)}Z`,
+    fill: bf, stroke: trim, "stroke-width": 1.3, "stroke-linejoin": "round",
+  }));
+  // Tailplane.
+  g.appendChild(el("path", {
+    d: `M${X(-0.7)} ${Y(0)}L${X(-0.92)} ${Y(-0.52)}L${X(-1.02)} ${Y(-0.5)}L${X(-0.92)} ${Y(0)}`
+      + `L${X(-1.02)} ${Y(0.5)}L${X(-0.92)} ${Y(0.52)}Z`,
+    fill: bf, stroke: trim, "stroke-width": 1, "stroke-linejoin": "round",
+  }));
+  // Fuselage — pointed nose, rounded tail.
+  g.appendChild(el("path", {
+    d: `M${X(1.2)} ${Y(0)}Q${X(0.9)} ${Y(-0.17)} ${X(0.2)} ${Y(-0.16)}`
+      + `L${X(-1.0)} ${Y(-0.12)}Q${X(-1.14)} ${Y(0)} ${X(-1.0)} ${Y(0.12)}`
+      + `L${X(0.2)} ${Y(0.16)}Q${X(0.9)} ${Y(0.17)} ${X(1.2)} ${Y(0)}Z`,
+    fill: bf, stroke: trim, "stroke-width": 1.3, "stroke-linejoin": "round",
+  }));
+  // Fin — a thin spine along the tail.
+  g.appendChild(el("path", {
+    d: `M${X(-0.7)} ${Y(0)}L${X(-1.08)} ${Y(-0.05)}L${X(-1.08)} ${Y(0.05)}Z`,
+    fill: trim, opacity: 0.8,
+  }));
+  // Four engine nacelles + exhaust bloom.
+  for (const v of [-0.42, -0.78, 0.42, 0.78]) {
+    g.appendChild(el("rect", {
+      x: X(0.02), y: Y(v - 0.11), width: r * 0.34, height: r * 0.22, rx: r * 0.08,
+      fill: flash ? "#fff" : "#20242a", stroke: trim, "stroke-width": 0.8,
+    }));
+    g.appendChild(el("circle", { cx: X(0.02), cy: Y(v), r: r * 0.1, fill: "#ffcaa0", opacity: 0.85, filter: "url(#glow)" }));
+  }
+  // Glass nose + cockpit spine.
+  g.appendChild(el("ellipse", { cx: X(0.82), cy: Y(0), rx: r * 0.22, ry: r * 0.12, fill: "#bfe0f2", opacity: 0.7 }));
+  // Roundels on each wing.
+  for (const v of [-0.62, 0.62]) {
+    g.appendChild(el("circle", { cx: X(-0.08), cy: Y(v), r: r * 0.13, fill: roundel, opacity: 0.9 }));
+    g.appendChild(el("circle", { cx: X(-0.08), cy: Y(v), r: r * 0.06, fill: trim }));
+  }
+  return g;
+}
+
+// A single-engine fighter: sleeker swept wings, a bubble canopy, a spinner nose,
+// and a tail. Axis ships are iron with a red spinner; escorts steel-blue with the
+// wing's amber trim. Compact — half the bomber's span.
+function fighterShape(
+  cx: number, cy: number, heading: number, r: number, axis: boolean, flash: boolean,
+): SVGGElement {
+  const g = bodyGroup(cx, cy, heading);
+  const X = (u: number) => (cx + u * r).toFixed(1);
+  const Y = (v: number) => (cy + v * r).toFixed(1);
+  const body = flash ? "#ffffff" : axis ? "#43474d" : "#5f7f97";
+  const edge = axis ? "#22262b" : "#bcd6ea";
+  const accent = axis ? "#ff5a4d" : "#ffce7a";
+  g.appendChild(el("ellipse", { cx: X(-0.05), cy: Y(0.12), rx: r * 0.85, ry: r * 0.3, fill: "#000", opacity: 0.26 }));
+  // Swept main wing.
+  g.appendChild(el("path", {
+    d: `M${X(0.28)} ${Y(0)}L${X(-0.18)} ${Y(-1.02)}L${X(-0.4)} ${Y(-1.0)}L${X(-0.12)} ${Y(0)}`
+      + `L${X(-0.4)} ${Y(1.0)}L${X(-0.18)} ${Y(1.02)}Z`,
+    fill: body, stroke: edge, "stroke-width": 1.1, "stroke-linejoin": "round",
+  }));
+  // Tailplane.
+  g.appendChild(el("path", {
+    d: `M${X(-0.78)} ${Y(0)}L${X(-1.0)} ${Y(-0.42)}L${X(-1.08)} ${Y(-0.4)}L${X(-0.95)} ${Y(0)}`
+      + `L${X(-1.08)} ${Y(0.4)}L${X(-1.0)} ${Y(0.42)}Z`,
+    fill: body, stroke: edge, "stroke-width": 0.9, "stroke-linejoin": "round",
+  }));
+  // Fuselage — a slim spindle.
+  g.appendChild(el("path", {
+    d: `M${X(1.12)} ${Y(0)}Q${X(0.6)} ${Y(-0.15)} ${X(-0.2)} ${Y(-0.13)}`
+      + `L${X(-1.02)} ${Y(-0.07)}Q${X(-1.12)} ${Y(0)} ${X(-1.02)} ${Y(0.07)}`
+      + `L${X(-0.2)} ${Y(0.13)}Q${X(0.6)} ${Y(0.15)} ${X(1.12)} ${Y(0)}Z`,
+    fill: body, stroke: edge, "stroke-width": 1.1, "stroke-linejoin": "round",
+  }));
+  // Spinner nose (side accent) + bubble canopy.
+  g.appendChild(el("circle", { cx: X(1.02), cy: Y(0), r: r * 0.11, fill: accent }));
+  g.appendChild(el("ellipse", { cx: X(0.28), cy: Y(0), rx: r * 0.2, ry: r * 0.1, fill: "#cfe6f4", opacity: 0.72 }));
+  return g;
+}
+
+// A crater with a lit rim and a drift of smoke — what a silenced target becomes.
+// Scaled by `rad` (the target's footprint) so a pens crater dwarfs a flak pit.
+function craterMark(cx: number, cy: number, rad: number): SVGGElement {
+  const g = el("g", {});
+  g.appendChild(el("circle", { cx, cy, r: rad, fill: "#07070a", opacity: 0.9 }));
+  g.appendChild(el("circle", { cx, cy, r: rad, fill: "none", stroke: "#2a2620", "stroke-width": 2, opacity: 0.7 }));
+  g.appendChild(el("circle", { cx, cy, r: rad * 0.5, fill: "#1a1512", opacity: 0.9 }));
+  // Ember glow + smoke rising.
+  g.appendChild(el("circle", { cx, cy, r: rad * 0.34, fill: "#7a3416", opacity: 0.5, filter: "url(#glow)" }));
+  g.appendChild(el("ellipse", { cx: cx + rad * 0.2, cy: cy - rad * 0.8, rx: rad * 0.55, ry: rad * 0.4, fill: "#2a2e33", opacity: 0.45, filter: "url(#cloudBlur)" }));
+  return g;
+}
+
 // ---------- Render (reads RaidState; wholesale rebuild each frame) ----------
 
 // Built once: filters/gradients + the camera group. The palette is dusk steel
@@ -1326,7 +1447,7 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
 }
 
 const STRUCT_HUE: Record<StructKind, string> = {
-  factory: "#3a3630", depot: "#38322a", pens: "#2e3238", airfield: "#33382e",
+  factory: "#595247", depot: "#554b3e", pens: "#464e57", airfield: "#4c5342",
 };
 
 // A cheap deterministic hash in [0,1) — scatters cosmetic detail without state.
@@ -1401,50 +1522,71 @@ function render(s: RaidState, layer: SVGGElement): void {
     layer.appendChild(el("circle", { cx: f.x, cy: f.y, r: FIRE_R, fill: "url(#fireGlow)" }));
   }
 
-  // The works — each kind its own procedural mark; rubble once silenced.
+  // The works — each kind its own procedural mark on a dark footprint pad (which
+  // seats it and lifts it clear of the near-black land); a crater once silenced.
   for (const t of s.structures) {
+    const rw = STRUCT_RADIUS[t.kind];
     const key = spriteFor(s.level, t.kind);
-    if (key && !t.dead) { layer.appendChild(spriteImage(key, t.x, t.y, STRUCT_RADIUS[t.kind] * 2.8, 0.96)); }
+    if (key && !t.dead) { layer.appendChild(spriteImage(key, t.x, t.y, rw * 2.8, 0.96)); }
     else if (t.dead) {
-      layer.appendChild(el("circle", { cx: t.x, cy: t.y, r: STRUCT_RADIUS[t.kind] * 0.9, fill: "#0a0a08", opacity: 0.85 }));
-      layer.appendChild(el("circle", {
-        cx: t.x, cy: t.y - 8, r: 10, fill: "#23272e", opacity: 0.5, filter: "url(#cloudBlur)",
-      }));
+      layer.appendChild(craterMark(t.x, t.y, rw * 0.8));
     } else {
       const flash = t.hit > s.elapsed;
       const fill = flash ? "#fff" : STRUCT_HUE[t.kind];
+      const rim = flash ? "#fff" : "#8a8276";
+      // Footprint pad — a soft dark disc under every work for contrast/grounding.
+      layer.appendChild(el("ellipse", { cx: t.x, cy: t.y + rw * 0.42, rx: rw * 1.06, ry: rw * 0.62, fill: "#050505", opacity: 0.5 }));
       if (t.kind === "factory") {
-        layer.appendChild(el("rect", { x: t.x - 26, y: t.y - 14, width: 52, height: 28, rx: 2, fill, stroke: "#565046", "stroke-width": 1.5 }));
-        layer.appendChild(el("rect", { x: t.x - 16, y: t.y - 30, width: 6, height: 16, fill, stroke: "#565046", "stroke-width": 1 }));
-        layer.appendChild(el("rect", { x: t.x - 2, y: t.y - 34, width: 6, height: 20, fill, stroke: "#565046", "stroke-width": 1 }));
+        // Main hall + sawtooth roof + two smoking chimneys.
+        layer.appendChild(el("rect", { x: t.x - 27, y: t.y - 12, width: 54, height: 30, rx: 2, fill, stroke: rim, "stroke-width": 1.6 }));
+        let saw = "";
+        for (let i = 0; i < 4; i++) { const bx = t.x - 24 + i * 13; saw += `M${bx} ${t.y - 12}L${bx + 6} ${t.y - 20}L${bx + 13} ${t.y - 12}`; }
+        layer.appendChild(el("path", { d: saw, fill: "none", stroke: rim, "stroke-width": 1.4, "stroke-linejoin": "round", opacity: 0.85 }));
+        for (const cx of [t.x - 15, t.x - 1]) {
+          layer.appendChild(el("rect", { x: cx, y: t.y - 34, width: 6, height: 22, fill: "#26221c", stroke: rim, "stroke-width": 1 }));
+          layer.appendChild(el("ellipse", { cx: cx + 3, cy: t.y - 40, rx: 8, ry: 11, fill: "#2c3036", opacity: 0.4, filter: "url(#cloudBlur)" }));
+        }
+        // Lit window row — the forge burning inside.
+        for (let i = 0; i < 5; i++) layer.appendChild(el("rect", { x: t.x - 22 + i * 10, y: t.y + 6, width: 5, height: 7, fill: "#ffb54a", opacity: 0.7 }));
       } else if (t.kind === "depot") {
+        // Fuel tanks (cylinders, seen from above) + a crate stack.
         for (let i = 0; i < 3; i++) {
-          layer.appendChild(el("rect", { x: t.x - 22, y: t.y - 15 + i * 11, width: 44, height: 8, rx: 3, fill, stroke: "#565046", "stroke-width": 1 }));
+          const cy = t.y - 12 + i * 12;
+          layer.appendChild(el("rect", { x: t.x - 24, y: cy - 5, width: 40, height: 10, rx: 5, fill, stroke: rim, "stroke-width": 1.2 }));
+          layer.appendChild(el("line", { x1: t.x - 12, y1: cy - 5, x2: t.x - 12, y2: cy + 5, stroke: rim, "stroke-width": 0.8, opacity: 0.5 }));
         }
+        layer.appendChild(el("rect", { x: t.x + 18, y: t.y - 12, width: 10, height: 10, fill: "#4a4238", stroke: rim, "stroke-width": 0.9 }));
+        layer.appendChild(el("rect", { x: t.x + 18, y: t.y, width: 10, height: 10, fill: "#4a4238", stroke: rim, "stroke-width": 0.9 }));
       } else if (t.kind === "pens") {
-        layer.appendChild(el("rect", { x: t.x - 30, y: t.y - 18, width: 60, height: 36, rx: 6, fill, stroke: "#5a6470", "stroke-width": 2.5 }));
+        // Concrete apron over water + arched sub-pen mouths.
+        layer.appendChild(el("rect", { x: t.x - 32, y: t.y - 20, width: 64, height: 40, rx: 5, fill, stroke: "#6b7683", "stroke-width": 2.6 }));
+        layer.appendChild(el("rect", { x: t.x - 32, y: t.y - 20, width: 64, height: 6, rx: 3, fill: "#7a8592", opacity: 0.5 }));
         for (let i = 0; i < 3; i++) {
-          layer.appendChild(el("rect", { x: t.x - 22 + i * 16, y: t.y - 8, width: 10, height: 26, rx: 4, fill: "#12161c" }));
+          const px = t.x - 22 + i * 16;
+          layer.appendChild(el("path", { d: `M${px} ${t.y + 16}L${px} ${t.y - 2}A5 5 0 0 1 ${px + 10} ${t.y - 2}L${px + 10} ${t.y + 16}Z`, fill: "#0c1014" }));
+          layer.appendChild(el("path", { d: `M${px + 1} ${t.y + 16}L${px + 1} ${t.y - 1}`, fill: "none", stroke: "#3a444f", "stroke-width": 1, opacity: 0.6 }));
         }
-      } else { // airfield — a crossed runway and huts
-        layer.appendChild(el("line", { x1: t.x - 36, y1: t.y + 10, x2: t.x + 36, y2: t.y - 10, stroke: "#22261e", "stroke-width": 14, "stroke-linecap": "round" }));
-        layer.appendChild(el("line", { x1: t.x - 20, y1: t.y - 20, x2: t.x + 20, y2: t.y + 20, stroke: "#22261e", "stroke-width": 12, "stroke-linecap": "round" }));
-        layer.appendChild(el("rect", { x: t.x - 30, y: t.y - 26, width: 12, height: 9, fill, stroke: "#565046", "stroke-width": 1 }));
-        layer.appendChild(el("rect", { x: t.x + 18, y: t.y + 16, width: 12, height: 9, fill, stroke: "#565046", "stroke-width": 1 }));
+      } else { // airfield — crossed tarmac runways with markings + two hangars
+        layer.appendChild(el("line", { x1: t.x - 38, y1: t.y + 11, x2: t.x + 38, y2: t.y - 11, stroke: "#2f342a", "stroke-width": 16, "stroke-linecap": "round" }));
+        layer.appendChild(el("line", { x1: t.x - 21, y1: t.y - 21, x2: t.x + 21, y2: t.y + 21, stroke: "#2f342a", "stroke-width": 13, "stroke-linecap": "round" }));
+        layer.appendChild(el("line", { x1: t.x - 30, y1: t.y + 8.6, x2: t.x + 30, y2: t.y - 8.6, stroke: "#5a6150", "stroke-width": 1.4, "stroke-dasharray": "7 8", opacity: 0.7 }));
+        for (const [hx, hy] of [[t.x - 30, t.y - 24], [t.x + 20, t.y + 15]] as [number, number][]) {
+          layer.appendChild(el("path", { d: `M${hx} ${hy + 11}L${hx} ${hy + 3}Q${hx + 7} ${hy - 3} ${hx + 14} ${hy + 3}L${hx + 14} ${hy + 11}Z`, fill, stroke: rim, "stroke-width": 1 }));
+        }
       }
     }
     if (!t.dead && t.hp < t.maxHp) {
       const frac = Math.max(0, t.hp / t.maxHp);
-      const rw = STRUCT_RADIUS[t.kind];
-      layer.appendChild(el("rect", { x: t.x - rw, y: t.y - rw - 9, width: rw * 2, height: 3, fill: "#20272e" }));
-      layer.appendChild(el("rect", { x: t.x - rw, y: t.y - rw - 9, width: rw * 2 * frac, height: 3, fill: "#ffb84d" }));
+      layer.appendChild(el("rect", { x: t.x - rw, y: t.y - rw - 9, width: rw * 2, height: 3.5, rx: 1.5, fill: "#0c1013" }));
+      layer.appendChild(el("rect", { x: t.x - rw, y: t.y - rw - 9, width: rw * 2 * frac, height: 3.5, rx: 1.5, fill: "#ffb84d" }));
     }
   }
 
-  // The columns — a short line of vehicles, oriented by travel.
+  // The columns — a short file of armour, each an olive tank hull with a turret
+  // and a forward gun, oriented by travel; a crater once broken.
   for (const c of s.columns) {
     if (c.dead) {
-      layer.appendChild(el("circle", { cx: c.x, cy: c.y, r: 14, fill: "#0a0a08", opacity: 0.8 }));
+      layer.appendChild(craterMark(c.x, c.y, 15));
       continue;
     }
     const a = Math.atan2(c.vy, c.vx);
@@ -1452,48 +1594,65 @@ function render(s: RaidState, layer: SVGGElement): void {
     const key = spriteFor(s.level, "column");
     if (key) { layer.appendChild(spriteImage(key, c.x, c.y, COLUMN_RADIUS * 2.6, 0.96)); }
     else {
+      const hull = flash ? "#fff" : "#42472f";
       for (let i = -1; i <= 1; i++) {
-        const vx = c.x - Math.cos(a) * i * 16, vy = c.y - Math.sin(a) * i * 16;
-        layer.appendChild(el("rect", {
-          x: vx - 7, y: vy - 5, width: 14, height: 10, rx: 2,
-          fill: flash ? "#fff" : "#3c4032", stroke: "#1a1c14", "stroke-width": 1.2,
-          transform: `rotate(${Math.round((a * 180) / Math.PI)} ${vx} ${vy})`,
-        }));
+        const vx = c.x - Math.cos(a) * i * 17, vy = c.y - Math.sin(a) * i * 17;
+        const g = bodyGroup(vx, vy, a);
+        g.appendChild(el("ellipse", { cx: vx, cy: vy + 4, rx: 11, ry: 5, fill: "#000", opacity: 0.3 }));
+        g.appendChild(el("rect", { x: vx - 9, y: vy - 6, width: 18, height: 12, rx: 2, fill: hull, stroke: "#191b12", "stroke-width": 1.2 }));
+        // track treads (light/dark edges)
+        g.appendChild(el("rect", { x: vx - 9, y: vy - 6, width: 18, height: 2, fill: "#23261a" }));
+        g.appendChild(el("rect", { x: vx - 9, y: vy + 4, width: 18, height: 2, fill: "#23261a" }));
+        // turret + barrel forward
+        g.appendChild(el("circle", { cx: vx - 1, cy: vy, r: 4.5, fill: flash ? "#fff" : "#4e543a", stroke: "#191b12", "stroke-width": 1 }));
+        g.appendChild(el("rect", { x: vx + 3, y: vy - 1, width: 11, height: 2, fill: "#2a2d1e" }));
+        layer.appendChild(g);
       }
     }
     if (c.hp < c.maxHp) {
       const frac = Math.max(0, c.hp / c.maxHp);
-      layer.appendChild(el("rect", { x: c.x - 18, y: c.y - 22, width: 36, height: 3, fill: "#20272e" }));
-      layer.appendChild(el("rect", { x: c.x - 18, y: c.y - 22, width: 36 * frac, height: 3, fill: "#ffb84d" }));
+      layer.appendChild(el("rect", { x: c.x - 18, y: c.y - 24, width: 36, height: 3, rx: 1.5, fill: "#0c1013" }));
+      layer.appendChild(el("rect", { x: c.x - 18, y: c.y - 24, width: 36 * frac, height: 3, rx: 1.5, fill: "#ffb84d" }));
     }
   }
 
-  // The guns — a battery ring and barrel; a tracking gun glows; rubble when dead.
+  // The guns — a sandbag revetment ringing an AA mount whose twin barrels swing
+  // onto the bomber; a tracking gun glows red and throws a sight-line; crater when
+  // silenced.
   for (const f of s.flak) {
     if (f.dead) {
-      layer.appendChild(el("circle", { cx: f.x, cy: f.y, r: 11, fill: "#0a0a08", opacity: 0.8 }));
+      layer.appendChild(craterMark(f.x, f.y, 12));
       continue;
     }
     const flash = f.hit > s.elapsed;
     const key = spriteFor(s.level, "flakgun");
     if (key) { layer.appendChild(spriteImage(key, f.x, f.y, FLAK_RADIUS * 2.8, 0.96)); }
     else {
-      layer.appendChild(el("circle", {
-        cx: f.x, cy: f.y, r: 12,
-        fill: flash ? "#fff" : "#2e2a24",
-        stroke: f.tracking ? "#ff5a4d" : "#4c463c", "stroke-width": 2,
-      }));
+      const hot = f.tracking ? "#ff5a4d" : "#5a5348";
       const ba = Math.atan2(s.hero.y - f.y, s.hero.x - f.x);
-      layer.appendChild(el("line", {
-        x1: f.x, y1: f.y,
-        x2: f.x + Math.cos(ba) * 18, y2: f.y + Math.sin(ba) * 18,
-        stroke: f.tracking ? "#ff5a4d" : "#4c463c", "stroke-width": 3, "stroke-linecap": "round",
-      }));
+      // Tracking sight-line — a faint lead toward the bomber before it lays a shell.
+      if (f.tracking) {
+        layer.appendChild(el("line", {
+          x1: f.x, y1: f.y, x2: f.x + Math.cos(ba) * 46, y2: f.y + Math.sin(ba) * 46,
+          stroke: "#ff5a4d", "stroke-width": 1, "stroke-dasharray": "3 6", opacity: 0.4,
+        }));
+      }
+      // Sandbag ring (an octagon of segments) around a dark pit.
+      layer.appendChild(el("circle", { cx: f.x, cy: f.y, r: 13, fill: "#191712", opacity: 0.9 }));
+      let ring = "";
+      for (let k = 0; k < 8; k++) { const ang = (k / 8) * Math.PI * 2; ring += `${k ? "L" : "M"}${(f.x + Math.cos(ang) * 13).toFixed(1)} ${(f.y + Math.sin(ang) * 13).toFixed(1)}`; }
+      layer.appendChild(el("path", { d: ring + "Z", fill: "none", stroke: flash ? "#fff" : "#4a4236", "stroke-width": 3.4, "stroke-linejoin": "round", opacity: 0.9 }));
+      // The gun mount + twin barrels, swung onto the target.
+      const g = bodyGroup(f.x, f.y, ba);
+      g.appendChild(el("circle", { cx: f.x, cy: f.y, r: 5.5, fill: flash ? "#fff" : "#2b2822", stroke: hot, "stroke-width": 1.4 }));
+      g.appendChild(el("rect", { x: f.x, y: f.y - 2.6, width: 19, height: 1.8, rx: 0.9, fill: hot }));
+      g.appendChild(el("rect", { x: f.x, y: f.y + 0.8, width: 19, height: 1.8, rx: 0.9, fill: hot }));
+      layer.appendChild(g);
     }
     if (f.hp < f.maxHp) {
       const frac = Math.max(0, f.hp / f.maxHp);
-      layer.appendChild(el("rect", { x: f.x - 12, y: f.y - 20, width: 24, height: 3, fill: "#20272e" }));
-      layer.appendChild(el("rect", { x: f.x - 12, y: f.y - 20, width: 24 * frac, height: 3, fill: "#ff5a4d" }));
+      layer.appendChild(el("rect", { x: f.x - 13, y: f.y - 21, width: 26, height: 3, rx: 1.5, fill: "#160c0c" }));
+      layer.appendChild(el("rect", { x: f.x - 13, y: f.y - 21, width: 26 * frac, height: 3, rx: 1.5, fill: "#ff5a4d" }));
     }
   }
 
@@ -1551,28 +1710,43 @@ function render(s: RaidState, layer: SVGGElement): void {
     const key = spriteFor(s.level, "balloon");
     if (key) { layer.appendChild(spriteImage(key, b.x, b.y, BALLOON_RADIUS * 2.6, 0.96)); }
     else {
+      // Tail fins first (behind the envelope), then the gasbag with a sheen.
+      const fin = BALLOON_RADIUS;
+      layer.appendChild(el("path", {
+        d: `M${b.x + fin * 0.72} ${b.y}L${b.x + fin * 1.2} ${b.y - fin * 0.5}`
+          + `L${b.x + fin * 1.14} ${b.y}L${b.x + fin * 1.2} ${b.y + fin * 0.5}Z`,
+        fill: "#4a535e", stroke: "#7a8592", "stroke-width": 1,
+      }));
       layer.appendChild(el("ellipse", {
         cx: b.x, cy: b.y, rx: BALLOON_RADIUS, ry: BALLOON_RADIUS * 0.72,
         fill: "#5a6470", stroke: "#8a95a2", "stroke-width": 2,
       }));
+      // Longitudinal seam + a top sheen.
+      layer.appendChild(el("path", { d: `M${b.x - BALLOON_RADIUS * 0.9} ${b.y}L${b.x + BALLOON_RADIUS * 0.72} ${b.y}`, stroke: "#3a4048", "stroke-width": 1, opacity: 0.5 }));
       layer.appendChild(el("ellipse", {
-        cx: b.x - BALLOON_RADIUS * 0.3, cy: b.y - BALLOON_RADIUS * 0.24,
-        rx: BALLOON_RADIUS * 0.34, ry: BALLOON_RADIUS * 0.2, fill: "#aebfd0", opacity: 0.4,
+        cx: b.x - BALLOON_RADIUS * 0.3, cy: b.y - BALLOON_RADIUS * 0.26,
+        rx: BALLOON_RADIUS * 0.36, ry: BALLOON_RADIUS * 0.2, fill: "#b7c6d6", opacity: 0.45,
       }));
     }
   }
 
-  // Tracers — this frame's bursts of fire, both sides.
+  // Tracers — this frame's bursts of fire, both sides. A bright core over a
+  // softer glow so a burst reads as a lick of fire, not a dashed line.
   for (const p of s.planes) {
     if (p.dead || !p.firing || p.fireX == null || p.fireY == null) continue;
+    const hue = p.axis ? "#ff5a4d" : "#ffb84d";
     layer.appendChild(el("line", {
       x1: p.x, y1: p.y, x2: p.fireX, y2: p.fireY,
-      stroke: p.axis ? "#ff5a4d" : "#ffb84d", "stroke-width": 1.8, opacity: 0.8,
-      "stroke-dasharray": "6 5", filter: "url(#glow)",
+      stroke: hue, "stroke-width": 3.4, opacity: 0.3, "stroke-linecap": "round", filter: "url(#glow)",
+    }));
+    layer.appendChild(el("line", {
+      x1: p.x, y1: p.y, x2: p.fireX, y2: p.fireY,
+      stroke: "#fff6df", "stroke-width": 1.2, opacity: 0.85, "stroke-dasharray": "7 6", "stroke-linecap": "round",
     }));
   }
 
-  // The planes — axis fighters in iron, escorts in the wing's trim.
+  // The planes — axis fighters in iron with a red spinner, escorts steel-blue
+  // with the wing's amber trim; a grounded squadron sits dimmed until it scrambles.
   for (const p of s.planes) {
     if (p.dead) continue;
     const flash = p.hit > s.elapsed;
@@ -1581,17 +1755,14 @@ function render(s: RaidState, layer: SVGGElement): void {
     const key = spriteFor(s.level, p.axis ? "fighter" : "escort");
     if (key) { layer.appendChild(spriteImage(key, p.x, p.y, PLANE_RADIUS * 3, grounded ? 0.7 : 0.96)); }
     else {
-      layer.appendChild(el("path", {
-        d: planePath(p.x, p.y, heading, PLANE_RADIUS * 1.35, false),
-        fill: flash ? "#fff" : p.axis ? "#4a4440" : "#7a99b0",
-        stroke: p.axis ? "#1c1814" : "#cfe0ee", "stroke-width": 1.2,
-        opacity: grounded ? 0.65 : 1,
-      }));
+      const shape = fighterShape(p.x, p.y, heading, PLANE_RADIUS * 1.5, p.axis, flash);
+      if (grounded) shape.setAttribute("opacity", "0.6");
+      layer.appendChild(shape);
     }
     if (!grounded && p.hp < p.maxHp) {
       const frac = Math.max(0, p.hp / p.maxHp);
-      layer.appendChild(el("rect", { x: p.x - 11, y: p.y - 18, width: 22, height: 2.5, fill: "#20272e" }));
-      layer.appendChild(el("rect", { x: p.x - 11, y: p.y - 18, width: 22 * frac, height: 2.5, fill: p.axis ? "#ff5a4d" : "#9fe0a8" }));
+      layer.appendChild(el("rect", { x: p.x - 11, y: p.y - 19, width: 22, height: 2.5, rx: 1.2, fill: "#0c1013" }));
+      layer.appendChild(el("rect", { x: p.x - 11, y: p.y - 19, width: 22 * frac, height: 2.5, rx: 1.2, fill: p.axis ? "#ff5a4d" : "#9fe0a8" }));
     }
   }
 
@@ -1626,12 +1797,8 @@ function render(s: RaidState, layer: SVGGElement): void {
   if (hbKey) { layer.appendChild(spriteImage(hbKey, h.x, h.y, HERO_RADIUS * 3.2, 1)); }
   else {
     const hurtFlash = h.hurt > 0 && Math.floor(s.elapsed / 80) % 2 === 0;
-    layer.appendChild(el("path", {
-      d: planePath(h.x, h.y, h.heading, HERO_RADIUS * 1.5, true),
-      fill: hurtFlash ? "#ffd0d0" : "#5c6a58",
-      stroke: s.loadout.trim, "stroke-width": 1.8, filter: "url(#glow)",
-    }));
-    layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 3.2, fill: s.loadout.roundel }));
+    const body = hurtFlash ? "#ffd0d0" : "#5c6a58";
+    layer.appendChild(bomberShape(h.x, h.y, h.heading, HERO_RADIUS * 1.35, body, s.loadout.trim, s.loadout.roundel, hurtFlash));
   }
 
   // Clouds — drawn OVER the planes: the world disappears into them, and so do you.
