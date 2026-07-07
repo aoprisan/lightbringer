@@ -99,8 +99,16 @@
      wing + guns + alert readout — the raid's running tally. */
   #foes { color: var(--cold); font-weight: 700; }
   #souls { color: var(--gold); opacity: 0.82; font-size: 11px; }
-  /* Two stacked bars: the airframe (amber) and the bombsight (steel) — the run's twist. */
+  /* Two stacked bars: the airframe (amber) and the bombsight (steel) — the run's
+     twist. Labelled like cockpit gauges so the two never read ambiguously. */
   .bars { display: flex; flex-direction: column; gap: 3px; }
+  .barrow { display: flex; align-items: center; gap: 6px; }
+  .barlbl {
+    font-size: 8px; letter-spacing: 0.16em; width: 30px; text-align: right;
+    line-height: 1; opacity: 0.9; -webkit-user-select: none; user-select: none;
+  }
+  .lbl-hull { color: var(--gold); }
+  .lbl-sight { color: #9fc0d8; }
   .hpbar {
     width: 132px; height: 8px; border: 1px solid rgba(255,184,77,0.5);
     border-radius: 4px; background: rgba(40,28,10,0.55); overflow: hidden;
@@ -166,20 +174,41 @@
   }
 
   /* Overlay — intro / win / lose. Reuses the family's illuminated-page look. */
+  /* The front door is a night raid, drawn from nothing: a leaden overcast, the
+     burning glow of the city on the horizon, and searchlights raking the cloud.
+     No castle, no photograph — the bomber's own sky, so the picker/win/lose all
+     read as WW2 bomber-command the instant they open. */
   #overlay {
     position: fixed; inset: 0; z-index: 10;
     display: flex; flex-direction: column; align-items: center;
     overflow-y: auto; -webkit-overflow-scrolling: touch;
     gap: 20px; padding: 32px; text-align: center;
     background:
-      radial-gradient(ellipse 70% 78% at 50% 46%, rgba(5,8,11,0.5), rgba(3,6,9,0.76)),
-      url("./art/title-backdrop.jpg") center/cover no-repeat,
-      #05080c;
+      radial-gradient(ellipse 150% 46% at 50% 104%, rgba(255,150,66,0.30), rgba(255,110,50,0.08) 34%, transparent 64%),
+      radial-gradient(ellipse 96% 64% at 50% 8%, rgba(128,152,178,0.12), transparent 72%),
+      linear-gradient(180deg, #0a1119 0%, #0b131c 46%, #05090e 100%);
+  }
+  /* Searchlight cones fanning up from the horizon — narrow conic wedges anchored
+     just below the viewport, swaying as one so the beams sweep the sky. */
+  #overlay::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      conic-gradient(from 18deg at 20% 118%, transparent 0 4deg, rgba(210,228,244,0.34) 6.4deg, rgba(210,228,244,0.08) 9deg, transparent 12deg),
+      conic-gradient(from 4deg at 42% 118%, transparent 0 3.4deg, rgba(210,228,244,0.24) 5.6deg, rgba(210,228,244,0.05) 8deg, transparent 10.5deg),
+      conic-gradient(from 342deg at 64% 118%, transparent 0 3.8deg, rgba(210,228,244,0.30) 6deg, rgba(210,228,244,0.07) 8.6deg, transparent 11.5deg),
+      conic-gradient(from 322deg at 88% 118%, transparent 0 3.4deg, rgba(210,228,244,0.19) 5.6deg, transparent 9deg);
+    transform-origin: 50% 116%;
+    animation: sweep 13s ease-in-out infinite alternate;
+  }
+  @keyframes sweep {
+    0%   { transform: rotate(-2.6deg); opacity: 0.78; }
+    50%  { opacity: 1; }
+    100% { transform: rotate(2.6deg); opacity: 0.9; }
   }
   #overlay.hidden { display: none; }
   #ov-panel {
     max-width: 520px; padding: 34px 30px; position: relative; overflow: hidden;
-    margin: auto 0; flex-shrink: 0;
+    margin: auto 0; flex-shrink: 0; z-index: 1;
     background: linear-gradient(180deg, rgba(19,26,32,0.6), rgba(10,14,18,0.6));
     border: 1px solid rgba(255,184,77,0.28);
     box-shadow: 0 0 50px rgba(0,0,0,0.6), inset 0 0 30px rgba(255,184,77,0.04);
@@ -311,7 +340,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
-    .grain { animation: none !important; }
+    .grain, #overlay::before { animation: none !important; }
   }
 </style>
 </head>
@@ -323,8 +352,8 @@
       <span id="foes"></span>
       <span id="souls"></span>
       <div class="bars">
-        <div class="hpbar"><div id="hp"></div></div>
-        <div class="hpbar sight"><div id="sight"></div></div>
+        <div class="barrow"><span class="barlbl lbl-hull">HULL</span><div class="hpbar"><div id="hp"></div></div></div>
+        <div class="barrow"><span class="barlbl lbl-sight">SIGHT</span><div class="hpbar sight"><div id="sight"></div></div></div>
       </div>
       <button id="reset" title="Return to the theatre select">Choose theatre</button>
       <a class="xlink" id="origin-link" href="./index.html" title="Class Select — choose a different class" style="color:#9fb0d0;">⌂ Class Select</a>

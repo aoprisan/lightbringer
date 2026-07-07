@@ -411,9 +411,9 @@ const LEVELS: LevelDef[] = [
     name: "The Channel Coast",
     epigraph: "Radar masts and coastal batteries on the grey water's edge. The guns are thin here and the squadrons green. A fair first raid.",
     theme: {
-      ground: "#101408", field: "#1a2210", wood: "#0e1a0c", town: "#2a2418",
-      water: "#0e2030", waterEdge: "#2a5a70", riverCount: 4,
-      haze: "#182028", hazeOpacity: 0.16,
+      ground: "#232a20", field: "#333d26", wood: "#1b271a", town: "#3c3626",
+      water: "#16323f", waterEdge: "#3e708a", riverCount: 4,
+      haze: "#8a98a2", hazeOpacity: 0.10,
     },
     sceneryCount: 96, minDist: 78,
     factoryCount: 2, depotCount: 3, pensCount: 0, airfieldCount: 1,
@@ -425,9 +425,9 @@ const LEVELS: LevelDef[] = [
     name: "The Marshalling Yards",
     epigraph: "A rail country feeding the front — sheds, sidings, and columns forever on the move. The guns are waking and the fighters fly in pairs.",
     theme: {
-      ground: "#12100a", field: "#201e10", wood: "#101808", town: "#2c2418",
-      water: "#122028", waterEdge: "#3a5a60", riverCount: 3,
-      haze: "#1a1810", hazeOpacity: 0.18,
+      ground: "#282318", field: "#3a3320", wood: "#221c12", town: "#40351f",
+      water: "#183038", waterEdge: "#456a72", riverCount: 3,
+      haze: "#8c8676", hazeOpacity: 0.11,
     },
     sceneryCount: 108, minDist: 72,
     factoryCount: 3, depotCount: 4, pensCount: 0, airfieldCount: 2,
@@ -439,9 +439,9 @@ const LEVELS: LevelDef[] = [
     name: "The U-Boat Pens",
     epigraph: "A harbour poured in concrete — the pens shrug off anything but a held run, the balloons ride thick, and the harbour guns never sleep.",
     theme: {
-      ground: "#0c1012", field: "#161c14", wood: "#0c1610", town: "#242220",
-      water: "#0c2434", waterEdge: "#34647c", riverCount: 6,
-      haze: "#141c24", hazeOpacity: 0.28,
+      ground: "#1e252a", field: "#28322f", wood: "#182521", town: "#31302c",
+      water: "#123244", waterEdge: "#3e7088", riverCount: 6,
+      haze: "#8896a2", hazeOpacity: 0.16,
     },
     sceneryCount: 100, minDist: 76,
     factoryCount: 2, depotCount: 2, pensCount: 3, airfieldCount: 2,
@@ -453,9 +453,9 @@ const LEVELS: LevelDef[] = [
     name: "The Ruhr Valley",
     epigraph: "The happy valley — the war's own forge, ringed in more guns than any sky in the world. Everything the defence has learned waits here.",
     theme: {
-      ground: "#100e0c", field: "#1c1a0e", wood: "#0e160a", town: "#2c2620",
-      water: "#101c26", waterEdge: "#3a586a", riverCount: 4,
-      haze: "#20180e", hazeOpacity: 0.32,
+      ground: "#26221a", field: "#342c1b", wood: "#1f1c12", town: "#3c3226",
+      water: "#16242e", waterEdge: "#42606f", riverCount: 4,
+      haze: "#8a7e6a", hazeOpacity: 0.18,
     },
     sceneryCount: 116, minDist: 70,
     factoryCount: 4, depotCount: 3, pensCount: 2, airfieldCount: 3,
@@ -1466,30 +1466,65 @@ function render(s: RaidState, layer: SVGGElement): void {
   if (groundKey) {
     layer.appendChild(el("rect", { x: 0, y: 0, width: s.w, height: s.h, fill: th.ground, opacity: 0.2 }));
   }
+  // The cosmetic country. Each patch is authored for internal contrast — a
+  // hedgerow border, plough furrows, a canopy's lit crown — so the land reads as
+  // real farmland/woodland/village under the night without lifting its low value
+  // (targets stay the bright focal points). th.wood doubles as the "shadow" tint
+  // and th.field as the "moonlit" tint, so every patch stays in the theatre key.
   for (const n of s.scenery) {
     if (n.kind === "field") {
-      const fw = wu(n.seed, 60, 50), fh = wu(n.seed + 3, 40, 40);
-      layer.appendChild(el("rect", {
-        x: n.x - fw / 2, y: n.y - fh / 2, width: fw, height: fh,
-        rx: 4, fill: th.field, opacity: 0.75,
-        transform: `rotate(${Math.round(hash01(n.seed + 9) * 30 - 15)} ${n.x} ${n.y})`,
-      }));
+      const fw = wu(n.seed, 62, 54), fh = wu(n.seed + 3, 46, 44);
+      const rot = Math.round(hash01(n.seed + 9) * 40 - 20);
+      const g = el("g", { transform: `rotate(${rot} ${n.x} ${n.y})` });
+      const x0 = n.x - fw / 2, y0 = n.y - fh / 2;
+      // Plot fill + a dark hedgerow border ringing it.
+      g.appendChild(el("rect", { x: x0, y: y0, width: fw, height: fh, rx: 5, fill: th.field, opacity: 0.82 }));
+      g.appendChild(el("rect", { x: x0, y: y0, width: fw, height: fh, rx: 5, fill: "none", stroke: th.wood, "stroke-width": 2, opacity: 0.55 }));
+      // Ploughed fields (most) carry furrows; the rest read as open pasture.
+      if (hash01(n.seed + 13) > 0.32) {
+        const rows = 4 + Math.floor(hash01(n.seed + 11) * 3);
+        let d = "";
+        for (let i = 1; i < rows; i++) {
+          const fy = y0 + (fh * i) / rows;
+          d += `M${(x0 + 3).toFixed(1)} ${fy.toFixed(1)}L${(x0 + fw - 3).toFixed(1)} ${fy.toFixed(1)}`;
+        }
+        g.appendChild(el("path", { d, stroke: th.wood, "stroke-width": 0.8, opacity: 0.32 }));
+      }
+      layer.appendChild(g);
     } else if (n.kind === "wood") {
-      for (let i = 0; i < 5; i++) {
-        layer.appendChild(el("circle", {
-          cx: n.x + (hash01(n.seed + i) - 0.5) * 54,
-          cy: n.y + (hash01(n.seed + i + 40) - 0.5) * 44,
-          r: 8 + hash01(n.seed + i + 80) * 9, fill: th.wood, opacity: 0.85,
+      // A soft understory, a cluster of canopy puffs, each with a top-lit crown.
+      const g = el("g", {});
+      g.appendChild(el("ellipse", { cx: n.x, cy: n.y + 4, rx: 30, ry: 21, fill: "#000", opacity: 0.24 }));
+      for (let i = 0; i < 6; i++) {
+        const cx = n.x + (hash01(n.seed + i) - 0.5) * 58;
+        const cy = n.y + (hash01(n.seed + i + 40) - 0.5) * 46;
+        const r = 9 + hash01(n.seed + i + 80) * 10;
+        g.appendChild(el("circle", { cx, cy, r, fill: th.wood, opacity: 0.92 }));
+        g.appendChild(el("circle", { cx: cx - r * 0.26, cy: cy - r * 0.3, r: r * 0.48, fill: th.field, opacity: 0.15 }));
+      }
+      layer.appendChild(g);
+    } else { // town — a spared village: a tight cluster of dark roofs on scuffed ground
+      const g = el("g", {});
+      g.appendChild(el("ellipse", { cx: n.x, cy: n.y + 3, rx: 26, ry: 17, fill: "#000", opacity: 0.2 }));
+      const roofs = 5 + Math.floor(hash01(n.seed + 4) * 3);
+      for (let i = 0; i < roofs; i++) {
+        const rx = n.x + (hash01(n.seed + i) - 0.5) * 46;
+        const ry = n.y + (hash01(n.seed + i + 20) - 0.5) * 38;
+        const rw = 8 + hash01(n.seed + i + 60) * 5;
+        const rh = 6 + hash01(n.seed + i + 70) * 3;
+        const rot = Math.round(hash01(n.seed + i + 30) * 90 - 45);
+        g.appendChild(el("rect", {
+          x: rx - rw / 2, y: ry - rh / 2, width: rw, height: rh, rx: 1,
+          fill: th.town, stroke: "#000", "stroke-width": 0.7, opacity: 0.94,
+          transform: `rotate(${rot} ${rx} ${ry})`,
+        }));
+        // A pale ridge-line catches the moon along the roof's spine.
+        g.appendChild(el("rect", {
+          x: rx - rw / 2 + 1, y: ry - rh / 2, width: rw - 2, height: 1.3,
+          fill: "#5a5140", opacity: 0.5, transform: `rotate(${rot} ${rx} ${ry})`,
         }));
       }
-    } else { // town — a small cluster of roofs, spared and dark
-      for (let i = 0; i < 4; i++) {
-        layer.appendChild(el("rect", {
-          x: n.x + (hash01(n.seed + i) - 0.5) * 40 - 5,
-          y: n.y + (hash01(n.seed + i + 20) - 0.5) * 34 - 4,
-          width: 10, height: 8, fill: th.town, opacity: 0.9,
-        }));
-      }
+      layer.appendChild(g);
     }
   }
 
@@ -1497,6 +1532,12 @@ function render(s: RaidState, layer: SVGGElement): void {
   for (const p of s.rivers) {
     const g = el("g", { filter: "url(#waterRipple)" });
     g.appendChild(el("ellipse", { cx: p.x, cy: p.y, rx: p.rx, ry: p.ry, fill: th.water, opacity: 0.9 }));
+    // A moonlit sheen — an offset lighter core so the water reads as a surface,
+    // not a hole; then the bank stroke.
+    g.appendChild(el("ellipse", {
+      cx: p.x - p.rx * 0.14, cy: p.y - p.ry * 0.22, rx: p.rx * 0.62, ry: p.ry * 0.5,
+      fill: th.waterEdge, opacity: 0.13,
+    }));
     g.appendChild(el("ellipse", {
       cx: p.x, cy: p.y, rx: p.rx, ry: p.ry,
       fill: "none", stroke: th.waterEdge, "stroke-width": 2.5, opacity: 0.5,
