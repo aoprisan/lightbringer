@@ -841,7 +841,13 @@ grounded squadron (`FIGHTER_PER_FIELD`, `state: "base"`) that **scrambles** when
 inside its alert-stretched radar reach (`SCRAMBLE_RANGE`) — or **burns on the ground** if you bomb the field
 first (`destroyTarget` kills its `state: "base"` planes; a fighter already aloft survives). A flying axis
 fighter runs the bomber down and fires in bursts (`FIGHTER_RANGE`/`FIGHTER_CD`/`FIGHTER_DMG`, i-framed) —
-unless an **escort** within `FIGHTER_TANGLE_R` pulls it off. **Escorts** (the horde inverted into a wing)
+unless an **escort** within `FIGHTER_TANGLE_R` pulls it off. The bomber answers with its own **shooting
+posts** — three defensive gun turrets (`Hero.posts`: a forward **nose** gun, an all-round **dorsal** turret,
+a rearward **tail** gun) built in `buildArena`. Each bears on its own sector of the sky
+(`Post.mount`/`sector`/`arc`) and, on `TURRET_CD`, `stepPosts` rakes the nearest flying axis fighter within
+`TURRET_RANGE` **and** its arc for `TURRET_DMG` (a tracer from the muzzle to its mark) — so the bomber can
+shoot the interceptors down itself, not merely outfly them. Universal defensive fire, distinct from the
+Fortress's stronger continuous `gunners` rake. **Escorts** (the horde inverted into a wing)
 hold a formation ring (`ESCORT_FORM_R`) around the bomber and peel off to engage any axis fighter within
 `ESCORT_ENGAGE_R` of the fray. A downed axis fighter may leave a **supply chute** (`CHUTE_DROP_CHANCE`,
 `stepChutes`) — catch it to patch the airframe (`PATCH_HEAL`, the mote analog). Bringing escorts home pays

@@ -118,6 +118,22 @@ interface Segment { x1: number; y1: number; x2: number; y2: number }
 // A river — purely atmospheric water (no collision), the siblings' pools.
 interface Pool { x: number; y: number; rx: number; ry: number; seed: number }
 
+// A defensive gun POST — a crewed turret mounted on the airframe (nose, dorsal,
+// tail). Each bears on its own sector of the sky and, on its cadence, rakes the
+// nearest axis fighter in range and arc. Three of them ring the bomber so it can
+// answer the interceptors on its own (the escorts and the Fortress's gunners
+// power are extra fire, not the only fire). `mount` is the offset along the
+// fuselage (body frame, +forward); `sector`/`arc` are the bearing it can train
+// on, relative to the nose. `firing`/`fireX`/`fireY` are transient tracer FX.
+interface Post {
+  mount: number;       // offset along the fuselage from the hull centre (+forward)
+  sector: number;      // arc centre relative to the nose (0 = forward, PI = aft)
+  arc: number;         // half-arc it can bear on (PI = an all-round turret)
+  attackCd: number;    // ms until it can fire again
+  firing?: boolean;    // transient (per-frame): tracer FX
+  fireX?: number; fireY?: number; // transient: tracer endpoint
+}
+
 // The bomber. It can never stop: `heading`/`speed` integrate every frame (no
 // input = cruise straight on). `charge` is the bombsight; `overcharge` banks a
 // blockbuster past a full arm (any hard turn spends it).
@@ -131,6 +147,7 @@ interface Hero {
   overcharge: number;  // 0..1 — banked past a full arm; the next bomb is a blockbuster
   bombCd: number;      // ms until the armed sight releases again (cadence)
   angle: number;       // the reticle's slow cosmetic spin, in degrees
+  posts: Post[];       // the three defensive gun posts (nose/dorsal/tail)
 }
 
 interface RaidState {
@@ -255,6 +272,16 @@ const ESCORT_CD = 800;           // ms between its bursts
 const ESCORT_DMG = 9;            // damage its burst deals
 const ESCORT_ENGAGE_R = 560;     // it engages an axis fighter within this of the fray
 const ESCORT_FORM_R = 95;        // the formation ring's radius around the bomber
+
+// SHOOTING POSTS — the bomber's own defensive guns. Three crewed turrets ring
+// the airframe (nose, dorsal, tail); each bears on its own sector of the sky and
+// on its cadence rakes the nearest axis fighter within range and arc. Together
+// they give the bomber all-round defensive fire so it can shoot the interceptors
+// down itself, not merely outfly them. Built per-airframe in buildArena.
+const TURRET_RANGE = 210;        // a post fires at an axis fighter within this
+const TURRET_CD = 1000;          // ms between a post's bursts
+const TURRET_DMG = 8;            // damage a post's burst deals a fighter
+const TURRET_NOSE_ARC = 1.4;     // half-arc the nose/tail turrets can train on (~80°)
 
 // Barrage balloons — the sky's only solids: tethered blimps every plane must
 // weave around (the menhir analog, lifted a thousand feet).
@@ -658,6 +685,13 @@ function buildArena(level: LevelDef): RaidState {
     heading: -Math.PI / 2, speed: SPEED_CRUISE,
     hp: Math.round(HERO_HP * loadout.hpMul), maxHp: Math.round(HERO_HP * loadout.hpMul),
     hurt: 0, charge: 0, overcharge: 0, bombCd: 0, angle: 0,
+    // The three defensive posts: a forward nose gun, an all-round dorsal turret,
+    // and a rearward tail gun — together they cover the whole sky.
+    posts: [
+      { mount: HERO_RADIUS * 0.9, sector: 0, arc: TURRET_NOSE_ARC, attackCd: 0 },
+      { mount: 0, sector: 0, arc: Math.PI, attackCd: 0 },
+      { mount: -HERO_RADIUS * 1.05, sector: Math.PI, arc: TURRET_NOSE_ARC, attackCd: 0 },
+    ],
   };
 
   // One roster of planes: the grounded axis squadrons, then the escorts in a
@@ -1026,6 +1060,38 @@ function stepPlanes(s: RaidState, dt: number): void {
   }
 }
 
+// The bomber's own defensive posts. Each of the three turrets bears on its
+// sector of the sky; on its cadence it picks the nearest flying axis fighter
+// within range and arc and rakes it with a burst (a tracer to the mark). This is
+// what lets the bomber answer the interceptors itself — the deterministic heart
+// of the defensive guns, mirror of the escorts' engage-and-fire, run from the
+// hull. Pure over state; the test drives it directly.
+function stepPosts(s: RaidState, dt: number): void {
+  const h = s.hero;
+  for (const post of h.posts) {
+    post.firing = false;
+    if (post.attackCd > 0) post.attackCd -= dt;
+    // The post's muzzle in world space (mounted along the fuselage).
+    const px = h.x + Math.cos(h.heading) * post.mount;
+    const py = h.y + Math.sin(h.heading) * post.mount;
+    let mark: Plane | null = null, bd = Infinity;
+    for (const p of s.planes) {
+      if (p.dead || !p.axis || p.state !== "fly") continue;
+      const dx = p.x - px, dy = p.y - py;
+      const d = Math.hypot(dx, dy);
+      if (d > TURRET_RANGE) continue;
+      // Only if the fighter falls inside this post's bearing (arc about sector).
+      if (Math.abs(angleDiff(Math.atan2(dy, dx), h.heading + post.sector)) > post.arc) continue;
+      if (d < bd) { bd = d; mark = p; }
+    }
+    if (mark && post.attackCd <= 0) {
+      post.attackCd = TURRET_CD;
+      post.firing = true; post.fireX = mark.x; post.fireY = mark.y;
+      hurtPlane(s, mark, TURRET_DMG);
+    }
+  }
+}
+
 // The Fortress's turret gunners rake any flying axis fighter that presses in
 // close — continuous, charge-independent (the ally-emitter ethos, airborne).
 function stepGunners(s: RaidState, dt: number): void {
@@ -1134,6 +1200,7 @@ function stepRaid(s: RaidState, dt: number, move: Move): void {
   stepFlak(s, dt);     // the guns lay shells on the bomber's predicted line
   stepShells(s);       // matured shells burst (bomber and planes alike)
   stepPlanes(s, dt);   // squadrons scramble, fighters press, escorts tangle
+  stepPosts(s, dt);    // the bomber's own defensive posts rake the interceptors
   stepGunners(s, dt);  // the Fortress's turrets rake what presses in
   stepFires(s, dt);    // the Firestorm's ground burns on
   stepChutes(s);       // catch any supply chute adrift
@@ -1786,6 +1853,22 @@ function render(s: RaidState, layer: SVGGElement): void {
     }));
   }
 
+  // The bomber's own defensive posts — this frame's turret bursts, laid from each
+  // muzzle to its mark (the loadout's tracer hue, so friendly fire reads as yours).
+  for (const post of s.hero.posts) {
+    if (!post.firing || post.fireX == null || post.fireY == null) continue;
+    const px = s.hero.x + Math.cos(s.hero.heading) * post.mount;
+    const py = s.hero.y + Math.sin(s.hero.heading) * post.mount;
+    layer.appendChild(el("line", {
+      x1: px, y1: py, x2: post.fireX, y2: post.fireY,
+      stroke: s.loadout.trim, "stroke-width": 3, opacity: 0.28, "stroke-linecap": "round", filter: "url(#glow)",
+    }));
+    layer.appendChild(el("line", {
+      x1: px, y1: py, x2: post.fireX, y2: post.fireY,
+      stroke: "#fff6df", "stroke-width": 1.1, opacity: 0.8, "stroke-dasharray": "6 6", "stroke-linecap": "round",
+    }));
+  }
+
   // The planes — axis fighters in iron with a red spinner, escorts steel-blue
   // with the wing's amber trim; a grounded squadron sits dimmed until it scrambles.
   for (const p of s.planes) {
@@ -1840,6 +1923,16 @@ function render(s: RaidState, layer: SVGGElement): void {
     const hurtFlash = h.hurt > 0 && Math.floor(s.elapsed / 80) % 2 === 0;
     const body = hurtFlash ? "#ffd0d0" : "#5c6a58";
     layer.appendChild(bomberShape(h.x, h.y, h.heading, HERO_RADIUS * 1.35, body, s.loadout.trim, s.loadout.roundel, hurtFlash));
+    // The three gun posts — a dark blister at each mount, glinting when it fires.
+    for (const post of h.posts) {
+      const px = h.x + Math.cos(h.heading) * post.mount;
+      const py = h.y + Math.sin(h.heading) * post.mount;
+      layer.appendChild(el("circle", {
+        cx: px, cy: py, r: 2.8,
+        fill: post.firing ? "#fff6df" : "#2b3130",
+        stroke: post.firing ? s.loadout.trim : "#151a19", "stroke-width": 1,
+      }));
+    }
   }
 
   // Clouds — drawn OVER the planes: the world disappears into them, and so do you.
@@ -2488,7 +2581,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
   testGlobal.__bomber = {
     buildArena, freshRaid, stepRaid,
     stepSight, releaseBomb, burstBomb, stepBombs, stepColumns,
-    stepFlak, stepShells, stepPlanes, stepGunners, stepFires, stepChutes, stepClouds,
+    stepFlak, stepShells, stepPlanes, stepPosts, stepGunners, stepFires, stepChutes, stepClouds,
     destroyTarget, hurtTarget, hurtFlak, hurtBomber, hurtPlane, downPlane,
     aliveTargets, clearedPct, escortsAlive, raidReadout, scoreRun, difficultyMult,
     LEVELS, levelById,
@@ -2510,6 +2603,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
       PLANE_RADIUS, PLANE_SEP,
       ESCORT_HP, ESCORT_SPEED, ESCORT_RANGE, ESCORT_CD, ESCORT_DMG,
       ESCORT_ENGAGE_R, ESCORT_FORM_R,
+      TURRET_RANGE, TURRET_CD, TURRET_DMG, TURRET_NOSE_ARC,
       BALLOON_RADIUS, CLOUD_DRIFT, STREAM_HALF, STREAM_BOOST,
       CHUTE_DROP_CHANCE, CHUTE_TTL_MS, CHUTE_RADIUS, PATCH_HEAL,
       GUNNER_R, GUNNER_DPS, EVASIVE_SCATTER_MUL, FIRE_TTL_MS, FIRE_R, FIRE_DPS,

@@ -549,6 +549,39 @@ ok(sEq.hero.maxHp > K.HERO_HP, "the Fortress flies with a heavier airframe (hpMu
 }
 bb.saveBomberLegacy(bb.emptyBomberLegacy());
 
+// 13e. The bomber's own SHOOTING POSTS — three defensive turrets that rake the
+//      interceptors so the bomber can answer them itself. Driven directly so the
+//      mark can't fly in or out of range under us.
+{
+  const sp = bb.buildArena(bb.levelById(id));
+  ok(sp.hero.posts.length === 3, "the bomber flies with three defensive gun posts");
+  sp.planes = [];
+  sp.hero.x = 700; sp.hero.y = 700; sp.hero.heading = 0;
+  const bogey = mkFighter(sp.hero.x + K.TURRET_RANGE - 30, sp.hero.y); // dead ahead, in range
+  sp.planes = [bogey];
+  const hp0 = bogey.hp;
+  bb.stepPosts(sp, K.TURRET_CD); // one full cadence — the ready posts fire
+  ok(bogey.hp < hp0, "a post rakes a fighter within range and arc");
+  ok(sp.hero.posts.some((p) => p.attackCd > 0), "a fired post is on cooldown after its burst");
+  ok(sp.hero.posts.some((p) => p.firing), "a firing post lights a tracer for the render");
+}
+// 13f. A post ignores a fighter out of range, and (for the sector guns) out of arc.
+{
+  const sp = bb.buildArena(bb.levelById(id));
+  sp.planes = [];
+  sp.hero.x = 700; sp.hero.y = 700; sp.hero.heading = 0;
+  const farBogey = mkFighter(sp.hero.x + K.TURRET_RANGE + 120, sp.hero.y);
+  sp.planes = [farBogey];
+  const hp0 = farBogey.hp;
+  bb.stepPosts(sp, K.TURRET_CD);
+  ok(farBogey.hp === hp0, "a fighter beyond TURRET_RANGE is not raked");
+  ok(sp.hero.posts.every((p) => !p.firing), "no post fires with nothing in reach");
+  // Directly astern: only the all-round dorsal turret bears — the nose gun can't.
+  const nose = sp.hero.posts[0];
+  const astern = Math.abs(bb.angleDiff(Math.PI, nose.sector)) > nose.arc;
+  ok(astern, "the nose post cannot bear directly astern (sector arc holds)");
+}
+
 // 14. The reticle and silhouette geometry.
 const bp = bb.bombsightPath(100, 100, 50, 0);
 ok(bp.startsWith("M") && bp.trimEnd().endsWith("Z"), "bombsightPath is a closed path");
