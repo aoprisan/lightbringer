@@ -27,6 +27,14 @@
 //   Types -> Tuning -> Bombers (the shop) -> Theatres (levels) -> Arena generation
 //   -> Raid sim -> Sprites -> Render -> Game shell -> Legacy -> SW + test seam.
 
+// The one shared import in the family: the cross-game Covenant meta-layer.
+// Victories won as the OTHER four natures rivet a little extra plating onto
+// the airframe here, and a completed raid advances the shared Fivefold Crown.
+import {
+  loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine,
+  NATURES, CROWN_BOUNTY,
+} from "./covenant.js";
+
 // ---------- Types ----------
 
 type Phase = "raid" | "won" | "lost";
@@ -163,6 +171,7 @@ interface RaidState {
   streams: Segment[];    // tailwind lanes the bomber rides
   hero: Hero;
   loadout: BomberType;   // the equipped airframe (resolved from the legacy at build)
+  boon: number;          // covenant boon strength baked in at build (0..BOON_CAP)
   planes: Plane[];       // axis fighters AND friendly escorts (one roster, `axis` splits)
   bombs: Bomb[];
   shells: FlakShell[];
@@ -197,6 +206,7 @@ const SPEED_MAX = 260;           // full-throttle airspeed
 const TURN_RATE = 2.6;           // radians/s the nose can swing
 const HERO_RADIUS = 18;
 const HERO_HP = 100;
+const COVENANT_HP_PER_BOON = 2;  // airframe plating riveted on per covenant boon point (other natures' victories, capped)
 const HERO_IFRAMES_MS = 500;     // grace after a hit, no further damage
 
 // The BOMB RUN — the weapon and the gate on every bomb. Holding a straight and
@@ -680,10 +690,14 @@ function buildArena(level: LevelDef): RaidState {
 
   const legacy = loadBomberLegacy();
   const loadout = bomberTypeById(legacy.equipped);
+  // The Covenant's boon: victories won as the other four natures rivet a little
+  // extra plating on (applied after the airframe's own hpMul; capped small).
+  const boon = boonStrength(loadCovenant(), "bomber");
+  const heroHp = Math.round(HERO_HP * loadout.hpMul) + boon * COVENANT_HP_PER_BOON;
   const hero: Hero = {
     x: spawnX, y: spawnY, vx: 0, vy: -SPEED_CRUISE,
     heading: -Math.PI / 2, speed: SPEED_CRUISE,
-    hp: Math.round(HERO_HP * loadout.hpMul), maxHp: Math.round(HERO_HP * loadout.hpMul),
+    hp: heroHp, maxHp: heroHp,
     hurt: 0, charge: 0, overcharge: 0, bombCd: 0, angle: 0,
     // The three defensive posts: a forward nose gun, an all-round dorsal turret,
     // and a rearward tail gun — together they cover the whole sky.
@@ -722,7 +736,7 @@ function buildArena(level: LevelDef): RaidState {
   return {
     level, w, h, scenery, rivers,
     structures, columns, flak, balloons, clouds, streams,
-    hero, loadout, planes,
+    hero, loadout, boon, planes,
     bombs: [], shells: [], bursts: [], fires: [], chutes: [],
     alert: 0, elapsed: 0,
     destroyed: 0, total: structures.length + columns.length,
@@ -2378,6 +2392,7 @@ function start(): void {
     const sc = scoreRun(s);
     const medals = Math.max(1, Math.round(sc.total / MEDAL_SCORE_DIV));
     const l = recordRaid(s.level, ms, s.destroyed, medals, s.fightersDown);
+    const echo = recordEcho("bomber", true, sc.total); // the covenant hears of this victory
     const best = l.best[s.level.id];
     const gunLine = s.flakDown > 0
       ? `You silenced <em>${s.flakDown}</em> of ${s.flakTotal} batteries on the way.`
@@ -2396,6 +2411,11 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Theatre difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
+      (echo.crowned
+        ? row("The Fivefold Crown", `<strong>forged!</strong> every nature banks +${CROWN_BOUNTY} of its own coin`)
+        : echo.firstOfCycle
+          ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
+          : "") +
       `</dl></div>`;
     showOverlay(
       "The raid is complete",
@@ -2414,6 +2434,7 @@ function start(): void {
     if (!s) return;
     const medals = s.destroyed * MEDAL_PER_TARGET;
     recordDown(s.destroyed, s.fightersDown, medals);
+    recordEcho("bomber", false); // the covenant counts the fall, not the crown
     showOverlay(
       "You are going down",
       `The guns of <em>${s.level.name}</em> found you with ` +
@@ -2431,6 +2452,14 @@ function start(): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
+    // A forged Fivefold Crown owes this nature a bounty — fold it in exactly
+    // once (claiming zeroes it in the covenant) before the legacy is shown.
+    const crownDue = claimBounty("bomber");
+    if (crownDue > 0) {
+      const lb = loadBomberLegacy();
+      lb.medals += crownDue;
+      saveBomberLegacy(lb);
+    }
     const l = loadBomberLegacy();
     const sel = levelById(selId || "") || LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
@@ -2450,6 +2479,20 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // The Covenant — what the other natures have lent this one, and how the
+    // Fivefold Crown stands. Invisible until the player walks another road.
+    const cov = loadCovenant();
+    const covText = covenantLine(
+      cov, "bomber", `+${boonStrength(cov, "bomber") * COVENANT_HP_PER_BOON} airframe HP`,
+    );
+    if (covText || crownDue > 0) {
+      html +=
+        `<div class="legacy"><div class="legacy-head">The Covenant of Five</div>` +
+        `<span class="city-line">` +
+        (crownDue > 0 ? `The Fivefold Crown pays its bounty: <em>+${crownDue} medals</em>. ` : ``) +
+        covText + `</span></div>`;
+    }
 
     // The airframe shop — raids bank medals; spend them here, then equip.
     html +=
@@ -2590,6 +2633,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
     render, scaffold, spriteFor,
     loadBomberLegacy, saveBomberLegacy, recordRaid, recordDown, emptyBomberLegacy,
     BOMBER_TYPES, bomberTypeById, unlockBomber, equipBomber,
+    loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
     K: {
       W, H, SPEED_CRUISE, SPEED_MAX, TURN_RATE, HERO_RADIUS, HERO_HP, HERO_IFRAMES_MS,
       STEADY_TURN, SIGHT_CHARGE_MS, SIGHT_ARM_AT, SIGHT_SPIN,
@@ -2610,6 +2654,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
       COLUMN_SPEED, COLUMN_HP, COLUMN_RADIUS, STRUCT_HP, STRUCT_RADIUS, HIT_FLASH_MS,
       SCORE_PER_TARGET, SCORE_PER_FLAK, SCORE_ESCORT_MAX, SCORE_SURVIVAL_MAX,
       SCORE_UNTOUCHED, MEDAL_SCORE_DIV, MEDAL_PER_TARGET,
+      COVENANT_HP_PER_BOON, CROWN_BOUNTY,
     },
   };
 } else {

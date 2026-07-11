@@ -1,13 +1,17 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v117";
+const CACHE = "lightbringer-v118";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
   // rest of the shell (see isShell): the freshest code always wins online.
   "./",
   "./index.html",
+  // The Covenant — the cross-game meta-layer module shared by all five games
+  // and the hub. It is code (changes with every retune), so it rides the shell:
+  // network-first via isShell.
+  "./covenant.js",
   // Pentagram — the action-combat spinoff (its own page + module, reusing the
   // same art and cities). Network-first like the rest of the shell (see isShell).
   "./pentagram.html",
@@ -221,7 +225,7 @@ self.addEventListener("activate", (event) => {
 // it stays cache-first — that is what makes the game playable offline at all.
 function isShell(url) {
   return url.pathname === "/" || url.pathname.endsWith("/") ||
-    url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/index.html") || url.pathname.endsWith("/covenant.js") ||
     url.pathname.endsWith("/pentagram.html") || url.pathname.endsWith("/pentagram.js") ||
     url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
     url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js") ||

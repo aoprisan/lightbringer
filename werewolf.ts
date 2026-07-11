@@ -134,6 +134,15 @@ interface Bolt { x: number; y: number; vx: number; vy: number; dead: boolean; bo
 interface Mote { x: number; y: number; until: number }
 interface Mist { x: number; y: number; r: number; vx: number; vy: number }
 
+// The one shared import in the family: the cross-game Covenant meta-layer.
+// Victories won as the OTHER four natures let the cursed soul begin the hunt
+// part-turned (a head of starting fury), and a claim here advances the shared
+// Fivefold Crown.
+import {
+  loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine,
+  NATURES, CROWN_BOUNTY,
+} from "./covenant.js";
+
 interface WwState {
   level: LevelDef;
   w: number; h: number;
@@ -145,6 +154,7 @@ interface WwState {
   paths: Segment[];       // village lanes the hero runs swift along
   hero: Hero;             // the cursed soul
   pelt: PeltType;         // the equipped pelt (resolved from the legacy at build)
+  boon: number;           // covenant boon strength baked in at build (0..BOON_CAP)
   foes: Foe[];
   bolts: Bolt[];          // huntsmen's silver arrows in flight
   pulses: Pulse[];        // fading rending rings (cosmetic)
@@ -246,6 +256,7 @@ const PREY_COHESION = 0.55;      // flock pull toward nearby prey (herding) vs. 
 const MOON_CYCLE_MS = 60000;     // a full day-night wheel (one "night" comes ~every 30s)
 const MOON_START = 0.35;         // begin near dusk — night, and the beast, come soon
 const FURY_RISE_MS = 4600;       // human → full fury, standing under a full moon (slower to turn beast)
+const COVENANT_FURY_PER_BOON = 0.03; // starting fury lent per covenant boon point (other natures' victories, capped)
 const FURY_DRAIN_MS = 7200;      // wolf fury drain at base (daylight bleeds it faster — a shorter beast window)
 const FURY_PER_KILL = 0.14;      // fury a kill feeds the beast (sustains the change)
 
@@ -860,9 +871,12 @@ function buildArena(level: LevelDef): WwState {
   const paths = weaveSegments(scenery, level.pathCount * CONTENT_SCALE, level.minDist * 3, level.minDist * 5);
   const legacy = loadWwLegacy();
   const pelt = peltTypeById(legacy.equipped);
+  // The Covenant's boon: victories won as the other four natures let the hunt
+  // begin part-turned — a head of starting fury (capped well below the crest).
+  const boon = boonStrength(loadCovenant(), "werewolf");
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP,
-    fury: 0, maxFury: 1, form: "human",
+    fury: boon * COVENANT_FURY_PER_BOON, maxFury: 1, form: "human",
     hurt: 0, momentum: 0, facing: -Math.PI / 2, biteCd: 0, pounceCd: 0,
     lunge: 0, lungeVx: 0, lungeVy: 0, transformAt: 0,
   };
@@ -917,7 +931,7 @@ function buildArena(level: LevelDef): WwState {
     cairns: scenery.filter((n) => n.kind === "cairn"),
     moonwells: scenery.filter((n) => n.kind === "moonwell"),
     walls, paths,
-    hero, pelt, foes,
+    hero, pelt, boon, foes,
     bolts: [], pulses: [], motes: [], mists,
     moon: MOON_START,
     quarry: -1, quarryNight: false, quarrySlain: 0,
@@ -3022,6 +3036,7 @@ function start(): void {
     const sc = scoreRun(s);
     const moonstones = Math.max(1, Math.round(sc.total / MOONSTONE_SCORE_DIV));
     const l = recordHunt(s.level, ms, cairns, moonstones, s.slain);
+    const echo = recordEcho("werewolf", true, sc.total); // the covenant hears of this victory
     const best = l.best[s.level.id];
     const cairnLine = (cairns >= total && total > 0
       ? `You claimed every den — <em>${total}</em>. The village is yours, stone and soul.`
@@ -3039,6 +3054,11 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Village difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
+      (echo.crowned
+        ? row("The Fivefold Crown", `<strong>forged!</strong> every nature banks +${CROWN_BOUNTY} of its own coin`)
+        : echo.firstOfCycle
+          ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
+          : "") +
       `</dl></div>`;
     showOverlay(
       "The hunt is yours",
@@ -3057,6 +3077,7 @@ function start(): void {
     if (!s) return;
     const moonstones = s.slain * MOONSTONE_PER_KILL;
     recordFall(s.litCount, s.slain, moonstones);
+    recordEcho("werewolf", false); // the covenant counts the fall, not the crown
     // The night's tally — the score language shown even on a fall, so the player
     // learns what pays before their first claim (win-only bonuses named, zeroed).
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
@@ -3088,6 +3109,14 @@ function start(): void {
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
     moonEl.style.display = "none";
+    // A forged Fivefold Crown owes this nature a bounty — fold it in exactly
+    // once (claiming zeroes it in the covenant) before the legacy is shown.
+    const crownDue = claimBounty("werewolf");
+    if (crownDue > 0) {
+      const lb = loadWwLegacy();
+      lb.moonstones += crownDue;
+      saveWwLegacy(lb);
+    }
     const l = loadWwLegacy();
     const sel = levelById(selId || "") || LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
@@ -3106,6 +3135,21 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // The Covenant — what the other natures have lent this one, and how the
+    // Fivefold Crown stands. Invisible until the player walks another road.
+    const cov = loadCovenant();
+    const covText = covenantLine(
+      cov, "werewolf",
+      `${Math.round(boonStrength(cov, "werewolf") * COVENANT_FURY_PER_BOON * 100)}% starting fury`,
+    );
+    if (covText || crownDue > 0) {
+      html +=
+        `<div class="legacy"><div class="legacy-head">The Covenant of Five</div>` +
+        `<span class="city-line">` +
+        (crownDue > 0 ? `The Fivefold Crown pays its bounty: <em>+${crownDue} moonstones</em>. ` : ``) +
+        covText + `</span></div>`;
+    }
 
     // The pelt shop — the unlockable wolf-form variants. Hunts bank moonstones; spend
     // them here to don a pelt, then equip it.
@@ -3262,6 +3306,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     render, scaffold, scenerySprite, spriteFor,
     loadWwLegacy, saveWwLegacy, recordHunt, recordFall, emptyWwLegacy,
     PELT_TYPES, peltTypeById, unlockPelt, equipPelt,
+    loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED_HUMAN, HERO_SPEED_WOLF, HERO_KNOCKBACK,
       HERO_STILL_MAXSPEED, PULSE_FX_MS, TERROR_KNOCK,
@@ -3294,6 +3339,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       QUARRY_NIGHT_DL, QUARRY_FURY, QUARRY_HEAL, SCORE_QUARRY,
       SCORE_PER_KILL, SCORE_SURVIVAL_MAX, SCORE_UNTOUCHED,
       MOONSTONE_SCORE_DIV, MOONSTONE_PER_KILL,
+      COVENANT_FURY_PER_BOON, CROWN_BOUNTY,
     },
   };
 } else {

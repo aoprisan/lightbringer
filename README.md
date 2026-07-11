@@ -55,8 +55,21 @@ below](#the-moons-hunger--the-werewolf-spinoff))
 > experience of playing is illumination.
 
 > *The original contemplative, turn-based Light-Bringer has been retired — the
-> repo now ships only the four real-time action games above, reached from the
+> repo now ships only the real-time action games above, reached from the
 > class-select front door.*
+
+## The Covenant of Five — one world, one profile
+
+The five natures are not strangers: a shared, offline **Covenant** binds them.
+Every victory won as one nature **lends its strength to the other four** — the
+Vigil's carrier hardens, the Necromancer starts with deeper soul-stores, the
+Watcher's mind steadies, the cursed soul begins the hunt part-turned, the
+bomber flies with extra plating (all capped small: a head start, never a
+carry). Win at least once as **each of the five natures** and you forge a
+**Fivefold Crown** — a bounty paid out in every nature's own currency. The
+class-select hub shows the whole covenant (victories, boons, the crown cycle,
+waiting bounties) and can share it as a scorecard. All of it lives in one
+localStorage key, fully offline, zero backend.
 
 ## The Burning Vigil — the primary game
 

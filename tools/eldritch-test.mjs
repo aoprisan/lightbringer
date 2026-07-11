@@ -548,5 +548,23 @@ try {
 }
 ok(!threw, "render and scaffold run headlessly with zero sprites, at start and after state changes");
 
+
+// ---------- The Covenant — the cross-game boon (a steadied mind) ----------
+const COV_KEY = "lightbringer.covenant.v1";
+localStorage.removeItem(COV_KEY);
+eld.saveEldLegacy(eld.emptyEldLegacy());
+const sCov0 = eld.buildArena(eld.LEVELS[0]);
+ok(sCov0.boon === 0 && sCov0.hero.maxSanity === K.HERO_SANITY,
+  "a blank covenant leaves the Watcher's sanity at base");
+for (let i = 0; i < 5; i++) eld.recordEcho("werewolf", true, 100);
+const sCov1 = eld.buildArena(eld.LEVELS[0]);
+ok(sCov1.boon === 5 && sCov1.hero.maxSanity === K.HERO_SANITY + 5 * K.COVENANT_SANITY_PER_BOON
+  && sCov1.hero.sanity === sCov1.hero.maxSanity,
+  "victories as the other natures steady the Watcher's mind (+max sanity)");
+const covEcho = eld.recordEcho("watcher", true, 800);
+ok(covEcho.firstOfCycle && eld.loadCovenant().echoes.watcher.victories === 1,
+  "a sealing echoes into the covenant and advances the crown cycle");
+localStorage.removeItem(COV_KEY);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

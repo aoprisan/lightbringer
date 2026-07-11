@@ -101,6 +101,39 @@
   .class .name { font-size: 14.5px; letter-spacing: 0.06em; color: var(--accent, var(--gold-bright)); }
   .class .desc { font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
 
+  /* The Covenant of Five — the cross-game profile panel. Hidden until the
+     module script finds a covenant worth showing (pure progressive enhancement). */
+  .covenant { width: 100%; margin-top: 22px; padding: 16px 18px;
+    border: 1px solid var(--edge); border-radius: 14px;
+    background: linear-gradient(160deg, rgba(20,24,46,0.45), rgba(10,12,24,0.35)); }
+  .cov-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .cov-title { font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--gold-bright); }
+  .cov-crowns { font-size: 13px; color: var(--gold); letter-spacing: 0.06em; }
+  .cov-lede { margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--ink-dim);
+    font-style: italic; }
+  .cov-cycle { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .cov-dot { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; border: 1px solid var(--edge);
+    background: rgba(8,10,20,0.6); opacity: 0.38; filter: grayscale(0.8); }
+  .cov-dot.done { opacity: 1; filter: none; border-color: var(--gold);
+    box-shadow: 0 0 12px -2px rgba(232,179,75,0.55); }
+  .cov-cycle-label { font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); }
+  .cov-rows { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
+  .cov-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+    color: var(--ink); flex-wrap: wrap; }
+  .cov-row .cr-mark { flex: 0 0 auto; }
+  .cov-row .cr-name { color: var(--accent, var(--gold-bright)); letter-spacing: 0.04em; }
+  .cov-row .cr-stat { color: var(--ink-dim); }
+  .cov-row .cr-boon { color: var(--ink-dim); font-style: italic; }
+  .cov-row .cr-bounty { color: var(--gold-bright); font-size: 11px; letter-spacing: 0.06em; }
+  .cov-share { margin-top: 14px; font: inherit; font-size: 11.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--gold-bright); background: none; cursor: pointer;
+    border: 1px solid var(--edge); border-radius: 10px; padding: 8px 14px;
+    transition: border-color .2s ease, box-shadow .2s ease; }
+  .cov-share:hover, .cov-share:focus-visible { outline: none; border-color: var(--gold);
+    box-shadow: 0 0 16px -6px var(--gold); }
+
   footer { margin-top: 30px; font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim);
     text-align: center; text-transform: uppercase; opacity: 0.7; }
   footer a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid transparent; }
@@ -161,6 +194,22 @@
     </a>
   </div>
 
+  <!-- The Covenant of Five — the cross-game profile. Stays hidden until the
+       module script below finds echoes worth showing, so a first-time visitor
+       (or a browser without module/storage support) sees the hub unchanged. -->
+  <section class="covenant" id="covenant" hidden>
+    <div class="cov-head">
+      <span class="cov-title">The Covenant of Five</span>
+      <span class="cov-crowns" id="cov-crowns"></span>
+    </div>
+    <p class="cov-lede">The five natures walk one world. Every victory won as one
+      lends its strength to the other four — and a victory as <em>each</em> of the
+      five forges a Fivefold Crown, paying a bounty in every nature's coin.</p>
+    <div class="cov-cycle" id="cov-cycle"></div>
+    <div class="cov-rows" id="cov-rows"></div>
+    <button class="cov-share" id="cov-share" type="button">Share your covenant</button>
+  </section>
+
   <footer>Choose a class to begin · your descent plays as that class</footer>
 </main>
 
@@ -187,6 +236,95 @@
       navigator.serviceWorker.register("./sw.js").catch(function () {});
     });
   }
+</script>
+
+<script type="module">
+  // The Covenant of Five — the cross-game profile panel. Pure progressive
+  // enhancement: any failure (module missing from an old cache, storage denied,
+  // ancient browser) is swallowed and the hub stands exactly as before.
+  try {
+    const M = await import("./covenant.js");
+    const cov = M.loadCovenant();
+    const anyEcho = M.NATURES.some((n) => cov.echoes[n].runs > 0) || cov.crown.crowns > 0;
+    if (anyEcho) {
+      // The class cards' accents, keyed the same as the covenant's natures.
+      const ACCENT = { vigil: "#ff6a3c", necro: "#3cff8a", watcher: "#7ad8ff",
+        werewolf: "#cdd6ea", bomber: "#ffb84d" };
+      // Each game's own legacy key + currency, read for the profile row. Display
+      // only — the games remain the sole writers of their legacies.
+      const COIN = {
+        vigil: ["pentagram.legacy.v1", "embers", "embers"],
+        necro: ["necromancer.legacy.v1", "relics", "relics"],
+        watcher: ["eldritch.legacy.v1", "lore", "lore"],
+        werewolf: ["werewolf.legacy.v1", "moonstones", "moonstones"],
+        bomber: ["bomber.legacy.v1", "medals", "medals"],
+      };
+      const coinOf = (n) => {
+        try {
+          const raw = localStorage.getItem(COIN[n][0]);
+          const v = raw ? JSON.parse(raw)[COIN[n][1]] : 0;
+          return typeof v === "number" && isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+        } catch (_) { return 0; }
+      };
+      const esc = (s) => String(s).replace(/[&<>"]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      if (cov.crown.crowns > 0) {
+        document.getElementById("cov-crowns").textContent =
+          "\u{1F451} × " + cov.crown.crowns + " forged";
+      }
+      const doneSet = new Set(cov.crown.done);
+      document.getElementById("cov-cycle").innerHTML =
+        M.NATURES.map((n) =>
+          '<span class="cov-dot' + (doneSet.has(n) ? " done" : "") + '" title="' +
+          esc(M.NATURE_NAMES[n]) + '">' + M.NATURE_MARKS[n] + "</span>").join("") +
+        '<span class="cov-cycle-label">next crown: ' + doneSet.size + "/" +
+        M.NATURES.length + " natures</span>";
+      document.getElementById("cov-rows").innerHTML = M.NATURES.map((n) => {
+        const e = cov.echoes[n];
+        const boon = M.boonStrength(cov, n);
+        const coin = coinOf(n);
+        const due = cov.crown.bounty[n];
+        return '<div class="cov-row" style="--accent:' + ACCENT[n] + '">' +
+          '<span class="cr-mark">' + M.NATURE_MARKS[n] + "</span>" +
+          '<span class="cr-name">' + esc(M.NATURE_NAMES[n]) + "</span>" +
+          '<span class="cr-stat">' + e.victories +
+            (e.victories === 1 ? " victory" : " victories") +
+            (coin > 0 ? " · " + coin + " " + COIN[n][2] : "") + "</span>" +
+          (boon > 0
+            ? '<span class="cr-boon">boon ★' + boon + " (" + esc(M.BOON_HINTS[n]) + ")</span>"
+            : "") +
+          (due > 0
+            ? '<span class="cr-bounty">+' + due + " " + COIN[n][2] + " bounty waiting</span>"
+            : "") +
+          "</div>";
+      }).join("");
+
+      const shareBtn = document.getElementById("cov-share");
+      shareBtn.addEventListener("click", async () => {
+        const lines = ["The Light-Bringer — my Covenant of Five"];
+        for (const n of M.NATURES) {
+          const v = cov.echoes[n].victories;
+          lines.push(M.NATURE_MARKS[n] + " " + M.NATURE_NAMES[n] + " — " + v +
+            (v === 1 ? " victory" : " victories"));
+        }
+        if (cov.crown.crowns > 0) lines.push("\u{1F451} Fivefold crowns forged: " + cov.crown.crowns);
+        lines.push("Next crown: " + doneSet.size + "/" + M.NATURES.length + " natures");
+        lines.push(location.origin + location.pathname);
+        const text = lines.join("\n");
+        try {
+          if (navigator.share) { await navigator.share({ text }); return; }
+        } catch (_) { /* fall through to the clipboard */ }
+        try {
+          await navigator.clipboard.writeText(text);
+          shareBtn.textContent = "Copied to clipboard";
+          setTimeout(() => { shareBtn.textContent = "Share your covenant"; }, 2200);
+        } catch (_) { /* nothing to do; leave the hub untouched */ }
+      });
+
+      document.getElementById("covenant").hidden = false;
+    }
+  } catch (_) { /* the hub stands as it was */ }
 </script>
 </body>
 </html>

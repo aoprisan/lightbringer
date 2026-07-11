@@ -15,6 +15,6 @@
     "removeComments": false,
     "skipLibCheck": true
   },
-  "include": ["pentagram.ts", "necro.ts", "eldritch.ts", "werewolf.ts", "bomber.ts"],
+  "include": ["covenant.ts", "pentagram.ts", "necro.ts", "eldritch.ts", "werewolf.ts", "bomber.ts"],
   "exclude": ["node_modules", "lightbringer.ts"]
 }

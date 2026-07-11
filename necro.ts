@@ -21,6 +21,15 @@
 //   Types -> Tuning -> Villages -> Arena generation -> March sim -> Sprites ->
 //   Render -> Game shell -> Legacy -> SW + test seam.
 
+// The one shared import in the family: the cross-game Covenant meta-layer.
+// Victories won as the OTHER four natures lend the necromancer a small boon
+// here (deeper starting soul-stores), and a victory here advances the shared
+// Fivefold Crown.
+import {
+  loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine,
+  NATURES, CROWN_BOUNTY,
+} from "./covenant.js";
+
 // ---------- Types ----------
 
 // Patrol POSTS are a placement role for the knights (where they muster), NOT a
@@ -146,6 +155,7 @@ interface NecroState {
   rite: RaiseType;       // the equipped raising-rite (resolved from the legacy at build)
   perk: NecroPerk;       // the equipped perk (resolved from the legacy at build)
   perkMods: PerkMods;    // the equipped perk's resolved modifier bundle (read at a handful of sites)
+  boon: number;          // covenant boon strength baked in at build (0..BOON_CAP)
   souls: number;         // the raise resource
   soulRegen: number;     // ms accumulator for the patient soul-seep (transient, not saved)
   minions: Minion[];
@@ -189,6 +199,7 @@ const HERO_KNOCKBACK = 60;       // units the necromancer is shoved back by a bl
 // razing a house (desecration feeds the carrier), and a slow patient seep that
 // trickles a floor of souls back when you run dry (so you can always raise again).
 const SOUL_START = 9;
+const COVENANT_SOULS_PER = 3;    // covenant boon points per one extra starting soul (capped by BOON_CAP)
 const RAISE_COST = 2;            // souls per raise pulse from a grave
 const RAISE_MIN = 1;             // skeletons raised per pulse (low)
 const RAISE_MAX = 3;             // …and high (inclusive)
@@ -847,12 +858,16 @@ function buildArena(level: LevelDef): NecroState {
   const rite = raiseTypeById(legacy.equipped);
   const perk = perkById(legacy.perkEquipped);
   const mods = perkMods(perk);
+  // The Covenant's boon: victories won as the other four natures deepen the
+  // necromancer's starting soul-stores a little (capped — a head start only).
+  const boon = boonStrength(loadCovenant(), "necro");
   return {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     graves: scenery.filter((n) => n.kind === "grave"),
     barricades, causeways,
-    hero, rite, perk, perkMods: mods, souls: SOUL_START + mods.soulStart, soulRegen: 0,
+    hero, rite, perk, perkMods: mods, boon,
+    souls: SOUL_START + mods.soulStart + Math.floor(boon / COVENANT_SOULS_PER), soulRegen: 0,
     minions: [], knights,
     wisps: [], motes: [], miasmas: [], raises: [], smites: [], bolts: [],
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
@@ -2780,6 +2795,7 @@ function start(): void {
     const sc = scoreRun(s);
     const relics = Math.max(1, Math.round(sc.total / RELIC_SCORE_DIV));
     const l = recordOverrun(s.level, ms, razed, totems, relics);
+    const echo = recordEcho("necro", true, sc.total); // the covenant hears of this victory
     const best = l.best[s.level.id];
     const razedLine = (razed >= total && total > 0
       ? `You razed every house — <em>${total}</em>. Nothing of the village stands.`
@@ -2797,6 +2813,11 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Village difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
+      (echo.crowned
+        ? row("The Fivefold Crown", `<strong>forged!</strong> every nature banks +${CROWN_BOUNTY} of its own coin`)
+        : echo.firstOfCycle
+          ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
+          : "") +
       `</dl></div>`;
     showOverlay(
       "The village is overrun",
@@ -2815,6 +2836,7 @@ function start(): void {
     if (!s) return;
     const relics = s.kills * RELIC_PER_KILL; // the felled still leave their relics
     recordFall(s.desecCount, s.scenery.filter((n) => n.risen).length, relics);
+    recordEcho("necro", false); // the covenant counts the fall, not the crown
     showOverlay(
       "Your march is broken",
       `The watch of <em>${s.level.name}</em> cut you down with ` +
@@ -2832,6 +2854,14 @@ function start(): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
+    // A forged Fivefold Crown owes this nature a bounty — fold it in exactly
+    // once (claiming zeroes it in the covenant) before the legacy is shown.
+    const crownDue = claimBounty("necro");
+    if (crownDue > 0) {
+      const lb = loadNecroLegacy();
+      lb.relics += crownDue;
+      saveNecroLegacy(lb);
+    }
     const l = loadNecroLegacy();
     const sel = levelById(selId || "") || LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
@@ -2851,6 +2881,20 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // The Covenant — what the other natures have lent this one, and how the
+    // Fivefold Crown stands. Invisible until the player walks another road.
+    const cov = loadCovenant();
+    const covText = covenantLine(
+      cov, "necro", `+${Math.floor(boonStrength(cov, "necro") / COVENANT_SOULS_PER)} starting souls`,
+    );
+    if (covText || crownDue > 0) {
+      html +=
+        `<div class="legacy"><div class="legacy-head">The Covenant of Five</div>` +
+        `<span class="city-line">` +
+        (crownDue > 0 ? `The Fivefold Crown pays its bounty: <em>+${crownDue} relics</em>. ` : ``) +
+        covText + `</span></div>`;
+    }
 
     // Raising-rites — the unlockable pentagrams, each calling up its own skeleton
     // kind. Marches bank relics; spend them here to learn a rite, then equip it.
@@ -3022,6 +3066,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,
     RAISE_TYPES, raiseTypeById, unlockRite, equipRite,
     PERKS, perkById, perkMods, unlockPerk, equipPerk,
+    loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       SOUL_START, RAISE_COST, RAISE_MIN, RAISE_MAX, GRAVE_REACH, GRAVE_RADIUS,
@@ -3052,6 +3097,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       RECONSECRATE_REACH, RECONSECRATE_MS, SCAR_RADIUS,
       ALTAR_TRIGGER_REACH, ALTAR_BURST_R, ALTAR_BURST_DMG,
       SCORE_PER_KNIGHT, SCORE_SURVIVAL_MAX, SCORE_UNTOUCHED, HIT_FLASH_MS,
+      COVENANT_SOULS_PER, CROWN_BOUNTY,
     },
   };
 } else {

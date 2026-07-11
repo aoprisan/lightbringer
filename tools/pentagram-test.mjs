@@ -1404,5 +1404,88 @@ ok(K.GROVE_AGGRO_MUL < 1, "a grove's aggro dulling is real (mul < 1)");
 ok(pg.buildArena(pg.levelById("emberwood")).scenery.some((n) => n.kind === "grove"),
   "the Emberwood is wooded (groves seed as tactical cover)");
 
+
+// ---------- The Covenant — the cross-game meta-layer (covenant.ts) ----------
+// The Vigil's suite carries the covenant's core assertions (fold, boon, crown,
+// bounty, validation); each sibling suite checks its own boon idiom.
+const COV_KEY = "lightbringer.covenant.v1";
+localStorage.removeItem(COV_KEY);
+pg.savePgLegacy(pg.emptyPgLegacy());
+const cov0 = pg.loadCovenant();
+ok(cov0.crown.crowns === 0 && cov0.crown.done.length === 0
+  && pg.NATURES.every((n) => cov0.echoes[n].victories === 0),
+  "a blank covenant defaults empty (no key, no crash)");
+ok(pg.boonStrength(cov0, "vigil") === 0, "no victories elsewhere -> no boon");
+ok(pg.covenantLine(cov0, "vigil", "+0 HP") === "", "a blank covenant renders no picker line at all");
+const sCov0 = pg.buildArena(pg.levelById("old-city"));
+ok(sCov0.boon === 0 && sCov0.hero.maxHp === K.HERO_HP, "a blank covenant leaves the carrier's HP at base");
+
+// Victories won as OTHER natures lend the vigil max HP; its own never do.
+pg.recordEcho("necro", true, 500);
+pg.recordEcho("necro", true, 700);
+pg.recordEcho("werewolf", true, 300);
+const cov1 = pg.loadCovenant();
+ok(cov1.echoes.necro.victories === 2 && cov1.echoes.necro.bestScore === 700,
+  "echoes fold victories and keep the best score");
+ok(pg.otherVictories(cov1, "vigil") === 3 && pg.boonStrength(cov1, "vigil") === 3,
+  "the other natures' victories fuel the boon");
+ok(pg.otherVictories(cov1, "necro") === 1, "a nature's own victories never fuel its own boon");
+const sCov1 = pg.buildArena(pg.levelById("old-city"));
+ok(sCov1.boon === 3 && sCov1.hero.maxHp === K.HERO_HP + 3 * K.COVENANT_HP_PER_BOON,
+  "the covenant boon hardens the carrier's flame (+max HP at build)");
+ok(pg.covenantLine(cov1, "vigil", "+6 max HP").includes("2/5"),
+  "the picker line names the crown cycle's progress");
+
+// The boon caps — a mountain of foreign victories is a head start, not a carry.
+for (let i = 0; i < 40; i++) pg.recordEcho("bomber", true, 100);
+const sCovCap = pg.buildArena(pg.levelById("old-city"));
+ok(sCovCap.boon === K.BOON_CAP && sCovCap.hero.maxHp === K.HERO_HP + K.BOON_CAP * K.COVENANT_HP_PER_BOON,
+  "the covenant boon caps at BOON_CAP");
+
+// Falls count runs, never the crown.
+pg.saveCovenant(pg.emptyCovenant());
+const echoFall = pg.recordEcho("vigil", false, 0);
+ok(echoFall.covenant.echoes.vigil.runs === 1 && echoFall.covenant.echoes.vigil.victories === 0
+  && !echoFall.firstOfCycle && !echoFall.crowned,
+  "a fall echoes a run but never advances the crown");
+
+// The Fivefold Crown — one victory as each of the five natures forges it.
+pg.saveCovenant(pg.emptyCovenant());
+let crownedAt = -1, firsts = 0;
+pg.NATURES.forEach((n, i) => {
+  const r = pg.recordEcho(n, true, 100);
+  if (r.firstOfCycle) firsts++;
+  if (r.crowned) crownedAt = i;
+});
+const covCrown = pg.loadCovenant();
+ok(firsts === 5 && crownedAt === 4,
+  "each nature's first victory advances the cycle; the fifth forges the crown");
+ok(covCrown.crown.crowns === 1 && covCrown.crown.done.length === 0,
+  "a forged crown banks and the cycle resets");
+ok(pg.NATURES.every((n) => covCrown.crown.bounty[n] === K.CROWN_BOUNTY),
+  "a forged crown banks a bounty in EVERY nature's coin");
+const repeat = pg.recordEcho("vigil", true, 100);
+ok(repeat.firstOfCycle && !repeat.crowned && pg.loadCovenant().crown.done.length === 1,
+  "the next cycle begins fresh (a repeat victory advances it again)");
+
+// The bounty claims exactly once, per nature.
+ok(pg.claimBounty("vigil") === K.CROWN_BOUNTY, "the crown bounty pays on first claim");
+ok(pg.claimBounty("vigil") === 0, "the crown bounty never pays twice");
+ok(pg.loadCovenant().crown.bounty.necro === K.CROWN_BOUNTY,
+  "each nature's bounty is claimed separately");
+
+// A corrupt or hand-mangled blob can never crash a build.
+localStorage.setItem(COV_KEY, "{not json");
+ok(pg.loadCovenant().crown.crowns === 0, "a corrupt covenant falls back to empty");
+localStorage.setItem(COV_KEY, JSON.stringify({
+  echoes: { vigil: { victories: -5, runs: "x" } },
+  crown: { done: ["vigil", "bogus", "vigil"], crowns: 2.7, bounty: { necro: -3 } },
+}));
+const covVal = pg.loadCovenant();
+ok(covVal.echoes.vigil.victories === 0 && covVal.crown.done.length === 1
+  && covVal.crown.crowns === 2 && covVal.crown.bounty.necro === 0,
+  "a hand-mangled covenant validates field by field");
+localStorage.removeItem(COV_KEY);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

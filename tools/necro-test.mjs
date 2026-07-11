@@ -865,5 +865,22 @@ try {
 }
 ok(!threw, "render and scaffold run headlessly with zero sprites, at start and after state changes");
 
+
+// ---------- The Covenant — the cross-game boon (deeper soul-stores) ----------
+const COV_KEY = "lightbringer.covenant.v1";
+localStorage.removeItem(COV_KEY);
+necro.saveNecroLegacy(necro.emptyNecroLegacy());
+const sCov0 = necro.buildArena(necro.LEVELS[0]);
+ok(sCov0.boon === 0 && sCov0.souls === K.SOUL_START,
+  "a blank covenant leaves the starting souls at base");
+for (let i = 0; i < 7; i++) necro.recordEcho("vigil", true, 100);
+const sCov1 = necro.buildArena(necro.LEVELS[0]);
+ok(sCov1.boon === 7 && sCov1.souls === K.SOUL_START + Math.floor(7 / K.COVENANT_SOULS_PER),
+  "victories as the other natures deepen the necromancer's starting soul-stores");
+const covEcho = necro.recordEcho("necro", true, 900);
+ok(covEcho.firstOfCycle && necro.loadCovenant().echoes.necro.victories === 1,
+  "an overrun echoes into the covenant and advances the crown cycle");
+localStorage.removeItem(COV_KEY);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

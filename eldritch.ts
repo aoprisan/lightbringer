@@ -21,8 +21,16 @@
 // import(). The simulation is pure and headless (EldState in, mutation out); the
 // render pass only reads it — the same split that lets the sibling tests drive the
 // others lets eldritch-test.mjs drive this. Sections below:
+//   (Shared import: the cross-game Covenant meta-layer, covenant.ts — victories
+//   won as the OTHER four natures steady the Watcher's mind a little here, and
+//   a sealing here advances the shared Fivefold Crown.)
 //   Types -> Tuning -> Signs -> Places -> Arena generation -> Watch sim ->
 //   Sprites -> Render -> Game shell -> Legacy -> SW + test seam.
+
+import {
+  loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine,
+  NATURES, CROWN_BOUNTY,
+} from "./covenant.js";
 
 // ---------- Types ----------
 
@@ -102,6 +110,7 @@ interface EldState {
   pools: Pool[];         // atmospheric water bodies (cosmetic; the place's signature)
   hero: Hero;            // the Watcher
   sign: SignType;        // the equipped Elder Sign variant (resolved from the legacy at build)
+  boon: number;          // covenant boon strength baked in at build (0..BOON_CAP)
   horrors: Horror[];
   pulses: Pulse[];       // fading banishing rings (cosmetic)
   motes: Mote[];         // gatherable clue-motes dropped by the banished
@@ -130,6 +139,7 @@ const HERO_SPEED = 244;          // travel, world units per second
 const HERO_RADIUS = 16;
 const HERO_HP = 100;
 const HERO_SANITY = 100;         // the mind's reservoir
+const COVENANT_SANITY_PER_BOON = 2; // max sanity lent per covenant boon point (other natures' victories, capped)
 const HERO_IFRAMES_MS = 700;     // grace after a blow, no further corporeal damage
 const HERO_KNOCKBACK = 56;       // units the Watcher is shoved back by a blow
 
@@ -587,9 +597,13 @@ function buildArena(level: LevelDef): EldState {
   const paths = weaveSegments(scenery, level.pathCount, level.minDist * 3, level.minDist * 5);
   const legacy = loadEldLegacy();
   const sign = signTypeById(legacy.equipped);
+  // The Covenant's boon: victories won as the other four natures steady the
+  // Watcher's mind a little (capped small — a head start, not a carry).
+  const boon = boonStrength(loadCovenant(), "watcher");
+  const heroSanity = HERO_SANITY + boon * COVENANT_SANITY_PER_BOON;
   const hero: Hero = {
     x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP,
-    sanity: HERO_SANITY, maxSanity: HERO_SANITY,
+    sanity: heroSanity, maxSanity: heroSanity,
     hurt: 0, charge: 0, overcharge: 0, signCd: 0, angle: 0,
   };
   const horrors: Horror[] = [];
@@ -643,7 +657,7 @@ function buildArena(level: LevelDef): EldState {
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     wards: scenery.filter((n) => n.kind === "ward"),
     walls, paths, pools,
-    hero, sign, horrors,
+    hero, sign, boon, horrors,
     pulses: [], motes: [],
     elapsed: 0, banished: 0, hits: 0, total: horrors.length,
     wardsTotal: scenery.filter((n) => n.kind === "ward").length,
@@ -1896,6 +1910,7 @@ function start(): void {
     const sc = scoreRun(s);
     const lore = Math.max(1, Math.round(sc.total / LORE_SCORE_DIV));
     const l = recordSeal(s.level, ms, wards, lore, s.banished);
+    const echo = recordEcho("watcher", true, sc.total); // the covenant hears of this victory
     const best = l.best[s.level.id];
     const wardLine = (wards >= total && total > 0
       ? `You sealed every ward — <em>${total}</em>. The place is warded whole.`
@@ -1912,6 +1927,11 @@ function start(): void {
       (sc.untouched ? row("Untouched", `${sc.untouched}`) : "") +
       row("Place difficulty", `×${sc.mult}`) +
       row("<strong>Total</strong>", `<strong>${sc.total}</strong>`) +
+      (echo.crowned
+        ? row("The Fivefold Crown", `<strong>forged!</strong> every nature banks +${CROWN_BOUNTY} of its own coin`)
+        : echo.firstOfCycle
+          ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
+          : "") +
       `</dl></div>`;
     showOverlay(
       "The threshold is sealed",
@@ -1930,6 +1950,7 @@ function start(): void {
     if (!s) return;
     const lore = s.banished * LORE_PER_BANISH;
     recordFall(s.litCount, s.banished, lore);
+    recordEcho("watcher", false); // the covenant counts the fall, not the crown
     const mad = s.lossCause === "mad";
     showOverlay(
       mad ? "Your mind is unmade" : "You are pulled under",
@@ -1950,6 +1971,14 @@ function start(): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
+    // A forged Fivefold Crown owes this nature a bounty — fold it in exactly
+    // once (claiming zeroes it in the covenant) before the legacy is shown.
+    const crownDue = claimBounty("watcher");
+    if (crownDue > 0) {
+      const lb = loadEldLegacy();
+      lb.lore += crownDue;
+      saveEldLegacy(lb);
+    }
     const l = loadEldLegacy();
     const sel = levelById(selId || "") || LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
@@ -1968,6 +1997,20 @@ function start(): void {
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
+
+    // The Covenant — what the other natures have lent this one, and how the
+    // Fivefold Crown stands. Invisible until the player walks another road.
+    const cov = loadCovenant();
+    const covText = covenantLine(
+      cov, "watcher", `+${boonStrength(cov, "watcher") * COVENANT_SANITY_PER_BOON} max sanity`,
+    );
+    if (covText || crownDue > 0) {
+      html +=
+        `<div class="legacy"><div class="legacy-head">The Covenant of Five</div>` +
+        `<span class="city-line">` +
+        (crownDue > 0 ? `The Fivefold Crown pays its bounty: <em>+${crownDue} lore</em>. ` : ``) +
+        covText + `</span></div>`;
+    }
 
     // The Sign shop — the unlockable Elder Sign variants. Watches bank lore; spend it
     // here to learn a Sign, then equip it.
@@ -2107,6 +2150,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__ELD_TEST__) {
     render, scaffold, scenerySprite, spriteFor,
     loadEldLegacy, saveEldLegacy, recordSeal, recordFall, emptyEldLegacy,
     SIGN_TYPES, signTypeById, unlockSign, equipSign,
+    loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
     K: {
       W, H, HERO_HP, HERO_SANITY, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED, HERO_KNOCKBACK,
       HERO_STILL_MAXSPEED, SIGN_CHARGE_MS, SIGN_BANISH_AT, SIGN_RADIUS, SIGN_PULSE_MS,
@@ -2127,6 +2171,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__ELD_TEST__) {
       DEFILE_REACH, DEFILE_MS, SCAR_RADIUS,
       SCORE_PER_BANISH, SCORE_SURVIVAL_MAX, SCORE_SANITY_MAX, SCORE_UNTOUCHED,
       LORE_SCORE_DIV, LORE_PER_BANISH,
+      COVENANT_SANITY_PER_BOON, CROWN_BOUNTY,
     },
   };
 } else {

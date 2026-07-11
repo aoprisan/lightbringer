@@ -19,6 +19,15 @@
 //   Types -> Tuning -> Cities -> Arena generation -> Combat sim -> Sprites ->
 //   Render -> Game shell -> SW + test seam.
 
+// The one shared import in the family: the cross-game Covenant meta-layer.
+// Victories won as the OTHER four natures lend the carrier a small boon here
+// (extra max HP), and a victory here advances the shared Fivefold Crown.
+import {
+  loadCovenant, saveCovenant, emptyCovenant, recordEcho, otherVictories,
+  boonStrength, claimBounty, covenantLine,
+  COVENANT_KEY, NATURES, CROWN_BOUNTY, BOON_CAP,
+} from "./covenant.js";
+
 // ---------- Types ----------
 
 type NodeKind =
@@ -224,6 +233,7 @@ interface PgState {
   fxPulse: number;
   fxDmg: number;
   curse: Curse;          // the ascension curse baked into this descent (tier 0 = none)
+  boon: number;          // covenant boon strength baked in at build (0..BOON_CAP)
   scorch: Scorch[];      // lingering burnt ground (Quick Ember power)
   rings: Ring[];         // consecration rings — warded ground a full inscription seared
   veils: Veil[];         // drifting dark pools that unravel the sigil if stood in
@@ -268,6 +278,7 @@ const HERO_HP = 100;
 const HERO_STILL_MAXSPEED = 40;  // must be slower than this (units/s) to inscribe
 const HERO_IFRAMES_MS = 600;     // grace after a touch, no further damage (a swarm bites through sooner)
 const HERO_KNOCKBACK = 64;       // units the hero is shoved back by a shade's blow
+const COVENANT_HP_PER_BOON = 2;  // max HP lent per covenant boon point (victories as the other natures, capped)
 
 // The pentagram — the weapon. Stand still and it inscribes; the fuller the
 // charge, the harder each pulse bites. Move and it fades.
@@ -1455,8 +1466,12 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     .concat(resolveSegs(level.walls, w, h));
   const pathways = weaveSegments(scenery, level.pathwayCount, level.minDist * 3, level.minDist * 5)
     .concat(resolveSegs(level.avenues, w, h));
+  // The Covenant's boon: every victory won as the other four natures hardens
+  // the carrier's flame a little (capped small — a head start, not a carry).
+  const boon = boonStrength(loadCovenant(), "vigil");
+  const heroHp = HERO_HP + boon * COVENANT_HP_PER_BOON;
   const hero: Hero = {
-    x: w / 2, y: h / 2, vx: 0, vy: 0, hp: HERO_HP, maxHp: HERO_HP, hurt: 0,
+    x: w / 2, y: h / 2, vx: 0, vy: 0, hp: heroHp, maxHp: heroHp, hurt: 0,
   };
   const shades: Shade[] = [];
   const posts = scenery.filter((n) => n.kind === "keeper");
@@ -1526,7 +1541,7 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
     fxPulse: PENTA_PULSE_MS * type.pulseMul,
     fxDmg: PENTA_DMG * type.dmgMul,
-    curse,
+    curse, boon,
     scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils),
     mists: weaveMists(w, h, level.mistCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
     arcs: [], novas: [], bursts: [], novaFired: false,
@@ -4583,6 +4598,7 @@ function start(): void {
     const sc = scoreRun(s);
     const l = recordClear(s.level, ms, lit, sc.embers, awoke, s.curse.tier);
     const fr = recordFrescoes(s.shownFrescoes); // fold the reliquary; may bank a bonus
+    const echo = recordEcho("vigil", true, sc.total); // the covenant hears of this victory
     const banked = l.embers + fr.bonus;
     const best = l.best[s.level.id];
     const relit = (lit >= total && total > 0
@@ -4617,6 +4633,11 @@ function start(): void {
         ? row("Reliquary", `${fr.completed.join(", ")} <em>illuminated</em> · +${fr.bonus}`)
         : "") +
       row("Embers earned", `+${sc.embers + fr.bonus} <span class="legacy-new">${banked} banked</span>`) +
+      (echo.crowned
+        ? row("The Fivefold Crown", `<strong>forged!</strong> every nature banks +${CROWN_BOUNTY} of its own coin`)
+        : echo.firstOfCycle
+          ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
+          : "") +
       `</dl></div>`;
     showOverlay(
       "The city is cleansed",
@@ -4633,6 +4654,7 @@ function start(): void {
   function onLost(): void {
     if (!s) return;
     recordDeath(s.litCount, s.scenery.filter((n) => n.awoke).length);
+    recordEcho("vigil", false); // the covenant counts the fall, not the crown
     const fr = recordFrescoes(s.shownFrescoes); // the reliquary keeps what you saw, even in falling
     const reliquary = fr.bonus
       ? `<br><br>Yet you uncovered the frescoes of <em>${fr.completed.join(", ")}</em> — ` +
@@ -4659,6 +4681,14 @@ function start(): void {
     s = null; running = false;
     introHold = false; clearTimeout(introHoldTimer); // drop any pending intro hold
     mmEl.style.display = "none"; // no arena to overview at the city select
+    // A forged Fivefold Crown owes this nature a bounty — fold it in exactly
+    // once (claiming zeroes it in the covenant) before the legacy is shown.
+    const crownDue = claimBounty("vigil");
+    if (crownDue > 0) {
+      const lb = loadPgLegacy();
+      lb.embers += crownDue;
+      savePgLegacy(lb);
+    }
     const l = loadPgLegacy();
     // The selected city — defaults to the first, and supplies the establishing
     // art shown at the top of the card (mirrors the parent's Lamplighter intro).
@@ -4725,6 +4755,21 @@ function start(): void {
       `<span class="asc-tier">${tier ? `<img class="asc-seal" alt="">` : ""}×${tier}</span>` +
       `<button class="asc-step" data-asc="${tier + 1}"${tier >= ascMax ? " disabled" : ""}>▶</button>` +
       `<span class="city-line">${curseLine}</span></div></div>`;
+
+    // The Covenant — what the other natures have lent this one, and how the
+    // Fivefold Crown stands. Invisible until the player walks another road, so
+    // a Vigil-only carrier never sees the meta-layer at all.
+    const cov = loadCovenant();
+    const covText = covenantLine(
+      cov, "vigil", `+${boonStrength(cov, "vigil") * COVENANT_HP_PER_BOON} max HP`,
+    );
+    if (covText || crownDue > 0) {
+      html +=
+        `<div class="legacy"><div class="legacy-head">The Covenant of Five</div>` +
+        `<span class="city-line">` +
+        (crownDue > 0 ? `The Fivefold Crown pays its bounty: <em>+${crownDue} embers</em>. ` : ``) +
+        covText + `</span></div>`;
+    }
 
     // Sigils — the unlockable pentagrams. Each clear banks embers; spend them
     // here to own a sigil, then equip it for your next descent.
@@ -5104,6 +5149,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
+    loadCovenant, saveCovenant, emptyCovenant, recordEcho, otherVictories,
+    boonStrength, claimBounty, covenantLine, COVENANT_KEY, NATURES,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS, HERO_SPEED,
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,
@@ -5133,6 +5180,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       BOSS_VEILS_BASE, BOSS_VEILS_DIFF, BOSS_VEIL_R, BOSS_VEIL_DRIFT, BOSS_VEIL_UNRAVEL,
       TRACE_TOL_FRAC, TRACE_MIN_POINTS, TRACE_FLASH_MS,
       SEAL_RING_FRAC, SEAL_NODES_MIN, SEAL_NODES_SPAN, SEAL_DIFF_NODES, SEAL_SNAP_FRAC, SEAL_EDGE_DONE,
+      COVENANT_HP_PER_BOON, CROWN_BOUNTY, BOON_CAP,
     },
   };
 } else {

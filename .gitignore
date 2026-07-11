@@ -1,6 +1,7 @@
 node_modules/
 
 # Build output — compiled from *.ts by `npm run build` (and in CI).
+/covenant.js
 /pentagram.js
 /necro.js
 /eldritch.js

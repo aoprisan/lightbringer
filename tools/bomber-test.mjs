@@ -622,5 +622,21 @@ try {
 }
 ok(!threw, "render and scaffold run headlessly with zero sprites, at start and after state changes");
 
+
+// ---------- The Covenant — the cross-game boon (extra airframe plating) ----------
+const COV_KEY = "lightbringer.covenant.v1";
+localStorage.removeItem(COV_KEY);
+bb.saveBomberLegacy(bb.emptyBomberLegacy());
+const sCov0 = bb.buildArena(bb.LEVELS[0]);
+ok(sCov0.boon === 0 && sCov0.hero.maxHp === K.HERO_HP, "a blank covenant flies the base airframe");
+for (let i = 0; i < 4; i++) bb.recordEcho("necro", true, 100);
+const sCov1 = bb.buildArena(bb.LEVELS[0]);
+ok(sCov1.boon === 4 && sCov1.hero.maxHp === K.HERO_HP + 4 * K.COVENANT_HP_PER_BOON,
+  "victories as the other natures rivet extra plating on (+airframe HP, after hpMul)");
+const covEcho = bb.recordEcho("bomber", true, 600);
+ok(covEcho.firstOfCycle && bb.loadCovenant().echoes.bomber.victories === 1,
+  "a completed raid echoes into the covenant and advances the crown cycle");
+localStorage.removeItem(COV_KEY);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

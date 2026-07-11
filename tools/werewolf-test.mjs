@@ -884,5 +884,23 @@ ok(ww.nodesOfKind(ix, "spring").length === 1 && ww.nodesOfKind(ix, "cairn").leng
 ok(ww.inNodeAura(ix, 10, 10, "spring", K.SPRING_AURA) && !ww.inNodeAura(ix, 10, 10, "bog", K.BOG_AURA),
   "inNodeAura reads through the index");
 
+
+// ---------- The Covenant — the cross-game boon (a head of starting fury) ----------
+const COV_KEY = "lightbringer.covenant.v1";
+localStorage.removeItem(COV_KEY);
+ww.saveWwLegacy(ww.emptyWwLegacy());
+const sCov0 = ww.buildArena(ww.LEVELS[0]);
+ok(sCov0.boon === 0 && sCov0.hero.fury === 0, "a blank covenant starts the hunt cold (no fury)");
+for (let i = 0; i < 6; i++) ww.recordEcho("bomber", true, 100);
+const sCov1 = ww.buildArena(ww.LEVELS[0]);
+ok(sCov1.boon === 6 && Math.abs(sCov1.hero.fury - 6 * K.COVENANT_FURY_PER_BOON) < 1e-9,
+  "victories as the other natures begin the hunt part-turned (starting fury)");
+ok(sCov1.hero.form === "human" && K.COVENANT_FURY_PER_BOON * 10 < 1,
+  "the fury boon can never crest the change on its own (still a man at build, even capped)");
+const covEcho = ww.recordEcho("werewolf", true, 700);
+ok(covEcho.firstOfCycle && ww.loadCovenant().echoes.werewolf.victories === 1,
+  "a claimed village echoes into the covenant and advances the crown cycle");
+localStorage.removeItem(COV_KEY);
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

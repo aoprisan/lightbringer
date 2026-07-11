@@ -67,7 +67,7 @@ a backend and/or runtime dependencies. Weigh new dependencies on their merits.
 ```sh
 npm install                      # one-time: install the TypeScript compiler
 
-npm run build                    # compile pentagram.ts/necro.ts/eldritch.ts/werewolf.ts/bomber.ts -> .js
+npm run build                    # compile covenant.ts + pentagram.ts/necro.ts/eldritch.ts/werewolf.ts/bomber.ts -> .js
 npm run typecheck                # type-check only, no emit (tsc --noEmit)
 npm test                         # build, then run all five headless tests
 npm start                        # build, then serve over HTTP on :8000
@@ -99,9 +99,11 @@ There is no single-test runner; each `tools/*-test.mjs` is one file of assertion
 To narrow your work, edit/comment assertions locally — don't add a framework. The `tools/*.mjs` scripts are
 plain Node ESM, not part of the TS build.
 
-`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all five
-files compiling clean (`npm run typecheck`). Its `include` is `["pentagram.ts", "necro.ts",
+`tsconfig.json` is `strict` with `noUnusedLocals`/`noUnusedParameters`/`noImplicitReturns`; keep all six
+files compiling clean (`npm run typecheck`). Its `include` is `["covenant.ts", "pentagram.ts", "necro.ts",
 "eldritch.ts", "werewolf.ts", "bomber.ts"]`; `lightbringer.ts` is excluded (reference-only prototype).
+`covenant.ts` (→ `covenant.js`) is the **one shared module** — the cross-game Covenant meta-layer all five
+games and the hub import (see its section under Architecture).
 
 ## Architecture
 
@@ -128,10 +130,12 @@ If you add a sim function a test needs, export it through that object.
 **Module vs global script — an important difference.** `pentagram.ts`, `necro.ts`, `eldritch.ts`,
 `werewolf.ts` and `bomber.ts` **are TS modules** (each ends with `export {};`) loaded via `<script type="module">`. This is
 required: all five are in `tsconfig.json`'s `include`, and scriptless files would collide on every top-level
-name (`W`, `el`, `render`, `start`, …). Module scope keeps the five games isolated from each other. Don't
-remove the `export {};` or convert them. (The removed original, `app.ts`, was the one classic global script —
-which is why the modules' comments still note "no `import`/`export`, like `app.ts`": that contrast is
-historical now.)
+name (`W`, `el`, `render`, `start`, …). Module scope keeps the five games isolated from each other — with
+**one deliberate exception**: every game imports the shared `covenant.ts` (the cross-game meta-layer), and
+nothing else. Don't remove the `export {};` or convert them, and don't add further cross-game imports —
+covenant.ts IS the sanctioned connective tissue. (The removed original, `app.ts`, was the one classic global
+script — which is why the modules' comments still note "no `import`/`export`, like `app.ts`": that contrast
+is historical now.)
 
 ### The removed original (`app.ts`) — the lineage the games inherit
 
@@ -206,13 +210,50 @@ The five action games have **no mid-run save at all** (runs are short), so their
 cross-run **legacy** key. Those keys survive "Begin again", and each gains fields **defaulted on load with no
 key bump**. They are write-once-per-run-end (fold in exactly once at each genuine end transition). The hub
 (`index.html`) keeps only a tiny `lightbringer.lastClass` hint (which class was picked last) — pure
-progressive enhancement, safe to ignore.
+progressive enhancement, safe to ignore. Beside the five legacies sits **one shared key**,
+`lightbringer.covenant.v1` (`COVENANT_KEY` in `covenant.ts`) — the cross-game Covenant, below.
+
+### The Covenant of Five — the cross-game meta-layer (`covenant.ts`)
+
+`covenant.ts` (→ `covenant.js`) is the **one shared ES module** in the family: all five games import it
+(`import { … } from "./covenant.js"`), and the hub loads it with a dynamic `import()` in a
+`<script type="module">`. It is pure data + localStorage — **no DOM ever** — so the headless tests drive it
+directly. It gives the five siloed games a reason to be one product:
+
+- **Echoes** — each game calls `recordEcho(nature, won, score)` exactly once per genuine run-end, in the
+  shell beside its own `record*` pair (`onWin`/`onLost`). The covenant folds `runs`/`victories`/`bestScore`
+  per nature (`NATURES` = `["vigil","necro","watcher","werewolf","bomber"]`, matching the hub's
+  `data-class` ids).
+- **Boons** — at `buildArena` each game reads `boonStrength(loadCovenant(), <nature>)` = victories won as
+  the **other four** natures, capped at `BOON_CAP` (10), and bakes its own idiom in (the strength lands on
+  `s.boon`): Vigil **+2 max HP**/point (`COVENANT_HP_PER_BOON`), Necro **+1 starting soul per 3** points
+  (`COVENANT_SOULS_PER`), Watcher **+2 max sanity**/point (`COVENANT_SANITY_PER_BOON`), Werewolf **+3%
+  starting fury**/point (`COVENANT_FURY_PER_BOON` — capped well below the crest, it can never turn the beast
+  alone), Bomber **+2 airframe HP**/point after the airframe's `hpMul` (`COVENANT_HP_PER_BOON`). Deliberately
+  small: a head start, never a carry. If a game's dial moves, keep `BOON_HINTS` (the hub's prose) in step.
+- **The Fivefold Crown** — a victory in a nature not yet counted this cycle advances `crown.done`; the fifth
+  distinct nature **forges a crown**: `crowns++`, the cycle resets, and `CROWN_BOUNTY` (80) of **every**
+  game's own currency is banked in `crown.bounty`. Each game's `showPicker` calls `claimBounty(<nature>)`
+  first thing and folds the amount into its legacy currency — claiming zeroes the covenant side, so the
+  transfer happens exactly once. Win screens surface `echo.crowned` / `echo.firstOfCycle` as a score row;
+  pickers show a "The Covenant of Five" block via `covenantLine` (empty — hence invisible — until the player
+  has victories elsewhere or a bounty due, so a one-game player never sees the meta-layer).
+- **The hub panel** — `index.html` renders the whole profile (crown cycle dots, per-nature victories +
+  currency read straight from the five legacy keys, boon strengths via `BOON_HINTS`, waiting bounties) plus
+  a **Share your covenant** button (`navigator.share` → clipboard fallback). Pure progressive enhancement:
+  the section stays `hidden` until echoes exist, and every failure path leaves the hub untouched.
+- **Discipline** — one key, defaulted + validated on load with **no version bump** (`loadCovenant` clamps
+  every field; a corrupt blob falls back to empty), every storage access behind try/catch, write-once folds.
+  The covenant helpers are re-exported through every game's test seam; `tools/pentagram-test.mjs` carries the
+  core suite (fold/boon/cap/crown/bounty/validation), each sibling suite asserts its own boon idiom.
+- **Shipping** — `covenant.js` is a **shell asset** in `sw.js` (`ASSETS` + `isShell`, network-first): bump
+  `CACHE` whenever its bytes change, exactly like the game modules.
 
 ### Service worker cache versioning
 
 `sw.js` is the offline app-shell cache for the **class-select hub and all five games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v113`). It is **network-first for the
-shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v118`). It is **network-first for the
+shells** (`isShell`: `/`, `index.html`, `covenant.js`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
 `eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`, `bomber.html`, `bomber.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
 404s, so every file in `ASSETS` must exist.
