@@ -246,6 +246,9 @@ interface PgState {
   constellations: number; // conduit-fuse patterns completed this descent (a snuff can re-arm one)
   shownFrescoes: number[]; // FRESCO indices already uncovered this descent
   pendingFresco: string | null; // a fresco awaiting the shell's pause-and-show
+  seed: number;          // the arena's build seed — the duel token's heart
+  killTimes: number[];   // ms timestamp of every kill, in order — my echo
+  rival?: DuelRun;       // the challenger's echo, when this descent answers a duel
   phase: Phase;
   boss?: BossState;     // the Veilwarden, raised once the host is cleared
 }
@@ -1229,17 +1232,17 @@ function generateCity(
     avenues.some((a) => closestOnSegment(x, y, a.x1, a.y1, a.x2, a.y2).d < STREET_HALF);
   // Center-biased sample within a district's falloff (pow > 1 favours the heart).
   const sampleDistrict = () => {
-    let pick = Math.random(), d = districts[0];
+    let pick = rnd(), d = districts[0];
     for (const cand of districts) { pick -= cand.weight; d = cand; if (pick <= 0) break; }
-    const a = Math.random() * Math.PI * 2;
-    const r = d.falloffR * Math.pow(Math.random(), 1.3);
+    const a = rnd() * Math.PI * 2;
+    const r = d.falloffR * Math.pow(rnd(), 1.3);
     return { x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r };
   };
 
   let guard = 0, rejectRun = 0, uniform = false;
   while (nodes.length < level.nodeCount && guard++ < 30000) {
     const p = uniform
-      ? { x: 60 + Math.random() * (w - 120), y: 60 + Math.random() * (h - 120) }
+      ? { x: 60 + rnd() * (w - 120), y: 60 + rnd() * (h - 120) }
       : sampleDistrict();
     const inBounds = p.x >= 60 && p.x <= w - 60 && p.y >= 60 && p.y <= h - 60;
     if (!inBounds || inPlaza(p.x, p.y) || onAvenue(p.x, p.y) || !spaced(p.x, p.y)) {
@@ -1255,7 +1258,7 @@ function generateCity(
   // Kind assignment over the DWELLINGS only (plaza shrines are already placed).
   // Counts are unchanged from the uniform-scatter days, so each city dresses the
   // same — only the geography clusters.
-  const shuffled = nodes.filter((n) => n.kind === "dwelling").sort(() => Math.random() - 0.5);
+  const shuffled = shuffle(nodes.filter((n) => n.kind === "dwelling"));
   const nConduit = Math.floor(nodes.length * level.conduitFrac);
   let cut = 0;
   shuffled.slice(0, nConduit).forEach((n) => (n.kind = "conduit"));
@@ -1338,7 +1341,7 @@ function weaveSegments(
   if (pool.length < 2) return segs;
   let guard = 0;
   while (segs.length < count && guard++ < count * 40) {
-    const a = pool[Math.floor(Math.random() * pool.length)];
+    const a = pool[Math.floor(rnd() * pool.length)];
     let best: ArenaNode | null = null, bestD = Infinity;
     for (const b of pool) {
       if (b === a) continue;
@@ -1364,10 +1367,10 @@ function weaveVeils(w: number, h: number, count: number): Veil[] {
   const veils: Veil[] = [];
   let guard = 0;
   while (veils.length < count && guard++ < count * 40) {
-    const x = 80 + Math.random() * (w - 160);
-    const y = 80 + Math.random() * (h - 160);
+    const x = 80 + rnd() * (w - 160);
+    const y = 80 + rnd() * (h - 160);
     if ((x - w / 2) ** 2 + (y - h / 2) ** 2 < (VEIL_RADIUS + 140) ** 2) continue;
-    const a = Math.random() * Math.PI * 2;
+    const a = rnd() * Math.PI * 2;
     veils.push({ x, y, vx: Math.cos(a) * VEIL_DRIFT, vy: Math.sin(a) * VEIL_DRIFT, r: VEIL_RADIUS });
   }
   return veils;
@@ -1381,9 +1384,9 @@ function weaveMists(w: number, h: number, count: number): Mist[] {
   const mists: Mist[] = [];
   let guard = 0;
   while (mists.length < count && guard++ < count * 40) {
-    const x = 80 + Math.random() * (w - 160);
-    const y = 80 + Math.random() * (h - 160);
-    const a = Math.random() * Math.PI * 2;
+    const x = 80 + rnd() * (w - 160);
+    const y = 80 + rnd() * (h - 160);
+    const a = rnd() * Math.PI * 2;
     mists.push({ x, y, vx: Math.cos(a) * MIST_DRIFT, vy: Math.sin(a) * MIST_DRIFT, r: MIST_RADIUS });
   }
   return mists;
@@ -1431,6 +1434,121 @@ const ASC_VEILS_PER_TIER = 1;       // +1 drifting veil pool per tier
 const ASC_SCORE_PER_TIER = 0.20;    // +0.20 to the score/ember multiplier per tier
 const ASC_MAX = 5;                  // the deepest ascension a city offers
 interface Curse { tier: number; hpMul: number; contactMul: number; extraVeils: number; scoreMul: number }
+// ---------- Rival duels (zero-backend async challenges) ----------
+// Any finished descent folds into a compact URL-safe token: the arena seed (the
+// same seed rebuilds the same city everywhere), the challenger's kill timeline,
+// and how their run ended. Opening the game with ?duel=<token> stages the SAME
+// battlefield with the rival's echo pacing you on the HUD; the end screen calls
+// the verdict and offers the counter-challenge. No server — the link IS the
+// duel. The codec/verdict are pure and mirrored verbatim in the four siblings
+// (only GAME_TAG differs, so a token can never open in the wrong game).
+const GAME_TAG = "vigil";
+const NAME_KEY = "lightbringer.rival.name"; // one signature across all five games
+
+interface DuelRun {
+  name: string;    // the challenger's signature (sanitized on decode)
+  level: string;   // level id — the same ground
+  seed: number;    // arena seed — the same streets, the same host
+  weapon: string;  // their equipped sigil id (display only)
+  result: "won" | "lost";
+  ms: number;      // their clock when the run ended
+  score: number;   // their final score (display only; the verdict never reads it)
+  kills: number[]; // ms timestamp of each kill, ascending — the echo itself
+}
+
+// Generation-path randomness goes through this hook so a duel seed rebuilds the
+// identical arena. buildArena swaps in mulberry32(seed) for the build, then
+// restores Math.random — live-sim rolls (drops, AI jitter) stay truly random.
+let rnd: () => number = Math.random;
+
+// Fisher–Yates over rnd() — the old sort(() => random - 0.5) shuffle leans on
+// engine sort internals, which a cross-device duel seed can't afford.
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+// A rival's name travels inside the token and lands in overlay HTML — strip
+// anything markup-shaped and cap it. An empty signature gets the stock one.
+function sanitizeName(raw: unknown): string {
+  const s = String(raw ?? "").replace(/[<>&"'`]/g, "").replace(/\s+/g, " ").trim();
+  return s.slice(0, 24) || "A rival";
+}
+
+// Kill times ride as delta-encoded deciseconds (small ints, so the JSON stays
+// tight); the whole record is JSON → base64url. ~100 kills ≈ a 500-char token.
+function encodeDuel(run: DuelRun): string {
+  let prev = 0;
+  const k = run.kills.map((t) => {
+    const ds = Math.max(prev, Math.round(t / 100));
+    const d = ds - prev; prev = ds; return d;
+  });
+  const json = JSON.stringify({
+    v: 1, g: GAME_TAG, n: run.name, l: run.level, s: run.seed, w: run.weapon,
+    r: run.result === "won" ? 1 : 0, t: Math.round(run.ms), sc: Math.round(run.score), k,
+  });
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Strict decode: any malformed, foreign-game, or unknown-level token yields
+// null (a bad link must never throw mid-boot). Numbers are re-validated — the
+// token is player-supplied data.
+function decodeDuel(token: string): DuelRun | null {
+  try {
+    const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    const o = JSON.parse(decodeURIComponent(escape(atob(b64)))) as Record<string, unknown>;
+    if (o.v !== 1 || o.g !== GAME_TAG) return null;
+    if (!levelById(String(o.l))) return null;
+    const seed = Number(o.s);
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return null;
+    if (!Array.isArray(o.k)) return null;
+    let acc = 0;
+    const kills: number[] = [];
+    for (const d of o.k) {
+      const n = Number(d);
+      if (!Number.isFinite(n) || n < 0) return null;
+      acc += Math.round(n);
+      kills.push(acc * 100);
+    }
+    const ms = Number(o.t), score = Number(o.sc);
+    if (!Number.isFinite(ms) || ms < 0 || !Number.isFinite(score)) return null;
+    return {
+      name: sanitizeName(o.n), level: String(o.l), seed: seed >>> 0,
+      weapon: String(o.w ?? ""), result: o.r === 1 ? "won" : "lost",
+      ms: Math.round(ms), score: Math.round(score), kills,
+    };
+  } catch { return null; }
+}
+
+// How many of the rival's kills had landed by `elapsed` — the echo's pace, read
+// by the HUD every frame and by the tests. Kills are ascending, so break early.
+function rivalKillsAt(rival: DuelRun, elapsed: number): number {
+  let n = 0;
+  for (const t of rival.kills) { if (t <= elapsed) n++; else break; }
+  return n;
+}
+
+// Who takes the duel. Clearing beats falling; two clears race the clock; two
+// falls compare how much of the host each dragged down, then who lasted longer.
+// Score is deliberately not consulted — it bends with sigils and ascensions,
+// while time-and-kills on the same seed is apples to apples.
+function duelVerdict(mine: DuelRun, rival: DuelRun): "win" | "loss" | "draw" {
+  if (mine.result !== rival.result) return mine.result === "won" ? "win" : "loss";
+  if (mine.result === "won") {
+    if (mine.ms !== rival.ms) return mine.ms < rival.ms ? "win" : "loss";
+    return "draw";
+  }
+  if (mine.kills.length !== rival.kills.length) {
+    return mine.kills.length > rival.kills.length ? "win" : "loss";
+  }
+  if (mine.ms !== rival.ms) return mine.ms > rival.ms ? "win" : "loss";
+  return "draw";
+}
+
 function curseFor(tier: number): Curse {
   const t = clamp(Math.round(tier), 0, ASC_MAX);
   return {
@@ -1442,7 +1560,13 @@ function curseFor(tier: number): Curse {
   };
 }
 
-function buildArena(level: LevelDef, ascension = 0): PgState {
+function buildArena(level: LevelDef, ascension = 0, seed?: number): PgState {
+  // The whole build runs on a seeded stream: pass a rival's seed and the same
+  // city rises — same streets, same host, same veils — on any device. Left
+  // unseeded, a fresh roll is drawn (and kept on s.seed), so ANY run can be
+  // turned into a challenge after the fact.
+  const arenaSeed = (seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+  rnd = mulberry32(arenaSeed);
   const curse = curseFor(ascension);
   const w = Math.round(W * (level.sizeScale ?? 1));
   const h = Math.round(H * (level.sizeScale ?? 1));
@@ -1481,15 +1605,15 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
       const baseHp = elite ? SHADE_HP * ELITE_HP_MUL
         : spitter ? SPITTER_HP : healer ? HEALER_HP : darter ? DARTER_HP : SHADE_HP;
       const hp = baseHp * curse.hpMul; // ascension toughens the whole host (×1 at tier 0)
-      const a = Math.random() * Math.PI * 2;
-      const r = 18 + Math.random() * 44;
+      const a = rnd() * Math.PI * 2;
+      const r = 18 + rnd() * 44;
       const x = clamp(post.x + Math.cos(a) * r, SHADE_RADIUS, w - SHADE_RADIUS);
       const y = clamp(post.y + Math.sin(a) * r, SHADE_RADIUS, h - SHADE_RADIUS);
       shades.push({
         x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false,
         state: "wander",
-        wanderAngle: Math.random() * Math.PI * 2,
-        wanderTimer: Math.random() * SHADE_WANDER_RETARGET_MS,
+        wanderAngle: rnd() * Math.PI * 2,
+        wanderTimer: rnd() * SHADE_WANDER_RETARGET_MS,
         homeX: post.x, homeY: post.y, // the leash centre it drifts around
         hit: 0,
         elite, shielded: elite, spitter, darter, healer, cooldown: 0,
@@ -1514,7 +1638,7 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     .filter((l) => l.dwellings.length >= 2);
   // Resolve the equipped sigil and bake its stat lean into effective constants.
   const type = pentaTypeById(loadPgLegacy().equipped);
-  return {
+  const state: PgState = {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     conduitLinks, spreadQueue: [],
@@ -1534,8 +1658,11 @@ function buildArena(level: LevelDef, ascension = 0): PgState {
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
     litCount: 0, snuffed: 0, constellations: 0,
     shownFrescoes: [], pendingFresco: null,
+    seed: arenaSeed, killTimes: [],
     phase: "fight",
   };
+  rnd = Math.random; // the seeded window covers the build only — live sim rolls free
+  return state;
 }
 
 const freshPg = buildArena; // alias, mirrors app.ts freshGame naming
@@ -1629,6 +1756,7 @@ function scoreRun(s: PgState): ScoreBreakdown {
 function killShade(s: PgState, e: Shade): void {
   e.dead = true;
   s.kills++;
+  s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
   if (Math.random() < MOTE_DROP_CHANCE) {
     s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
   }
@@ -4364,6 +4492,13 @@ function start(): void {
         foes += ` ${ARROWS[(((Math.round(ang / (Math.PI / 4))) % 8) + 8) % 8]}`;
       }
     }
+    // The rival's echo paces the same readout: their kill count as of this very
+    // moment of their run (✓ they cleared / ✝ they fell, once their clock is out).
+    if (s.rival) {
+      const rk = rivalKillsAt(s.rival, s.elapsed);
+      const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
+      foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
+    }
     foesEl.textContent = foes;
     lightsEl.textContent = litReadout(s);
     cityEl.textContent = s.level.name;
@@ -4557,8 +4692,9 @@ function start(): void {
     frescoImg.src = art;
   }
 
-  function startCity(level: LevelDef, ascension = 0): void {
-    s = buildArena(level, ascension);
+  function startCity(level: LevelDef, ascension = 0, duel: DuelRun | null = null): void {
+    s = buildArena(level, ascension, duel ? duel.seed : undefined);
+    if (duel) s.rival = duel; // the echo the HUD paces and the end screen judges
     loadCitySprites(level.id, repaint);
     hideOverlay();
     clearTimeout(frescoTimer); frescoEl.classList.remove("show"); // no card lingers into a new run
@@ -4573,6 +4709,98 @@ function start(): void {
     introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
     running = true; lastFrame = 0;
     requestAnimationFrame(pgFrame);
+  }
+
+  // ---------- Rival duels: the shell side ----------
+  // The pure codec/verdict live with the sim (the "Rival duels" section up top);
+  // this is everything that touches the DOM — signature, share sheet, the
+  // arriving-gauntlet intro, and the end-screen verdict panel.
+  function duelName(): string {
+    try {
+      const saved = localStorage.getItem(NAME_KEY);
+      if (saved) return sanitizeName(saved);
+      const typed = prompt("Sign your challenge — the name your rival will see:", "") || "";
+      const name = sanitizeName(typed);
+      localStorage.setItem(NAME_KEY, name);
+      return name;
+    } catch { return "A rival"; }
+  }
+
+  // Fold the descent just ended into a challenge record. The signature is left
+  // blank here — the name prompt only fires if the carrier actually shares.
+  function myDuelRun(result: "won" | "lost", score: number): DuelRun {
+    return {
+      name: "", level: s!.level.id, seed: s!.seed, weapon: s!.type.id,
+      result, ms: Math.round(s!.elapsed), score: Math.round(score), kills: s!.killTimes.slice(),
+    };
+  }
+
+  async function shareDuelLink(run: DuelRun): Promise<void> {
+    const signed = { ...run, name: duelName() };
+    const lvName = levelById(run.level)?.name ?? run.level;
+    const url = `${gameUrl()}?duel=${encodeDuel(signed)}`;
+    const text = run.result === "won"
+      ? `⚔ I cleansed ${lvName} in ${fmtTime(run.ms)}. Same city, same host — outpace my echo.`
+      : `⚔ ${lvName} pulled me down at ${run.kills.length} shades. Same city, same host — outlast my echo.`;
+    const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void> };
+    if (nav.share) {
+      try { await nav.share({ title: "The Burning Vigil — a duel", text, url }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast("Duel link copied — send it to your rival."); }
+    catch { showToast(url); }
+  }
+
+  // The end-screen duel panel: a verdict when this run answered a gauntlet, and
+  // always the button that turns the run just played into a fresh challenge.
+  function duelPanelHtml(mine: DuelRun): string {
+    const r = s ? s.rival : undefined;
+    let verdictHtml = "";
+    if (r) {
+      const v = duelVerdict(mine, r);
+      const line = v === "win" ? `<em>The duel is yours.</em> ${r.name}'s echo falls behind.`
+        : v === "loss" ? `<em>${r.name} takes the duel.</em> Their echo held the better run.`
+        : `<em>Dead even.</em> The duel stands unsettled.`;
+      const sum = (who: string, d: { result: string; ms: number; kills: number[] }) =>
+        `${who}: ${d.result === "won" ? `cleared in ${fmtTime(d.ms)}` : `fell at ${d.kills.length} shades (${fmtTime(d.ms)})`}`;
+      verdictHtml =
+        `<div class="legacy"><div class="legacy-head">⚔ The duel</div>` +
+        `<p class="city-line">${line}<br>${sum("You", mine)} · ${sum(r.name, r)}</p></div>`;
+    }
+    const label = r ? "⚔ Send the gauntlet back" : "⚔ Challenge a rival with this run";
+    return verdictHtml +
+      `<div class="start-share"><button class="start-act" data-duel="1">${label}</button></div>`;
+  }
+
+  // showOverlay rebuilds the body via innerHTML, so the button wires after it.
+  function wireDuelShare(run: DuelRun): void {
+    const b = ovBody.querySelector<HTMLButtonElement>("button[data-duel]");
+    if (b) b.onclick = () => { void shareDuelLink(run); };
+  }
+
+  // A gauntlet arrives (?duel=<token> survived decoding): stage the challenge.
+  // Declining falls through to the ordinary picker. A duel pins ascension 0 and
+  // opens the challenged city even if the carrier hasn't reached it — a guest
+  // pass for this answer only (the legacy's own unlocks are untouched).
+  function showDuelIntro(d: DuelRun): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const lv = levelById(d.level)!; // decodeDuel already validated it
+    const wpn = PENTA_TYPES.find((t) => t.id === d.weapon);
+    const feat = d.result === "won"
+      ? `cleansed it in <em>${fmtTime(d.ms)}</em>`
+      : `fell to it at <em>${d.kills.length}</em> shades`;
+    const body =
+      `<p class="lede">⚔ <em>${d.name}</em> throws down a gauntlet from <em>${lv.name}</em>: ` +
+      `they ${feat}${wpn ? `, bearing ${wpn.name}` : ""}.</p>` +
+      `<p class="lede">Answer it and the same city rises for you — the same streets, the same host, ` +
+      `the same drifting dark — while their echo paces you on the shade count. ` +
+      `Beat their run and send the gauntlet back.</p>`;
+    showOverlay(
+      "A gauntlet thrown", body,
+      "Answer on the same ground", () => startCity(lv, 0, d),
+      "Decline — choose a city", () => showPicker(),
+    );
   }
 
   function onWin(): void {
@@ -4618,16 +4846,18 @@ function start(): void {
         : "") +
       row("Embers earned", `+${sc.embers + fr.bonus} <span class="legacy-new">${banked} banked</span>`) +
       `</dl></div>`;
+    const mine = myDuelRun("won", sc.total);
     showOverlay(
       "The city is cleansed",
       `Every shade in <em>${s.level.name}</em> is undone — ${s.total} of them — ` +
       `and the city cleansed, in <em>${fmtTime(ms)}</em>.<br><br>` +
       `${relit}<br><br>` +
       (best === ms ? `<em>A new best for this city.</em>` : `Best here: ${fmtTime(best)}.`) +
-      breakdown,
+      breakdown + duelPanelHtml(mine),
       "Descend again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function onLost(): void {
@@ -4644,15 +4874,18 @@ function start(): void {
         `<em>${unbound}</em> of its ${s.boss.seal.edges.length} strands still unbound.`
       : `The watch of <em>${s.level.name}</em> pulled you down with ` +
         `<em>${aliveShades(s)}</em> shades still standing.`;
+    const mine = myDuelRun("lost", 0);
     showOverlay(
       "You fell",
       `${how}<br><br>` +
       `You had relit <em>${s.litCount}</em> of ${s.dwellingsTotal} dwellings.` +
       `${reliquary}<br><br>` +
-      `<em>The dark is patient. Descend again.</em>`,
+      `<em>The dark is patient. Descend again.</em>` +
+      duelPanelHtml(mine),
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function showPicker(selId?: string, asc = 0): void {
@@ -5066,7 +5299,11 @@ function start(): void {
   setupZoom();
   clampCam();
   applyCam();
-  showStart();
+  // A duel link opens straight onto the gauntlet; anything malformed (or from a
+  // sibling game) decodes to null and the ordinary title screen stands.
+  const duelToken = new URLSearchParams(location.search).get("duel");
+  const gauntlet = duelToken ? decodeDuel(duelToken) : null;
+  if (gauntlet) showDuelIntro(gauntlet); else showStart();
 }
 
 // ---------- Service worker registration (offline play) ----------
@@ -5104,6 +5341,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     qrEncode, qrEcc, qrMul, qrMaskBit, QR_EXP,
     loadPgLegacy, recordClear, recordDeath, emptyPgLegacy, unlockType, equipType,
     PENTA_TYPES, pentaTypeById,
+    encodeDuel, decodeDuel, duelVerdict, rivalKillsAt, sanitizeName, mulberry32, GAME_TAG,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_STILL_MAXSPEED, HERO_IFRAMES_MS, HERO_SPEED,
       PENTA_RADIUS, PENTA_PULSE_MS, PENTA_DMG, PENTA_CHARGE_MS,

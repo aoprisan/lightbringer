@@ -622,5 +622,60 @@ try {
 }
 ok(!threw, "render and scaffold run headlessly with zero sprites, at start and after state changes");
 
+// Rival duels — seeded arenas, the token codec, the echo's pace, the verdict.
+// Zero-backend: the same seed must raise the identical theatre on any device,
+// and the URL token must round-trip a run and shrug off tampering.
+{
+  const fpr = (st) => JSON.stringify({
+    n: st.scenery.map((n) => [n.kind, Math.round(n.x), Math.round(n.y), n.seed]),
+    t: st.structures.map((t) => [t.kind, Math.round(t.x), Math.round(t.y)]),
+    c: st.columns.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.wpX), Math.round(c.wpY)]),
+    f: st.flak.map((f) => [Math.round(f.x), Math.round(f.y)]),
+    b: st.balloons.map((b) => [Math.round(b.x), Math.round(b.y)]),
+    cl: st.clouds.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.r)]),
+  });
+  const dA = bb.buildArena(bb.levelById("channel"), 123456);
+  const dB = bb.buildArena(bb.levelById("channel"), 123456);
+  const dC = bb.buildArena(bb.levelById("channel"), 654321);
+  ok(dA.seed === 123456 && dB.seed === 123456, "a seeded build keeps its seed on the state");
+  ok(fpr(dA) === fpr(dB), "the same seed rebuilds the identical theatre (works, guns, sky)");
+  ok(fpr(dA) !== fpr(dC), "a different seed raises a different theatre");
+  ok(Number.isInteger(bb.buildArena(bb.levelById("channel")).seed),
+    "an unseeded raid still draws a seed — any run can become a challenge");
+  ok(fpr(bb.buildArena(bb.levelById("ruhr"), 777)) === fpr(bb.buildArena(bb.levelById("ruhr"), 777)),
+    "the hardest theatre is seed-stable too (flak alley through the seeded path)");
+
+  const dK = bb.buildArena(bb.levelById("channel"));
+  dK.elapsed = 4321;
+  bb.destroyTarget(dK, dK.structures[0]);
+  ok(dK.killTimes.length === 1 && dK.killTimes[0] === 4321, "each silenced target is timestamped for the echo");
+
+  const runRec = { name: "Cheshire", level: "channel", seed: 123456, weapon: "lanc",
+    result: "won", ms: 84200, score: 1234, kills: [1000, 2500, 2500, 60000] };
+  const tok = bb.encodeDuel(runRec);
+  ok(/^[A-Za-z0-9_-]+$/.test(tok), "the duel token is URL-safe base64url");
+  const back = bb.decodeDuel(tok);
+  ok(back && back.name === "Cheshire" && back.level === "channel" && back.seed === 123456
+    && back.result === "won" && back.ms === 84200, "the token round-trips the run");
+  ok(back.kills.length === 4 && back.kills.every((t, i) => Math.abs(t - runRec.kills[i]) <= 100),
+    "kill times survive within a decisecond");
+  ok(bb.decodeDuel("garbage!!") === null, "garbage tokens decode to null, never throw");
+  ok(bb.decodeDuel(bb.encodeDuel({ ...runRec, level: "no-such-theatre" })) === null, "unknown theatres are rejected");
+  const forged = Buffer.from(JSON.stringify({ v: 1, g: "eldritch", n: "x", l: "channel", s: 1, w: "", r: 1, t: 1, sc: 0, k: [] }))
+    .toString("base64url");
+  ok(bb.decodeDuel(forged) === null, "a sibling game's token never opens here (GAME_TAG guard)");
+  ok(bb.decodeDuel(bb.encodeDuel({ ...runRec, name: "<b onload=x>" })).name.includes("<") === false,
+    "names are stripped of markup on decode");
+
+  ok(bb.rivalKillsAt(back, 0) === 0 && bb.rivalKillsAt(back, 2600) === 3 && bb.rivalKillsAt(back, 999999) === 4,
+    "rivalKillsAt paces the echo");
+  const mkRun = (result, ms, nKills) => ({ name: "", level: "channel", seed: 1, weapon: "",
+    result, ms, score: 0, kills: Array.from({ length: nKills }, (_, i) => i * 100) });
+  ok(bb.duelVerdict(mkRun("won", 50000, 18), mkRun("lost", 80000, 10)) === "win", "a completed raid beats going down");
+  ok(bb.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 40000, 18)) === "loss", "two completions race the clock");
+  ok(bb.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", "two downed raids compare targets first");
+  ok(bb.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
