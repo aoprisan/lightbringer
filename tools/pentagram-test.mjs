@@ -1486,6 +1486,59 @@ ok(covVal.echoes.vigil.victories === 0 && covVal.crown.done.length === 1
   && covVal.crown.crowns === 2 && covVal.crown.bounty.necro === 0,
   "a hand-mangled covenant validates field by field");
 localStorage.removeItem(COV_KEY);
+// 53. Rival duels — seeded arenas, the token codec, the echo's pace, the verdict.
+// The whole feature is zero-backend: the same seed must raise the identical city
+// on any device, and the URL token must round-trip a run and shrug off tampering.
+const fpr = (st) => JSON.stringify({
+  n: st.scenery.map((n) => [n.kind, Math.round(n.x), Math.round(n.y)]),
+  sh: st.shades.map((e) => [Math.round(e.x), Math.round(e.y), e.elite, e.spitter, e.darter, e.healer]),
+  f: st.fences.map((g) => [Math.round(g.x1), Math.round(g.y1), Math.round(g.x2), Math.round(g.y2)]),
+  v: st.veils.map((v) => [Math.round(v.x), Math.round(v.y)]),
+});
+const dA = pg.buildArena(pg.levelById("old-city"), 0, 123456);
+const dB = pg.buildArena(pg.levelById("old-city"), 0, 123456);
+const dC = pg.buildArena(pg.levelById("old-city"), 0, 654321);
+ok(dA.seed === 123456 && dB.seed === 123456, "a seeded build keeps its seed on the state");
+ok(fpr(dA) === fpr(dB), "the same seed rebuilds the identical arena (streets, host, veils)");
+ok(fpr(dA) !== fpr(dC), "a different seed raises a different city");
+ok(Number.isInteger(pg.buildArena(pg.levelById("old-city")).seed),
+  "an unseeded run still draws a seed — any run can become a challenge");
+// The hard city exercises veils/mists/variants through the seeded path too.
+ok(fpr(pg.buildArena(pg.levelById("last-vigil"), 0, 777)) === fpr(pg.buildArena(pg.levelById("last-vigil"), 0, 777)),
+  "the richest city is seed-stable too (veils, mists, the whole vocabulary)");
+
+const dK = pg.buildArena(pg.levelById("old-city"));
+dK.elapsed = 4321;
+pg.killShade(dK, dK.shades[0]);
+ok(dK.killTimes.length === 1 && dK.killTimes[0] === 4321, "each kill is timestamped for the echo");
+
+const runRec = { name: "Ash", level: "old-city", seed: 123456, weapon: "vigil",
+  result: "won", ms: 84200, score: 1234, kills: [1000, 2500, 2500, 60000] };
+const tok = pg.encodeDuel(runRec);
+ok(/^[A-Za-z0-9_-]+$/.test(tok), "the duel token is URL-safe base64url");
+const back = pg.decodeDuel(tok);
+ok(back && back.name === "Ash" && back.level === "old-city" && back.seed === 123456
+  && back.result === "won" && back.ms === 84200 && back.score === 1234, "the token round-trips the run");
+ok(back.kills.length === 4 && back.kills.every((t, i) => Math.abs(t - runRec.kills[i]) <= 100),
+  "kill times survive within a decisecond");
+ok(pg.decodeDuel("garbage!!") === null, "garbage tokens decode to null, never throw");
+ok(pg.decodeDuel(tok.slice(0, 10)) === null, "truncated tokens decode to null");
+ok(pg.decodeDuel(pg.encodeDuel({ ...runRec, level: "no-such-city" })) === null, "unknown levels are rejected");
+const forged = Buffer.from(JSON.stringify({ v: 1, g: "necro", n: "x", l: "old-city", s: 1, w: "", r: 1, t: 1, sc: 0, k: [] }))
+  .toString("base64url");
+ok(pg.decodeDuel(forged) === null, "a sibling game's token never opens here (GAME_TAG guard)");
+ok(pg.decodeDuel(pg.encodeDuel({ ...runRec, name: "<img src=x onerror=alert(1)>" })).name.includes("<") === false,
+  "names are stripped of markup on decode");
+
+ok(pg.rivalKillsAt(back, 0) === 0 && pg.rivalKillsAt(back, 2600) === 3 && pg.rivalKillsAt(back, 999999) === 4,
+  "rivalKillsAt paces the echo");
+const mkRun = (result, ms, nKills) => ({ name: "", level: "old-city", seed: 1, weapon: "",
+  result, ms, score: 0, kills: Array.from({ length: nKills }, (_, i) => i * 100) });
+ok(pg.duelVerdict(mkRun("won", 50000, 18), mkRun("lost", 80000, 10)) === "win", "a clear beats a fall");
+ok(pg.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 40000, 18)) === "loss", "two clears race the clock");
+ok(pg.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", "two falls compare kills first");
+ok(pg.duelVerdict(mkRun("lost", 30000, 9), mkRun("lost", 90000, 9)) === "loss", "kills level — the longer stand takes it");
+ok(pg.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -187,6 +187,9 @@ interface RaidState {
   fightersDown: number;  // axis fighters downed in the air
   escortsTotal: number;  // escorts the raid began with
   hits: number;          // times the bomber has taken a hit
+  seed: number;          // the arena's build seed — the duel token's heart
+  killTimes: number[];   // ms timestamp of every target silenced, in order — my echo
+  rival?: DuelRun;       // the challenger's echo, when this raid answers a duel
   phase: Phase;
 }
 
@@ -540,7 +543,7 @@ function weaveSegments(nodes: ScenNode[], count: number, lo: number, hi: number)
   if (nodes.length < 2) return segs;
   let guard = 0;
   while (segs.length < count && guard++ < count * 40) {
-    const a = nodes[Math.floor(Math.random() * nodes.length)];
+    const a = nodes[Math.floor(rnd() * nodes.length)];
     let best: ScenNode | null = null, bestD = Infinity;
     for (const b of nodes) {
       if (b === a) continue;
@@ -575,10 +578,131 @@ function inCloud(s: RaidState, x: number, y: number): boolean {
   return false;
 }
 
+// ---------- Rival duels (zero-backend async challenges) ----------
+// Any finished raid folds into a compact URL-safe token: the arena seed (the
+// same seed rebuilds the same theatre everywhere), the challenger's target
+// timeline, and how their run ended. Opening the game with ?duel=<token> stages
+// the SAME battlefield with the rival's echo pacing you on the HUD; the end
+// screen calls the verdict and offers the counter-challenge. No server — the
+// link IS the duel. The codec/verdict are pure and mirrored verbatim across the
+// five siblings (only GAME_TAG differs, so a token never opens the wrong game).
+const GAME_TAG = "bomber";
+const NAME_KEY = "lightbringer.rival.name"; // one signature across all five games
+
+interface DuelRun {
+  name: string;    // the challenger's signature (sanitized on decode)
+  level: string;   // level id — the same ground
+  seed: number;    // arena seed — the same country, the same defence
+  weapon: string;  // their equipped airframe id (display only)
+  result: "won" | "lost";
+  ms: number;      // their clock when the run ended
+  score: number;   // their final score (display only; the verdict never reads it)
+  kills: number[]; // ms timestamp of each target silenced, ascending — the echo
+}
+
+// The deterministic PRNG behind a duel seed (same as the Vigil's seal roller).
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Generation-path randomness goes through this hook so a duel seed rebuilds the
+// identical arena. buildArena swaps in mulberry32(seed) for the build, then
+// restores Math.random — live-sim rolls (scatter, drops) stay truly random.
+let rnd: () => number = Math.random;
+
+// A rival's name travels inside the token and lands in overlay HTML — strip
+// anything markup-shaped and cap it. An empty signature gets the stock one.
+function sanitizeName(raw: unknown): string {
+  const s = String(raw ?? "").replace(/[<>&"'`]/g, "").replace(/\s+/g, " ").trim();
+  return s.slice(0, 24) || "A rival";
+}
+
+// Kill times ride as delta-encoded deciseconds (small ints, so the JSON stays
+// tight); the whole record is JSON → base64url. ~100 kills ≈ a 500-char token.
+function encodeDuel(run: DuelRun): string {
+  let prev = 0;
+  const k = run.kills.map((t) => {
+    const ds = Math.max(prev, Math.round(t / 100));
+    const d = ds - prev; prev = ds; return d;
+  });
+  const json = JSON.stringify({
+    v: 1, g: GAME_TAG, n: run.name, l: run.level, s: run.seed, w: run.weapon,
+    r: run.result === "won" ? 1 : 0, t: Math.round(run.ms), sc: Math.round(run.score), k,
+  });
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Strict decode: any malformed, foreign-game, or unknown-level token yields
+// null (a bad link must never throw mid-boot). Numbers are re-validated — the
+// token is player-supplied data.
+function decodeDuel(token: string): DuelRun | null {
+  try {
+    const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    const o = JSON.parse(decodeURIComponent(escape(atob(b64)))) as Record<string, unknown>;
+    if (o.v !== 1 || o.g !== GAME_TAG) return null;
+    if (!levelById(String(o.l))) return null;
+    const seed = Number(o.s);
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return null;
+    if (!Array.isArray(o.k)) return null;
+    let acc = 0;
+    const kills: number[] = [];
+    for (const d of o.k) {
+      const n = Number(d);
+      if (!Number.isFinite(n) || n < 0) return null;
+      acc += Math.round(n);
+      kills.push(acc * 100);
+    }
+    const ms = Number(o.t), score = Number(o.sc);
+    if (!Number.isFinite(ms) || ms < 0 || !Number.isFinite(score)) return null;
+    return {
+      name: sanitizeName(o.n), level: String(o.l), seed: seed >>> 0,
+      weapon: String(o.w ?? ""), result: o.r === 1 ? "won" : "lost",
+      ms: Math.round(ms), score: Math.round(score), kills,
+    };
+  } catch { return null; }
+}
+
+// How many of the rival's kills had landed by `elapsed` — the echo's pace, read
+// by the HUD every frame and by the tests. Kills are ascending, so break early.
+function rivalKillsAt(rival: DuelRun, elapsed: number): number {
+  let n = 0;
+  for (const t of rival.kills) { if (t <= elapsed) n++; else break; }
+  return n;
+}
+
+// Who takes the duel. Completing the raid beats going down; two completions race
+// the clock; two downed raids compare how much of the target list each silenced,
+// then who lasted longer. Score is deliberately not consulted — it bends with
+// airframes, while time-and-kills on the same seed is apples to apples.
+function duelVerdict(mine: DuelRun, rival: DuelRun): "win" | "loss" | "draw" {
+  if (mine.result !== rival.result) return mine.result === "won" ? "win" : "loss";
+  if (mine.result === "won") {
+    if (mine.ms !== rival.ms) return mine.ms < rival.ms ? "win" : "loss";
+    return "draw";
+  }
+  if (mine.kills.length !== rival.kills.length) {
+    return mine.kills.length > rival.kills.length ? "win" : "loss";
+  }
+  if (mine.ms !== rival.ms) return mine.ms > rival.ms ? "win" : "loss";
+  return "draw";
+}
+
 // Build a fresh raid: lay the country, place the target list, cluster the guns,
 // park the squadrons, and bring the bomber in over the southern edge with its
 // escorts in formation.
-function buildArena(level: LevelDef): RaidState {
+function buildArena(level: LevelDef, seed?: number): RaidState {
+  // The whole build runs on a seeded stream: pass a rival's seed and the same
+  // theatre rises — same works, same guns, same sky — on any device. Left
+  // unseeded, a fresh roll is drawn (and kept on s.seed), so ANY raid can be
+  // turned into a challenge after the fact.
+  const arenaSeed = (seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+  rnd = mulberry32(arenaSeed);
   const w = Math.round(W * (level.sizeScale ?? 1));
   const h = Math.round(H * (level.sizeScale ?? 1));
 
@@ -586,12 +710,12 @@ function buildArena(level: LevelDef): RaidState {
   const scenery: ScenNode[] = [];
   let guard = 0;
   while (scenery.length < level.sceneryCount && guard++ < 20000) {
-    const x = 50 + Math.random() * (w - 100);
-    const y = 50 + Math.random() * (h - 100);
+    const x = 50 + rnd() * (w - 100);
+    const y = 50 + rnd() * (h - 100);
     if (scenery.every((n) => (n.x - x) ** 2 + (n.y - y) ** 2 > level.minDist ** 2)) {
-      const roll = Math.random();
+      const roll = rnd();
       const kind: GroundKind = roll < 0.45 ? "field" : roll < 0.7 ? "wood" : "town";
-      scenery.push({ x, y, kind, seed: Math.floor(Math.random() * 1000) });
+      scenery.push({ x, y, kind, seed: Math.floor(rnd() * 1000) });
     }
   }
 
@@ -599,11 +723,11 @@ function buildArena(level: LevelDef): RaidState {
   const rivers: Pool[] = [];
   let rg = 0;
   while (rivers.length < level.theme.riverCount && rg++ < 600) {
-    const rx = 70 + Math.random() * 140;
-    const ry = rx * (0.3 + Math.random() * 0.4);
-    const x = clamp(40 + Math.random() * (w - 80), rx, w - rx);
-    const y = clamp(40 + Math.random() * (h - 80), ry, h - ry);
-    rivers.push({ x, y, rx, ry, seed: Math.floor(Math.random() * 1000) });
+    const rx = 70 + rnd() * 140;
+    const ry = rx * (0.3 + rnd() * 0.4);
+    const x = clamp(40 + rnd() * (w - 80), rx, w - rx);
+    const y = clamp(40 + rnd() * (h - 80), ry, h - ry);
+    rivers.push({ x, y, rx, ry, seed: Math.floor(rnd() * 1000) });
   }
 
   // The bomber enters over the southern edge, nose north.
@@ -614,12 +738,12 @@ function buildArena(level: LevelDef): RaidState {
   const spot = (spots: { x: number; y: number }[], spacing = TARGET_SPACING): { x: number; y: number } => {
     let g = 0;
     while (g++ < 4000) {
-      const x = 90 + Math.random() * (w - 180);
-      const y = 90 + Math.random() * (h - 260);
+      const x = 90 + rnd() * (w - 180);
+      const y = 90 + rnd() * (h - 260);
       if ((x - spawnX) ** 2 + (y - spawnY) ** 2 < 320 ** 2) continue;
       if (spots.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > spacing ** 2)) return { x, y };
     }
-    return { x: 90 + Math.random() * (w - 180), y: 90 + Math.random() * (h - 260) };
+    return { x: 90 + rnd() * (w - 180), y: 90 + rnd() * (h - 260) };
   };
 
   // The works — the static target list.
@@ -646,29 +770,29 @@ function buildArena(level: LevelDef): RaidState {
     columns.push({
       x: p.x, y: p.y, vx: 0, vy: 0,
       hp: COLUMN_HP, maxHp: COLUMN_HP, dead: false, hit: 0,
-      wpX: 90 + Math.random() * (w - 180), wpY: 90 + Math.random() * (h - 180),
+      wpX: 90 + rnd() * (w - 180), wpY: 90 + rnd() * (h - 180),
     });
   }
 
   // The guns — each battery digs in near a random work (it defends something).
   const flak: FlakGun[] = [];
   for (let i = 0; i < level.flakCount; i++) {
-    const home = structures.length ? structures[Math.floor(Math.random() * structures.length)] : { x: w / 2, y: h / 2 };
-    const a = Math.random() * Math.PI * 2;
-    const r = 90 + Math.random() * 160;
+    const home = structures.length ? structures[Math.floor(rnd() * structures.length)] : { x: w / 2, y: h / 2 };
+    const a = rnd() * Math.PI * 2;
+    const r = 90 + rnd() * 160;
     flak.push({
       x: clamp(home.x + Math.cos(a) * r, 40, w - 40),
       y: clamp(home.y + Math.sin(a) * r, 40, h - 40),
-      hp: FLAK_HP, maxHp: FLAK_HP, dead: false, hit: 0, cd: Math.random() * FLAK_CD_MS,
+      hp: FLAK_HP, maxHp: FLAK_HP, dead: false, hit: 0, cd: rnd() * FLAK_CD_MS,
     });
   }
 
   // Balloons — moored over the works.
   const balloons: { x: number; y: number }[] = [];
   for (let i = 0; i < level.balloonCount; i++) {
-    const home = structures.length ? structures[Math.floor(Math.random() * structures.length)] : { x: w / 2, y: h / 2 };
-    const a = Math.random() * Math.PI * 2;
-    const r = 70 + Math.random() * 180;
+    const home = structures.length ? structures[Math.floor(rnd() * structures.length)] : { x: w / 2, y: h / 2 };
+    const a = rnd() * Math.PI * 2;
+    const r = 70 + rnd() * 180;
     const x = clamp(home.x + Math.cos(a) * r, 60, w - 60);
     const y = clamp(home.y + Math.sin(a) * r, 60, h - 60);
     if ((x - spawnX) ** 2 + (y - spawnY) ** 2 < 260 ** 2) continue;
@@ -678,10 +802,10 @@ function buildArena(level: LevelDef): RaidState {
   // Clouds — drifting banks.
   const clouds: Cloud[] = [];
   for (let i = 0; i < level.cloudCount; i++) {
-    const a = Math.random() * Math.PI * 2;
+    const a = rnd() * Math.PI * 2;
     clouds.push({
-      x: 100 + Math.random() * (w - 200), y: 100 + Math.random() * (h - 200),
-      r: 120 + Math.random() * 90,
+      x: 100 + rnd() * (w - 200), y: 100 + rnd() * (h - 200),
+      r: 120 + rnd() * 90,
       vx: Math.cos(a) * CLOUD_DRIFT, vy: Math.sin(a) * CLOUD_DRIFT,
     });
   }
@@ -733,7 +857,7 @@ function buildArena(level: LevelDef): RaidState {
     });
   }
 
-  return {
+  const state: RaidState = {
     level, w, h, scenery, rivers,
     structures, columns, flak, balloons, clouds, streams,
     hero, loadout, boon, planes,
@@ -742,8 +866,11 @@ function buildArena(level: LevelDef): RaidState {
     destroyed: 0, total: structures.length + columns.length,
     flakTotal: flak.length, flakDown: 0, fightersDown: 0,
     escortsTotal: level.escortCount, hits: 0,
+    seed: arenaSeed, killTimes: [],
     phase: "raid",
   };
+  rnd = Math.random; // the seeded window covers the build only — live sim rolls free
+  return state;
 }
 
 const freshRaid = buildArena; // alias, mirrors the siblings' freshGame naming
@@ -804,6 +931,7 @@ function destroyTarget(s: RaidState, t: Structure | Column): void {
   if (t.dead) return;
   t.dead = true;
   s.destroyed += 1;
+  s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
   const st = t as Structure;
   if (st.kind === "airfield") {
     const idx = s.structures.indexOf(st);
@@ -2250,6 +2378,13 @@ function start(): void {
         foes += ` ${ARROWS[(((Math.round(ang / (Math.PI / 4))) % 8) + 8) % 8]}`;
       }
     }
+    // The rival's echo paces the same readout: their tally as of this very moment
+    // of their run (✓ they completed the raid / ✝ they went down, clock run out).
+    if (s.rival) {
+      const rk = rivalKillsAt(s.rival, s.elapsed);
+      const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
+      foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
+    }
     foesEl.textContent = foes;
   }
 
@@ -2371,8 +2506,9 @@ function start(): void {
     requestAnimationFrame(raidFrame);
   }
 
-  function startCity(level: LevelDef): void {
-    s = buildArena(level);
+  function startCity(level: LevelDef, duel: DuelRun | null = null): void {
+    s = buildArena(level, duel ? duel.seed : undefined);
+    if (duel) s.rival = duel; // the echo the HUD paces and the end screen judges
     loadCitySprites(level.id, repaint);
     hideOverlay();
     setupZoom();
@@ -2384,6 +2520,96 @@ function start(): void {
     introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
     running = true; lastFrame = 0;
     requestAnimationFrame(raidFrame);
+  }
+
+  // ---------- Rival duels: the shell side ----------
+  // The pure codec/verdict live with the sim (the "Rival duels" section up top);
+  // this is everything that touches the DOM — signature, share sheet, the
+  // arriving-gauntlet intro, and the end-screen verdict panel.
+  function duelName(): string {
+    try {
+      const saved = localStorage.getItem(NAME_KEY);
+      if (saved) return sanitizeName(saved);
+      const typed = prompt("Sign your challenge — the name your rival will see:", "") || "";
+      const name = sanitizeName(typed);
+      localStorage.setItem(NAME_KEY, name);
+      return name;
+    } catch { return "A rival"; }
+  }
+
+  // Fold the raid just ended into a challenge record. The signature is left
+  // blank here — the name prompt only fires if the captain actually shares.
+  function myDuelRun(result: "won" | "lost", score: number): DuelRun {
+    return {
+      name: "", level: s!.level.id, seed: s!.seed, weapon: s!.loadout.id,
+      result, ms: Math.round(s!.elapsed), score: Math.round(score), kills: s!.killTimes.slice(),
+    };
+  }
+
+  async function shareDuelLink(run: DuelRun): Promise<void> {
+    const signed = { ...run, name: duelName() };
+    const lvName = levelById(run.level)?.name ?? run.level;
+    const url = `${gameUrl()}?duel=${encodeDuel(signed)}`;
+    const text = run.result === "won"
+      ? `⚔ I completed the ${lvName} raid in ${fmtTime(run.ms)}. Same theatre, same flak — outpace my echo.`
+      : `⚔ ${lvName} brought me down at ${run.kills.length} targets. Same theatre, same flak — outlast my echo.`;
+    const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void> };
+    if (nav.share) {
+      try { await nav.share({ title: "The Iron Rain — a duel", text, url }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast("Duel link copied — send it to your rival."); }
+    catch { showToast(url); }
+  }
+
+  // The end-screen duel panel: a verdict when this run answered a gauntlet, and
+  // always the button that turns the run just played into a fresh challenge.
+  function duelPanelHtml(mine: DuelRun): string {
+    const r = s ? s.rival : undefined;
+    let verdictHtml = "";
+    if (r) {
+      const v = duelVerdict(mine, r);
+      const line = v === "win" ? `<em>The duel is yours.</em> ${r.name}'s echo falls behind.`
+        : v === "loss" ? `<em>${r.name} takes the duel.</em> Their echo held the better run.`
+        : `<em>Dead even.</em> The duel stands unsettled.`;
+      const sum = (who: string, d: { result: string; ms: number; kills: number[] }) =>
+        `${who}: ${d.result === "won" ? `completed in ${fmtTime(d.ms)}` : `went down at ${d.kills.length} targets (${fmtTime(d.ms)})`}`;
+      verdictHtml =
+        `<div class="legacy"><div class="legacy-head">⚔ The duel</div>` +
+        `<p class="city-line">${line}<br>${sum("You", mine)} · ${sum(r.name, r)}</p></div>`;
+    }
+    const label = r ? "⚔ Send the gauntlet back" : "⚔ Challenge a rival with this run";
+    return verdictHtml +
+      `<div class="start-share"><button class="start-act" data-duel="1">${label}</button></div>`;
+  }
+
+  // showOverlay rebuilds the body via innerHTML, so the button wires after it.
+  function wireDuelShare(run: DuelRun): void {
+    const b = ovBody.querySelector<HTMLButtonElement>("button[data-duel]");
+    if (b) b.onclick = () => { void shareDuelLink(run); };
+  }
+
+  // A gauntlet arrives (?duel=<token> survived decoding): stage the challenge.
+  // Declining falls through to the ordinary picker.
+  function showDuelIntro(d: DuelRun): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    const lv = levelById(d.level)!; // decodeDuel already validated it
+    const wpn = BOMBER_TYPES.find((t) => t.id === d.weapon);
+    const feat = d.result === "won"
+      ? `completed it in <em>${fmtTime(d.ms)}</em>`
+      : `went down at <em>${d.kills.length}</em> targets`;
+    const body =
+      `<p class="lede">⚔ <em>${d.name}</em> throws down a gauntlet from <em>${lv.name}</em>: ` +
+      `they ${feat}${wpn ? `, flying ${wpn.name}` : ""}.</p>` +
+      `<p class="lede">Answer it and the same theatre rises for you — the same works, the same guns, ` +
+      `the same sky — while their echo paces you on the target count. ` +
+      `Beat their run and send the gauntlet back.</p>`;
+    showOverlay(
+      "A gauntlet thrown", body,
+      "Answer under the same sky", () => startCity(lv, d),
+      "Decline — choose a theatre", () => showPicker(),
+    );
   }
 
   function onWin(): void {
@@ -2417,6 +2643,7 @@ function start(): void {
           ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
           : "") +
       `</dl></div>`;
+    const mine = myDuelRun("won", sc.total);
     showOverlay(
       "The raid is complete",
       `Every target in <em>${s.level.name}</em> is silenced — ${s.total} of them — ` +
@@ -2424,10 +2651,11 @@ function start(): void {
       `${gunLine} ${wingLine}<br><br>` +
       (best === ms ? `<em>A new best for this theatre.</em>` : `Best here: ${fmtTime(best)}.`) +
       ` <em>+${medals}</em> medals pinned.` +
-      breakdown,
+      breakdown + duelPanelHtml(mine),
       "Fly it again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function onLost(): void {
@@ -2435,6 +2663,7 @@ function start(): void {
     const medals = s.destroyed * MEDAL_PER_TARGET;
     recordDown(s.destroyed, s.fightersDown, medals);
     recordEcho("bomber", false); // the covenant counts the fall, not the crown
+    const mine = myDuelRun("lost", 0);
     showOverlay(
       "You are going down",
       `The guns of <em>${s.level.name}</em> found you with ` +
@@ -2442,10 +2671,12 @@ function start(): void {
       `You had silenced <em>${s.destroyed}</em> of ${s.total}, downed <em>${s.fightersDown}</em> fighters, ` +
       `and <em>${escortsAlive(s)}</em> of your escorts turned for home without you.<br><br>` +
       (medals > 0 ? `What you struck first leaves <em>+${medals}</em> medals behind. ` : ``) +
-      `<em>The works can be rebuilt. So can you. Fly again.</em>`,
+      `<em>The works can be rebuilt. So can you. Fly again.</em>` +
+      duelPanelHtml(mine),
       "Fly again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function showPicker(selId?: string): void {
@@ -2601,7 +2832,11 @@ function start(): void {
   setupZoom();
   clampCam();
   applyCam();
-  showStart();
+  // A duel link opens straight onto the gauntlet; anything malformed (or from a
+  // sibling game) decodes to null and the ordinary title screen stands.
+  const duelToken = new URLSearchParams(location.search).get("duel");
+  const gauntlet = duelToken ? decodeDuel(duelToken) : null;
+  if (gauntlet) showDuelIntro(gauntlet); else showStart();
 }
 
 // ---------- Service worker registration (offline play) ----------
@@ -2634,6 +2869,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
     loadBomberLegacy, saveBomberLegacy, recordRaid, recordDown, emptyBomberLegacy,
     BOMBER_TYPES, bomberTypeById, unlockBomber, equipBomber,
     loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
+    encodeDuel, decodeDuel, duelVerdict, rivalKillsAt, sanitizeName, mulberry32, GAME_TAG,
     K: {
       W, H, SPEED_CRUISE, SPEED_MAX, TURN_RATE, HERO_RADIUS, HERO_HP, HERO_IFRAMES_MS,
       STEADY_TURN, SIGHT_CHARGE_MS, SIGHT_ARM_AT, SIGHT_SPIN,

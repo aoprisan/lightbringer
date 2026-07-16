@@ -565,6 +565,58 @@ const covEcho = eld.recordEcho("watcher", true, 800);
 ok(covEcho.firstOfCycle && eld.loadCovenant().echoes.watcher.victories === 1,
   "a sealing echoes into the covenant and advances the crown cycle");
 localStorage.removeItem(COV_KEY);
+// Rival duels — seeded arenas, the token codec, the echo's pace, the verdict.
+// Zero-backend: the same seed must raise the identical place on any device,
+// and the URL token must round-trip a run and shrug off tampering.
+{
+  const fpr = (st) => JSON.stringify({
+    n: st.scenery.map((n) => [n.kind, Math.round(n.x), Math.round(n.y)]),
+    h: st.horrors.map((e) => [Math.round(e.x), Math.round(e.y), e.variant]),
+    w: st.walls.map((g) => [Math.round(g.x1), Math.round(g.y1), Math.round(g.x2), Math.round(g.y2)]),
+    p: st.pools.map((p) => [Math.round(p.x), Math.round(p.y), p.seed]),
+  });
+  const dA = eld.buildArena(eld.levelById("innsmouth"), 123456);
+  const dB = eld.buildArena(eld.levelById("innsmouth"), 123456);
+  const dC = eld.buildArena(eld.levelById("innsmouth"), 654321);
+  ok(dA.seed === 123456 && dB.seed === 123456, "a seeded build keeps its seed on the state");
+  ok(fpr(dA) === fpr(dB), "the same seed rebuilds the identical place (ruins, host, pools)");
+  ok(fpr(dA) !== fpr(dC), "a different seed raises a different place");
+  ok(Number.isInteger(eld.buildArena(eld.levelById("innsmouth")).seed),
+    "an unseeded watch still draws a seed — any run can become a challenge");
+  ok(fpr(eld.buildArena(eld.levelById("rlyeh"), 777)) === fpr(eld.buildArena(eld.levelById("rlyeh"), 777)),
+    "the hardest place is seed-stable too (every horror kind through the seeded path)");
+
+  const dK = eld.buildArena(eld.levelById("innsmouth"));
+  dK.elapsed = 4321;
+  eld.banish(dK, dK.horrors[0]);
+  ok(dK.killTimes.length === 1 && dK.killTimes[0] === 4321, "each banishing is timestamped for the echo");
+
+  const runRec = { name: "Carter", level: "innsmouth", seed: 123456, weapon: "elder",
+    result: "won", ms: 84200, score: 1234, kills: [1000, 2500, 2500, 60000] };
+  const tok = eld.encodeDuel(runRec);
+  ok(/^[A-Za-z0-9_-]+$/.test(tok), "the duel token is URL-safe base64url");
+  const back = eld.decodeDuel(tok);
+  ok(back && back.name === "Carter" && back.level === "innsmouth" && back.seed === 123456
+    && back.result === "won" && back.ms === 84200, "the token round-trips the run");
+  ok(back.kills.length === 4 && back.kills.every((t, i) => Math.abs(t - runRec.kills[i]) <= 100),
+    "kill times survive within a decisecond");
+  ok(eld.decodeDuel("garbage!!") === null, "garbage tokens decode to null, never throw");
+  ok(eld.decodeDuel(eld.encodeDuel({ ...runRec, level: "no-such-place" })) === null, "unknown places are rejected");
+  const forged = Buffer.from(JSON.stringify({ v: 1, g: "werewolf", n: "x", l: "innsmouth", s: 1, w: "", r: 1, t: 1, sc: 0, k: [] }))
+    .toString("base64url");
+  ok(eld.decodeDuel(forged) === null, "a sibling game's token never opens here (GAME_TAG guard)");
+  ok(eld.decodeDuel(eld.encodeDuel({ ...runRec, name: "<b onload=x>" })).name.includes("<") === false,
+    "names are stripped of markup on decode");
+
+  ok(eld.rivalKillsAt(back, 0) === 0 && eld.rivalKillsAt(back, 2600) === 3 && eld.rivalKillsAt(back, 999999) === 4,
+    "rivalKillsAt paces the echo");
+  const mkRun = (result, ms, nKills) => ({ name: "", level: "innsmouth", seed: 1, weapon: "",
+    result, ms, score: 0, kills: Array.from({ length: nKills }, (_, i) => i * 100) });
+  ok(eld.duelVerdict(mkRun("won", 50000, 18), mkRun("lost", 80000, 10)) === "win", "a seal beats a fall");
+  ok(eld.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 40000, 18)) === "loss", "two seals race the clock");
+  ok(eld.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", "two falls compare banishings first");
+  ok(eld.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
+}
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

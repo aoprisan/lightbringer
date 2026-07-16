@@ -210,8 +210,10 @@ The five action games have **no mid-run save at all** (runs are short), so their
 cross-run **legacy** key. Those keys survive "Begin again", and each gains fields **defaulted on load with no
 key bump**. They are write-once-per-run-end (fold in exactly once at each genuine end transition). The hub
 (`index.html`) keeps only a tiny `lightbringer.lastClass` hint (which class was picked last) — pure
-progressive enhancement, safe to ignore. Beside the five legacies sits **one shared key**,
-`lightbringer.covenant.v1` (`COVENANT_KEY` in `covenant.ts`) — the cross-game Covenant, below.
+progressive enhancement, safe to ignore. All five games also share the tiny `lightbringer.rival.name` hint —
+the signature a player signs duel challenges with (see Rival duels below), prompted once and reused across
+the whole family. Beside the five legacies sits **one shared key**, `lightbringer.covenant.v1`
+(`COVENANT_KEY` in `covenant.ts`) — the cross-game Covenant, below.
 
 ### The Covenant of Five — the cross-game meta-layer (`covenant.ts`)
 
@@ -249,10 +251,41 @@ directly. It gives the five siloed games a reason to be one product:
 - **Shipping** — `covenant.js` is a **shell asset** in `sw.js` (`ASSETS` + `isShell`, network-first): bump
   `CACHE` whenever its bytes change, exactly like the game modules.
 
+### Rival duels — zero-backend async challenges (ALL FIVE games)
+
+The family's first **multiplayer-shaped** feature, shipped with **no server**: any finished run can be folded
+into a compact **URL token** and sent to a rival, whose game rebuilds the **identical arena** and races them
+against the sender's **kill-pace echo**. The link IS the duel. Each game carries a verbatim-mirrored block
+(same function names, same shapes — only `GAME_TAG` and flavor text differ), so a fix in one should usually
+be ported to all five:
+
+- **Seeded generation.** All *generation-path* randomness goes through a module-level `rnd` hook
+  (`let rnd = Math.random`); `buildArena(level, …, seed?)` swaps in `mulberry32(arenaSeed)` for the build and
+  restores `Math.random` before returning, so live-sim rolls (drops, AI jitter) stay truly random. An
+  unseeded run draws a fresh seed anyway and keeps it on `s.seed` — **any run can become a challenge after
+  the fact**. Shuffles use a Fisher–Yates `shuffle()` over `rnd()` (never `sort(() => random - 0.5)`, which
+  leans on engine sort internals a cross-device seed can't afford). Each `*-test.mjs` asserts same-seed →
+  identical arena fingerprint on both the fairest and the richest level.
+- **The echo.** Each game's centralized kill path (`killShade` / `killKnight` / `banish` / `slay` /
+  `destroyTarget`) pushes `s.elapsed` onto `s.killTimes`. A duel token carries the timeline delta-encoded in
+  deciseconds; `rivalKillsAt(rival, elapsed)` paces it, and the HUD appends `⚔ <name> <count>` (✓/✝ once the
+  rival's clock is out) to the foes readout when `s.rival` is set.
+- **The token.** `DuelRun` { name, level, seed, weapon, result, ms, score, kills } ⇄ `encodeDuel`/`decodeDuel`
+  (JSON → base64url, `?duel=<token>` on the game's own URL). Decode is **strict**: wrong version, wrong
+  `GAME_TAG`, unknown level id, or malformed numbers ⇒ `null` (a bad link boots the normal title screen).
+  Names are sanitized on decode (`sanitizeName`) because they land in overlay HTML.
+- **The verdict.** `duelVerdict(mine, rival)` never reads `score` (it bends with shop unlocks): a win beats a
+  loss; two wins race the clock; two losses compare kills, then survival time. The end screens render the
+  verdict panel and always offer "⚔ Challenge a rival with this run" (`duelPanelHtml`/`wireDuelShare`,
+  `shareDuelLink` mirrors `shareGameLink`'s share-sheet → clipboard → toast ladder). In the Vigil a duel pins
+  **ascension 0** and acts as a guest pass into a not-yet-unlocked city (the legacy's own unlocks untouched).
+- **Test seam**: `encodeDuel, decodeDuel, duelVerdict, rivalKillsAt, sanitizeName, mulberry32, GAME_TAG` are
+  exported on each game's test object; `buildArena` takes the seed as its last parameter.
+
 ### Service worker cache versioning
 
 `sw.js` is the offline app-shell cache for the **class-select hub and all five games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v118`). It is **network-first for the
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v119`). It is **network-first for the
 shells** (`isShell`: `/`, `index.html`, `covenant.js`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
 `eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`, `bomber.html`, `bomber.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset

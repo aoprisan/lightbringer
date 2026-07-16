@@ -171,6 +171,9 @@ interface WwState {
   cairnsTotal: number;    // cairns the place began with
   litCount: number;       // cairns marked right now (secondary objective)
   cleansedCount: number;  // cairns the watch has cleansed this hunt
+  seed: number;           // the arena's build seed — the duel token's heart
+  killTimes: number[];    // ms timestamp of every kill, in order — my echo
+  rival?: DuelRun;        // the challenger's echo, when this hunt answers a duel
   phase: Phase;
 }
 
@@ -714,8 +717,8 @@ function generateWerewolf(
   const targetNodes = level.nodeCount * CONTENT_SCALE;
   let guard = 0;
   while (nodes.length < targetNodes && guard++ < 20000 * CONTENT_SCALE) {
-    const x = 60 + Math.random() * (w - 120);
-    const y = 60 + Math.random() * (h - 120);
+    const x = 60 + rnd() * (w - 120);
+    const y = 60 + rnd() * (h - 120);
     if (!tooClose(x, y)) {
       const node: ArenaNode = { x, y, kind: "field" };
       nodes.push(node);
@@ -725,7 +728,7 @@ function generateWerewolf(
     }
   }
 
-  const shuffled = [...nodes].sort(() => Math.random() - 0.5);
+  const shuffled = shuffle([...nodes]);
   let cursor = 0;
   const take = (n: number): ArenaNode[] => {
     const slice = shuffled.slice(cursor, cursor + n);
@@ -818,7 +821,7 @@ function weaveSegments(
   if (pool.length < 2) return segs;
   let guard = 0;
   while (segs.length < count && guard++ < count * 40) {
-    const a = pool[Math.floor(Math.random() * pool.length)];
+    const a = pool[Math.floor(rnd() * pool.length)];
     let best: ArenaNode | null = null, bestD = Infinity;
     for (const b of pool) {
       if (b === a) continue;
@@ -863,7 +866,138 @@ function pushOut(s: WwState, x: number, y: number, radius: number): { x: number;
 // its heart, and muster a finite watch from each green (villagers, with the per-place
 // variants seeded among them as extra bodies — the "extra defenders" pattern the
 // siblings use).
-function buildArena(level: LevelDef): WwState {
+// ---------- Rival duels (zero-backend async challenges) ----------
+// Any finished hunt folds into a compact URL-safe token: the arena seed (the
+// same seed rebuilds the same village everywhere), the challenger's kill
+// timeline, and how their run ended. Opening the game with ?duel=<token> stages
+// the SAME battlefield with the rival's echo pacing you on the HUD; the end
+// screen calls the verdict and offers the counter-challenge. No server — the
+// link IS the duel. The codec/verdict are pure and mirrored verbatim across the
+// five siblings (only GAME_TAG differs, so a token never opens the wrong game).
+const GAME_TAG = "werewolf";
+const NAME_KEY = "lightbringer.rival.name"; // one signature across all five games
+
+interface DuelRun {
+  name: string;    // the challenger's signature (sanitized on decode)
+  level: string;   // level id — the same ground
+  seed: number;    // arena seed — the same village, the same watch
+  weapon: string;  // their equipped pelt id (display only)
+  result: "won" | "lost";
+  ms: number;      // their clock when the run ended
+  score: number;   // their final score (display only; the verdict never reads it)
+  kills: number[]; // ms timestamp of each kill, ascending — the echo
+}
+
+// The deterministic PRNG behind a duel seed (same as the Vigil's seal roller).
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Generation-path randomness goes through this hook so a duel seed rebuilds the
+// identical arena. buildArena swaps in mulberry32(seed) for the build, then
+// restores Math.random — live-sim rolls (drops, AI jitter) stay truly random.
+let rnd: () => number = Math.random;
+
+// Fisher–Yates over rnd() — the old sort(() => random - 0.5) shuffle leans on
+// engine sort internals, which a cross-device duel seed can't afford.
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+// A rival's name travels inside the token and lands in overlay HTML — strip
+// anything markup-shaped and cap it. An empty signature gets the stock one.
+function sanitizeName(raw: unknown): string {
+  const s = String(raw ?? "").replace(/[<>&"'`]/g, "").replace(/\s+/g, " ").trim();
+  return s.slice(0, 24) || "A rival";
+}
+
+// Kill times ride as delta-encoded deciseconds (small ints, so the JSON stays
+// tight); the whole record is JSON → base64url. ~100 kills ≈ a 500-char token.
+function encodeDuel(run: DuelRun): string {
+  let prev = 0;
+  const k = run.kills.map((t) => {
+    const ds = Math.max(prev, Math.round(t / 100));
+    const d = ds - prev; prev = ds; return d;
+  });
+  const json = JSON.stringify({
+    v: 1, g: GAME_TAG, n: run.name, l: run.level, s: run.seed, w: run.weapon,
+    r: run.result === "won" ? 1 : 0, t: Math.round(run.ms), sc: Math.round(run.score), k,
+  });
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Strict decode: any malformed, foreign-game, or unknown-level token yields
+// null (a bad link must never throw mid-boot). Numbers are re-validated — the
+// token is player-supplied data.
+function decodeDuel(token: string): DuelRun | null {
+  try {
+    const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    const o = JSON.parse(decodeURIComponent(escape(atob(b64)))) as Record<string, unknown>;
+    if (o.v !== 1 || o.g !== GAME_TAG) return null;
+    if (!levelById(String(o.l))) return null;
+    const seed = Number(o.s);
+    if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return null;
+    if (!Array.isArray(o.k)) return null;
+    let acc = 0;
+    const kills: number[] = [];
+    for (const d of o.k) {
+      const n = Number(d);
+      if (!Number.isFinite(n) || n < 0) return null;
+      acc += Math.round(n);
+      kills.push(acc * 100);
+    }
+    const ms = Number(o.t), score = Number(o.sc);
+    if (!Number.isFinite(ms) || ms < 0 || !Number.isFinite(score)) return null;
+    return {
+      name: sanitizeName(o.n), level: String(o.l), seed: seed >>> 0,
+      weapon: String(o.w ?? ""), result: o.r === 1 ? "won" : "lost",
+      ms: Math.round(ms), score: Math.round(score), kills,
+    };
+  } catch { return null; }
+}
+
+// How many of the rival's kills had landed by `elapsed` — the echo's pace, read
+// by the HUD every frame and by the tests. Kills are ascending, so break early.
+function rivalKillsAt(rival: DuelRun, elapsed: number): number {
+  let n = 0;
+  for (const t of rival.kills) { if (t <= elapsed) n++; else break; }
+  return n;
+}
+
+// Who takes the duel. Claiming the village beats falling; two claims race the
+// clock; two falls compare how much of the watch each cut down, then who lasted
+// longer. Score is deliberately not consulted — it bends with pelts, while
+// time-and-kills on the same seed is apples to apples.
+function duelVerdict(mine: DuelRun, rival: DuelRun): "win" | "loss" | "draw" {
+  if (mine.result !== rival.result) return mine.result === "won" ? "win" : "loss";
+  if (mine.result === "won") {
+    if (mine.ms !== rival.ms) return mine.ms < rival.ms ? "win" : "loss";
+    return "draw";
+  }
+  if (mine.kills.length !== rival.kills.length) {
+    return mine.kills.length > rival.kills.length ? "win" : "loss";
+  }
+  if (mine.ms !== rival.ms) return mine.ms > rival.ms ? "win" : "loss";
+  return "draw";
+}
+
+function buildArena(level: LevelDef, seed?: number): WwState {
+  // The whole build runs on a seeded stream: pass a rival's seed and the same
+  // village rises — same stones, same greens, same watch — on any device. Left
+  // unseeded, a fresh roll is drawn (and kept on s.seed), so ANY hunt can be
+  // turned into a challenge after the fact.
+  const arenaSeed = (seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+  rnd = mulberry32(arenaSeed);
   const w = Math.round(W * VILLAGE_SCALE * (level.sizeScale ?? 1));
   const h = Math.round(H * VILLAGE_SCALE * (level.sizeScale ?? 1));
   const { nodes: scenery, greens } = generateWerewolf(level, w, h);
@@ -888,17 +1022,17 @@ function buildArena(level: LevelDef): WwState {
   // Muster one foe near a green — a small helper so a green's villagers and its
   // (optional) variants all rise the same way.
   const muster = (green: { x: number; y: number }, variant: FoeKind, hpMul: number): void => {
-    const a = Math.random() * Math.PI * 2;
-    const r = 16 + Math.random() * 40;
+    const a = rnd() * Math.PI * 2;
+    const r = 16 + rnd() * 40;
     const x = clamp(green.x + Math.cos(a) * r, FOE_RADIUS, w - FOE_RADIUS);
     const y = clamp(green.y + Math.sin(a) * r, FOE_RADIUS, h - FOE_RADIUS);
     const hp = Math.round(FOE_HP * hpMul);
     foes.push({
       x, y, vx: 0, vy: 0, hp, maxHp: hp, dead: false,
       state: "lurk", variant,
-      wanderAngle: Math.random() * Math.PI * 2,
+      wanderAngle: rnd() * Math.PI * 2,
       homeX: green.x, homeY: green.y,
-      attackCd: 0, shootCd: Math.random() * HUNTSMAN_SHOOT_CD, hit: 0, bornAt: 0, alarm: 0,
+      attackCd: 0, shootCd: rnd() * HUNTSMAN_SHOOT_CD, hit: 0, bornAt: 0, alarm: 0,
     });
   };
   greens.forEach((green, gi) => {
@@ -917,15 +1051,15 @@ function buildArena(level: LevelDef): WwState {
   // Drifting fog banks.
   const mists: Mist[] = [];
   for (let i = 0; i < level.mistCount * CONTENT_SCALE; i++) {
-    const a = Math.random() * Math.PI * 2;
+    const a = rnd() * Math.PI * 2;
     mists.push({
-      x: 100 + Math.random() * (w - 200),
-      y: 100 + Math.random() * (h - 200),
-      r: 130 + Math.random() * 110,
+      x: 100 + rnd() * (w - 200),
+      y: 100 + rnd() * (h - 200),
+      r: 130 + rnd() * 110,
       vx: Math.cos(a) * MIST_DRIFT, vy: Math.sin(a) * MIST_DRIFT,
     });
   }
-  return {
+  const state: WwState = {
     level, w, h, scenery,
     solids: scenery.filter((n) => OBSTACLE_KINDS.has(n.kind)),
     cairns: scenery.filter((n) => n.kind === "cairn"),
@@ -938,8 +1072,11 @@ function buildArena(level: LevelDef): WwState {
     elapsed: 0, slain: 0, hits: 0, total: foes.length,
     cairnsTotal: scenery.filter((n) => n.kind === "cairn").length,
     litCount: 0, cleansedCount: 0,
+    seed: arenaSeed, killTimes: [],
     phase: "hunt",
   };
+  rnd = Math.random; // the seeded window covers the build only — live sim rolls free
+  return state;
 }
 
 const freshHunt = buildArena; // alias, mirrors the siblings' freshGame naming
@@ -1015,6 +1152,7 @@ function slay(s: WwState, e: Foe): void {
   if (e.dead) return;
   e.dead = true;
   s.slain += 1;
+  s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
   const h = s.hero;
   // Feeding the beast: a kill always stokes the curse a little AND mends the predator
   // (the lit-dwelling heal of the Vigil, inverted to the kill).
@@ -2872,6 +3010,13 @@ function start(): void {
         foes += ` ${ARROWS[(((Math.round(ang / (Math.PI / 4))) % 8) + 8) % 8]}`;
       }
     }
+    // The rival's echo paces the same readout: their kill count as of this very
+    // moment of their run (✓ they claimed / ✝ they fell, once their clock is out).
+    if (s.rival) {
+      const rk = rivalKillsAt(s.rival, s.elapsed);
+      const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
+      foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
+    }
     foesEl.textContent = foes;
   }
 
@@ -3014,8 +3159,9 @@ function start(): void {
     requestAnimationFrame(huntFrame);
   }
 
-  function startCity(level: LevelDef): void {
-    s = buildArena(level);
+  function startCity(level: LevelDef, duel: DuelRun | null = null): void {
+    s = buildArena(level, duel ? duel.seed : undefined);
+    if (duel) s.rival = duel; // the echo the HUD paces and the end screen judges
     loadCitySprites(level.id, repaint);
     hideOverlay();
     setupZoom();
@@ -3027,6 +3173,97 @@ function start(): void {
     introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
     running = true; lastFrame = 0;
     requestAnimationFrame(huntFrame);
+  }
+
+  // ---------- Rival duels: the shell side ----------
+  // The pure codec/verdict live with the sim (the "Rival duels" section up top);
+  // this is everything that touches the DOM — signature, share sheet, the
+  // arriving-gauntlet intro, and the end-screen verdict panel.
+  function duelName(): string {
+    try {
+      const saved = localStorage.getItem(NAME_KEY);
+      if (saved) return sanitizeName(saved);
+      const typed = prompt("Sign your challenge — the name your rival will see:", "") || "";
+      const name = sanitizeName(typed);
+      localStorage.setItem(NAME_KEY, name);
+      return name;
+    } catch { return "A rival"; }
+  }
+
+  // Fold the hunt just ended into a challenge record. The signature is left
+  // blank here — the name prompt only fires if the hunter actually shares.
+  function myDuelRun(result: "won" | "lost", score: number): DuelRun {
+    return {
+      name: "", level: s!.level.id, seed: s!.seed, weapon: s!.pelt.id,
+      result, ms: Math.round(s!.elapsed), score: Math.round(score), kills: s!.killTimes.slice(),
+    };
+  }
+
+  async function shareDuelLink(run: DuelRun): Promise<void> {
+    const signed = { ...run, name: duelName() };
+    const lvName = levelById(run.level)?.name ?? run.level;
+    const url = `${gameUrl()}?duel=${encodeDuel(signed)}`;
+    const text = run.result === "won"
+      ? `⚔ I claimed ${lvName} in ${fmtTime(run.ms)}. Same village, same moon — outpace my echo.`
+      : `⚔ ${lvName} brought me down at ${run.kills.length} kills. Same village, same moon — outlast my echo.`;
+    const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void> };
+    if (nav.share) {
+      try { await nav.share({ title: "The Moon's Hunger — a duel", text, url }); return; }
+      catch (e) { if ((e as { name?: string }).name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast("Duel link copied — send it to your rival."); }
+    catch { showToast(url); }
+  }
+
+  // The end-screen duel panel: a verdict when this run answered a gauntlet, and
+  // always the button that turns the run just played into a fresh challenge.
+  function duelPanelHtml(mine: DuelRun): string {
+    const r = s ? s.rival : undefined;
+    let verdictHtml = "";
+    if (r) {
+      const v = duelVerdict(mine, r);
+      const line = v === "win" ? `<em>The duel is yours.</em> ${r.name}'s echo falls behind.`
+        : v === "loss" ? `<em>${r.name} takes the duel.</em> Their echo held the better run.`
+        : `<em>Dead even.</em> The duel stands unsettled.`;
+      const sum = (who: string, d: { result: string; ms: number; kills: number[] }) =>
+        `${who}: ${d.result === "won" ? `claimed in ${fmtTime(d.ms)}` : `fell at ${d.kills.length} kills (${fmtTime(d.ms)})`}`;
+      verdictHtml =
+        `<div class="legacy"><div class="legacy-head">⚔ The duel</div>` +
+        `<p class="city-line">${line}<br>${sum("You", mine)} · ${sum(r.name, r)}</p></div>`;
+    }
+    const label = r ? "⚔ Send the gauntlet back" : "⚔ Challenge a rival with this run";
+    return verdictHtml +
+      `<div class="start-share"><button class="start-act" data-duel="1">${label}</button></div>`;
+  }
+
+  // showOverlay rebuilds the body via innerHTML, so the button wires after it.
+  function wireDuelShare(run: DuelRun): void {
+    const b = ovBody.querySelector<HTMLButtonElement>("button[data-duel]");
+    if (b) b.onclick = () => { void shareDuelLink(run); };
+  }
+
+  // A gauntlet arrives (?duel=<token> survived decoding): stage the challenge.
+  // Declining falls through to the ordinary picker.
+  function showDuelIntro(d: DuelRun): void {
+    s = null; running = false;
+    mmEl.style.display = "none";
+    moonEl.style.display = "none";
+    const lv = levelById(d.level)!; // decodeDuel already validated it
+    const wpn = PELT_TYPES.find((t) => t.id === d.weapon);
+    const feat = d.result === "won"
+      ? `claimed it in <em>${fmtTime(d.ms)}</em>`
+      : `were brought down at <em>${d.kills.length}</em> kills`;
+    const body =
+      `<p class="lede">⚔ <em>${d.name}</em> throws down a gauntlet from <em>${lv.name}</em>: ` +
+      `they ${feat}${wpn ? `, wearing ${wpn.name}` : ""}.</p>` +
+      `<p class="lede">Answer it and the same village rises for you — the same stones, the same watch, ` +
+      `the same fog — while their echo paces you on the kill count. ` +
+      `Beat their run and send the gauntlet back.</p>`;
+    showOverlay(
+      "A gauntlet thrown", body,
+      "Answer under the same moon", () => startCity(lv, d),
+      "Decline — choose a village", () => showPicker(),
+    );
   }
 
   function onWin(): void {
@@ -3060,6 +3297,7 @@ function start(): void {
           ? row("The Covenant", `the crown advances — ${echo.covenant.crown.done.length}/${NATURES.length} natures`)
           : "") +
       `</dl></div>`;
+    const mine = myDuelRun("won", sc.total);
     showOverlay(
       "The hunt is yours",
       `Every soul of <em>${s.level.name}</em> is cut down — ${s.total} of them — ` +
@@ -3067,10 +3305,11 @@ function start(): void {
       `${cairnLine}<br><br>` +
       (best === ms ? `<em>A new best for this village.</em>` : `Best here: ${fmtTime(best)}.`) +
       ` <em>+${moonstones}</em> moonstones gathered.` +
-      breakdown,
+      breakdown + duelPanelHtml(mine),
       "Hunt again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function onLost(): void {
@@ -3078,6 +3317,7 @@ function start(): void {
     const moonstones = s.slain * MOONSTONE_PER_KILL;
     recordFall(s.litCount, s.slain, moonstones);
     recordEcho("werewolf", false); // the covenant counts the fall, not the crown
+    const mine = myDuelRun("lost", 0);
     // The night's tally — the score language shown even on a fall, so the player
     // learns what pays before their first claim (win-only bonuses named, zeroed).
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
@@ -3098,10 +3338,11 @@ function start(): void {
       `<br><br>` +
       (moonstones > 0 ? `The blood you spilled leaves <em>+${moonstones}</em> moonstones behind. ` : ``) +
       `<em>The moon will rise again. Hunt again.</em>` +
-      tally,
+      tally + duelPanelHtml(mine),
       "Try again", () => startCity(s!.level),
       "Choose another", () => showPicker(),
     );
+    wireDuelShare(mine);
   }
 
   function showPicker(selId?: string): void {
@@ -3273,7 +3514,11 @@ function start(): void {
   setupZoom();
   clampCam();
   applyCam();
-  showStart();
+  // A duel link opens straight onto the gauntlet; anything malformed (or from a
+  // sibling game) decodes to null and the ordinary title screen stands.
+  const duelToken = new URLSearchParams(location.search).get("duel");
+  const gauntlet = duelToken ? decodeDuel(duelToken) : null;
+  if (gauntlet) showDuelIntro(gauntlet); else showStart();
 }
 
 // ---------- Service worker registration (offline play) ----------
@@ -3307,6 +3552,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     loadWwLegacy, saveWwLegacy, recordHunt, recordFall, emptyWwLegacy,
     PELT_TYPES, peltTypeById, unlockPelt, equipPelt,
     loadCovenant, recordEcho, boonStrength, claimBounty, covenantLine, NATURES,
+    encodeDuel, decodeDuel, duelVerdict, rivalKillsAt, sanitizeName, mulberry32, GAME_TAG,
     K: {
       W, H, HERO_HP, HERO_RADIUS, HERO_IFRAMES_MS, HERO_SPEED_HUMAN, HERO_SPEED_WOLF, HERO_KNOCKBACK,
       HERO_STILL_MAXSPEED, PULSE_FX_MS, TERROR_KNOCK,

@@ -901,6 +901,58 @@ const covEcho = ww.recordEcho("werewolf", true, 700);
 ok(covEcho.firstOfCycle && ww.loadCovenant().echoes.werewolf.victories === 1,
   "a claimed village echoes into the covenant and advances the crown cycle");
 localStorage.removeItem(COV_KEY);
+// Rival duels — seeded arenas, the token codec, the echo's pace, the verdict.
+// Zero-backend: the same seed must raise the identical village on any device,
+// and the URL token must round-trip a run and shrug off tampering.
+{
+  const fpr = (st) => JSON.stringify({
+    n: st.scenery.map((n) => [n.kind, Math.round(n.x), Math.round(n.y)]),
+    f: st.foes.map((e) => [Math.round(e.x), Math.round(e.y), e.variant]),
+    w: st.walls.map((g) => [Math.round(g.x1), Math.round(g.y1), Math.round(g.x2), Math.round(g.y2)]),
+    m: st.mists.map((m) => [Math.round(m.x), Math.round(m.y), Math.round(m.r)]),
+  });
+  const dA = ww.buildArena(ww.levelById("thornwick"), 123456);
+  const dB = ww.buildArena(ww.levelById("thornwick"), 123456);
+  const dC = ww.buildArena(ww.levelById("thornwick"), 654321);
+  ok(dA.seed === 123456 && dB.seed === 123456, "a seeded build keeps its seed on the state");
+  ok(fpr(dA) === fpr(dB), "the same seed rebuilds the identical village (stones, watch, fog)");
+  ok(fpr(dA) !== fpr(dC), "a different seed raises a different village");
+  ok(Number.isInteger(ww.buildArena(ww.levelById("thornwick")).seed),
+    "an unseeded hunt still draws a seed — any run can become a challenge");
+  ok(fpr(ww.buildArena(ww.levelById("direhollow"), 777)) === fpr(ww.buildArena(ww.levelById("direhollow"), 777)),
+    "the last hollow is seed-stable too (the whole vocabulary through the seeded path)");
+
+  const dK = ww.buildArena(ww.levelById("thornwick"));
+  dK.elapsed = 4321;
+  ww.slay(dK, dK.foes[0]);
+  ok(dK.killTimes.length === 1 && dK.killTimes[0] === 4321, "each kill is timestamped for the echo");
+
+  const runRec = { name: "Gwyn", level: "thornwick", seed: 123456, weapon: "grey",
+    result: "won", ms: 84200, score: 1234, kills: [1000, 2500, 2500, 60000] };
+  const tok = ww.encodeDuel(runRec);
+  ok(/^[A-Za-z0-9_-]+$/.test(tok), "the duel token is URL-safe base64url");
+  const back = ww.decodeDuel(tok);
+  ok(back && back.name === "Gwyn" && back.level === "thornwick" && back.seed === 123456
+    && back.result === "won" && back.ms === 84200, "the token round-trips the run");
+  ok(back.kills.length === 4 && back.kills.every((t, i) => Math.abs(t - runRec.kills[i]) <= 100),
+    "kill times survive within a decisecond");
+  ok(ww.decodeDuel("garbage!!") === null, "garbage tokens decode to null, never throw");
+  ok(ww.decodeDuel(ww.encodeDuel({ ...runRec, level: "no-such-village" })) === null, "unknown villages are rejected");
+  const forged = Buffer.from(JSON.stringify({ v: 1, g: "bomber", n: "x", l: "thornwick", s: 1, w: "", r: 1, t: 1, sc: 0, k: [] }))
+    .toString("base64url");
+  ok(ww.decodeDuel(forged) === null, "a sibling game's token never opens here (GAME_TAG guard)");
+  ok(ww.decodeDuel(ww.encodeDuel({ ...runRec, name: "<b onload=x>" })).name.includes("<") === false,
+    "names are stripped of markup on decode");
+
+  ok(ww.rivalKillsAt(back, 0) === 0 && ww.rivalKillsAt(back, 2600) === 3 && ww.rivalKillsAt(back, 999999) === 4,
+    "rivalKillsAt paces the echo");
+  const mkRun = (result, ms, nKills) => ({ name: "", level: "thornwick", seed: 1, weapon: "",
+    result, ms, score: 0, kills: Array.from({ length: nKills }, (_, i) => i * 100) });
+  ok(ww.duelVerdict(mkRun("won", 50000, 18), mkRun("lost", 80000, 10)) === "win", "a claim beats a fall");
+  ok(ww.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 40000, 18)) === "loss", "two claims race the clock");
+  ok(ww.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", "two falls compare kills first");
+  ok(ww.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
+}
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

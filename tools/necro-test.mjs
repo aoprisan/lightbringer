@@ -881,6 +881,58 @@ const covEcho = necro.recordEcho("necro", true, 900);
 ok(covEcho.firstOfCycle && necro.loadCovenant().echoes.necro.victories === 1,
   "an overrun echoes into the covenant and advances the crown cycle");
 localStorage.removeItem(COV_KEY);
+// Rival duels — seeded arenas, the token codec, the echo's pace, the verdict.
+// Zero-backend: the same seed must raise the identical village on any device,
+// and the URL token must round-trip a run and shrug off tampering.
+{
+  const fpr = (st) => JSON.stringify({
+    n: st.scenery.map((n) => [n.kind, Math.round(n.x), Math.round(n.y)]),
+    k: st.knights.map((e) => [Math.round(e.x), Math.round(e.y), !!e.captain, !!e.priest,
+      !!e.crossbow, !!e.banner, !!e.mender, !!e.paladin, !!e.marshal]),
+    b: st.barricades.map((g) => [Math.round(g.x1), Math.round(g.y1), Math.round(g.x2), Math.round(g.y2)]),
+  });
+  const dA = necro.buildArena(necro.levelById("hollowmere"), 123456);
+  const dB = necro.buildArena(necro.levelById("hollowmere"), 123456);
+  const dC = necro.buildArena(necro.levelById("hollowmere"), 654321);
+  ok(dA.seed === 123456 && dB.seed === 123456, "a seeded build keeps its seed on the state");
+  ok(fpr(dA) === fpr(dB), "the same seed rebuilds the identical village (houses, graves, watch)");
+  ok(fpr(dA) !== fpr(dC), "a different seed raises a different village");
+  ok(Number.isInteger(necro.buildArena(necro.levelById("hollowmere")).seed),
+    "an unseeded march still draws a seed — any run can become a challenge");
+  ok(fpr(necro.buildArena(necro.levelById("saint-aubers"), 777)) === fpr(necro.buildArena(necro.levelById("saint-aubers"), 777)),
+    "the hardest village is seed-stable too (every defender kind through the seeded path)");
+
+  const dK = necro.buildArena(necro.levelById("hollowmere"));
+  dK.elapsed = 4321;
+  necro.killKnight(dK, dK.knights[0]);
+  ok(dK.killTimes.length === 1 && dK.killTimes[0] === 4321, "each felled knight is timestamped for the echo");
+
+  const runRec = { name: "Morrigan", level: "hollowmere", seed: 123456, weapon: "grave",
+    result: "won", ms: 84200, score: 1234, kills: [1000, 2500, 2500, 60000] };
+  const tok = necro.encodeDuel(runRec);
+  ok(/^[A-Za-z0-9_-]+$/.test(tok), "the duel token is URL-safe base64url");
+  const back = necro.decodeDuel(tok);
+  ok(back && back.name === "Morrigan" && back.level === "hollowmere" && back.seed === 123456
+    && back.result === "won" && back.ms === 84200, "the token round-trips the run");
+  ok(back.kills.length === 4 && back.kills.every((t, i) => Math.abs(t - runRec.kills[i]) <= 100),
+    "kill times survive within a decisecond");
+  ok(necro.decodeDuel("garbage!!") === null, "garbage tokens decode to null, never throw");
+  ok(necro.decodeDuel(necro.encodeDuel({ ...runRec, level: "no-such-village" })) === null, "unknown villages are rejected");
+  const forged = Buffer.from(JSON.stringify({ v: 1, g: "vigil", n: "x", l: "hollowmere", s: 1, w: "", r: 1, t: 1, sc: 0, k: [] }))
+    .toString("base64url");
+  ok(necro.decodeDuel(forged) === null, "a sibling game's token never opens here (GAME_TAG guard)");
+  ok(necro.decodeDuel(necro.encodeDuel({ ...runRec, name: "<b onload=x>" })).name.includes("<") === false,
+    "names are stripped of markup on decode");
+
+  ok(necro.rivalKillsAt(back, 0) === 0 && necro.rivalKillsAt(back, 2600) === 3 && necro.rivalKillsAt(back, 999999) === 4,
+    "rivalKillsAt paces the echo");
+  const mkRun = (result, ms, nKills) => ({ name: "", level: "hollowmere", seed: 1, weapon: "",
+    result, ms, score: 0, kills: Array.from({ length: nKills }, (_, i) => i * 100) });
+  ok(necro.duelVerdict(mkRun("won", 50000, 18), mkRun("lost", 80000, 10)) === "win", "an overrun beats a broken march");
+  ok(necro.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 40000, 18)) === "loss", "two overruns race the clock");
+  ok(necro.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", "two falls compare kills first");
+  ok(necro.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
+}
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
