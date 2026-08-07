@@ -1728,6 +1728,13 @@ function fmtTime(ms: number): string {
   return m > 0 ? `${m}m ${r}s` : `${r}s`;
 }
 
+// Haptics — a phone-only murmur of impact, in the sound layer's ethos: the frame
+// loop diffs observable sim state and buzzes, so the pure sim never touches it
+// (and a device without a vibrator silently ignores it).
+function buzz(pattern: number | number[]): void {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
 function start(): void {
   const svg = byId("city") as unknown as SVGSVGElement;
   const overlay = byId("overlay");
@@ -1779,16 +1786,22 @@ function start(): void {
   }
 
   // ----- Input: a floating joystick (touch) + WASD/arrows (desktop). -----
-  const STICK_MAX = 60;
+  const STICK_MAX = 60;  // px from ring centre to full deflection
+  // A resting thumb trembles a few px; without slack that tremor creeps the
+  // Watcher and breaks the stand-still tracing of the Sign the watch hangs on.
+  const STICK_DEAD = 8;
   const move: Move = { x: 0, y: 0 };
   const keys = new Set<string>();
   const pointers = new Map<number, { x: number; y: number }>();
   let stick: { id: number; ox: number; oy: number } | null = null;
   let pinch: { d: number; k: number } | null = null;
 
-  function showStick(sx: number, sy: number): void {
+  function placeStick(sx: number, sy: number): void {
     stickEl.style.left = sx + "px";
     stickEl.style.top = sy + "px";
+  }
+  function showStick(sx: number, sy: number): void {
+    placeStick(sx, sy);
     stickEl.style.display = "block";
     stickKnob.style.transform = "translate(-50%, -50%)";
   }
@@ -1820,9 +1833,20 @@ function start(): void {
     const p = pointers.get(e.pointerId);
     if (!p) return;
     if (pointers.size === 1 && stick && stick.id === e.pointerId) {
-      const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+      let dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+      const over = Math.hypot(dx, dy);
+      if (over > STICK_MAX) {
+        // Follow the finger: past the rim the ring is dragged along, so pulling
+        // the other way answers at once instead of only after the finger has
+        // re-crossed the whole overshoot.
+        const pull = (over - STICK_MAX) / over;
+        stick.ox += dx * pull; stick.oy += dy * pull;
+        placeStick(stick.ox, stick.oy);
+        dx = e.clientX - stick.ox; dy = e.clientY - stick.oy;
+      }
       const mag = Math.hypot(dx, dy);
-      const r = mag ? Math.min(1, mag / STICK_MAX) : 0;
+      // Dead zone, then re-scale so full speed still sits at the rim.
+      const r = mag > STICK_DEAD ? Math.min(1, (mag - STICK_DEAD) / (STICK_MAX - STICK_DEAD)) : 0;
       move.x = mag ? (dx / mag) * r : 0;
       move.y = mag ? (dy / mag) * r : 0;
       moveKnob(dx, dy);
@@ -2006,7 +2030,12 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
+      const kBefore = s.killTimes.length, hpBefore = s.hero.hp;
       stepWatch(s, dt, move);
+      // Haptics: a tick per horror banished, a heavier knock when the Watcher
+      // is struck (the later call wins if both fire in one frame).
+      if (s.killTimes.length > kBefore) buzz(15);
+      if (s.hero.hp < hpBefore) buzz(40);
       centerCam(s.hero.x, s.hero.y);
     }
 
@@ -2014,8 +2043,8 @@ function start(): void {
     hud();
     minimap();
 
-    if (s.phase === "won") { running = false; onWin(); return; }
-    if (s.phase === "lost") { running = false; onLost(); return; }
+    if (s.phase === "won") { running = false; buzz([30, 60, 120]); onWin(); return; }
+    if (s.phase === "lost") { running = false; buzz(200); onLost(); return; }
     requestAnimationFrame(watchFrame);
   }
 

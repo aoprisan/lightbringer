@@ -338,6 +338,11 @@
     .hpbar { width: 96px; }
     #help { padding: 0 18px; }
   }
+  /* Phones & touch devices: the sibling cross-links would wrap the header into
+     rows over the play area — hide them; ⌂ Class Select still reaches the hub. */
+  @media (max-width: 820px), (pointer: coarse) {
+    .sib { display: none; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
     .grain, #overlay::before { animation: none !important; }
@@ -357,10 +362,10 @@
       </div>
       <button id="reset" title="Return to the theatre select">Choose theatre</button>
       <a class="xlink" id="origin-link" href="./index.html" title="Class Select — choose a different class" style="color:#9fb0d0;">⌂ Class Select</a>
-      <a class="xlink" id="vigil-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="color:#ff6a3c;">The Burning Vigil</a>
-      <a class="xlink" id="necro-link" href="./necro.html" title="The Necromancer's March — the inversion game in this world" style="color:#3cff8a;">The Necromancer's March</a>
-      <a class="xlink" id="watcher-link" href="./eldritch.html" title="The Watcher at the Threshold — the Lovecraftian game in this world" style="color:#7ad8ff;">The Watcher at the Threshold</a>
-      <a class="xlink" id="werewolf-link" href="./werewolf.html" title="The Moon's Hunger — the werewolf game in this world" style="color:#cdd6ea;">The Moon's Hunger</a>
+      <a class="xlink sib" id="vigil-link" href="./pentagram.html" title="The Burning Vigil — the action-combat game in this world" style="color:#ff6a3c;">The Burning Vigil</a>
+      <a class="xlink sib" id="necro-link" href="./necro.html" title="The Necromancer's March — the inversion game in this world" style="color:#3cff8a;">The Necromancer's March</a>
+      <a class="xlink sib" id="watcher-link" href="./eldritch.html" title="The Watcher at the Threshold — the Lovecraftian game in this world" style="color:#7ad8ff;">The Watcher at the Threshold</a>
+      <a class="xlink sib" id="werewolf-link" href="./werewolf.html" title="The Moon's Hunger — the werewolf game in this world" style="color:#cdd6ea;">The Moon's Hunger</a>
       <button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button>
     </div>
   </header>
