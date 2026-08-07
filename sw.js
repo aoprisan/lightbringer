@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v118";
+const CACHE = "lightbringer-v119";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
@@ -35,13 +35,37 @@ const ASSETS = [
   "./icons/eldritch-icon-180.png",
   "./icons/eldritch-maskable-512.png",
   // The Moon's Hunger — the fifth sibling spinoff (werewolf), its own page + module.
-  // Shell only (network-first via isShell): it ships fully procedural, with zero
-  // gameplay PNGs of its own, so no art is listed here yet (the wolf/watch/cairn
-  // sprites render from vector primitives until that art ships — add them to this list
-  // AND bump CACHE when it does). Its generated PWA icons DO ship (below).
+  // Shell (network-first via isShell) plus its generated gameplay art, which has
+  // now shipped: the whole base sprite set and the eight campaign establishing
+  // scenes below are produced zero-dep by tools/gen-ww-art.mjs (render still
+  // falls back to vector primitives when any are absent).
   "./werewolf.html",
   "./werewolf.js",
   "./werewolf.webmanifest",
+  // Werewolf gameplay sprites (tools/gen-ww-art.mjs): the built world, the
+  // hero's two forms, and the five roles of the watch.
+  "./art/stone.png",
+  "./art/cottage.png",
+  "./art/cairn.png",
+  "./art/cairn-marked.png",
+  "./art/cairn-cleansed.png",
+  "./art/moonwell.png",
+  "./art/wolf-human.png",
+  "./art/wolf-beast.png",
+  "./art/villager.png",
+  "./art/hound.png",
+  "./art/knight.png",
+  "./art/huntsman.png",
+  "./art/friar.png",
+  // Werewolf campaign establishing scenes (shown on the picker card; silent-fail).
+  "./art/village-thornwick.png",
+  "./art/village-greymoor.png",
+  "./art/village-hollowby.png",
+  "./art/village-wulfmere.png",
+  "./art/village-ashthorn.png",
+  "./art/village-mirefen.png",
+  "./art/village-galehead.png",
+  "./art/village-direhollow.png",
   // Werewolf branding — PWA icons (a blood-clawed full moon), generated zero-dep by
   // tools/gen-ww-icons.mjs. Maskable variant for adaptive launchers.
   "./icons/werewolf-icon-192.png",
