@@ -418,8 +418,15 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
+  // The raid's story. The theatres are one campaign — a bomber crew's tour flown
+  // deeper and deeper into defended country, from the coastal radar chain to the
+  // forge at the heart of it. `story` is a chapter that names where the tour came
+  // from and where it flies next; a theatre is reachable only after completing
+  // the one before it (see `theatreUnlocked` — the theatres unlock in LEVELS
+  // order). Shown in the picker (with the PROLOGUE in front of the very first raid).
+  story: string;
   theme: RaidTheme;
-  art?: string;          // optional establishing image (silent-fail)
+  art?: string;          // optional establishing image (art/theatre-*.png); silent-fail
   sceneryCount: number;  // cosmetic ground fabric (fields/woods/towns)
   minDist: number;
   factoryCount: number;  // the works — static targets (win gate)
@@ -440,6 +447,12 @@ const LEVELS: LevelDef[] = [
     id: "channel",
     name: "The Channel Coast",
     epigraph: "Radar masts and coastal batteries on the grey water's edge. The guns are thin here and the squadrons green. A fair first raid.",
+    story: "The tour opens where the defended country does: the radar chain on the " +
+      "grey water's edge, the eyes that see every raid before it crosses. The guns " +
+      "are thin and the squadrons green — learn the trade here. Hold the run only as " +
+      "long as the sight needs, and no longer; the flak learns a straight course " +
+      "faster than any crew learns the flak.",
+    art: "art/theatre-channel.png",
     theme: {
       ground: "#232a20", field: "#333d26", wood: "#1b271a", town: "#3c3626",
       water: "#16323f", waterEdge: "#3e708a", riverCount: 4,
@@ -454,6 +467,12 @@ const LEVELS: LevelDef[] = [
     id: "yards",
     name: "The Marshalling Yards",
     epigraph: "A rail country feeding the front — sheds, sidings, and columns forever on the move. The guns are waking and the fighters fly in pairs.",
+    story: "With the coast blinded, the tour turns inland up the rail arteries that " +
+      "feed the front — sheds, sidings, and columns forever on the move. The columns " +
+      "will not wait under your sight the way the works do, and the fields here " +
+      "scramble in pairs. Take an airfield on the ground before its squadron takes " +
+      "the air, and the yards are yours to close.",
+    art: "art/theatre-yards.png",
     theme: {
       ground: "#282318", field: "#3a3320", wood: "#221c12", town: "#40351f",
       water: "#183038", waterEdge: "#456a72", riverCount: 3,
@@ -468,6 +487,12 @@ const LEVELS: LevelDef[] = [
     id: "pens",
     name: "The U-Boat Pens",
     epigraph: "A harbour poured in concrete — the pens shrug off anything but a held run, the balloons ride thick, and the harbour guns never sleep.",
+    story: "The yards fell, so the war moved its stores to a harbour poured in " +
+      "concrete. The pens shrug off a nervous stick; only a run held long past " +
+      "comfort — sight armed, wings level, the whole battery reading your line — " +
+      "cracks that roof. Thread the balloons, spend the cloud wisely, and let your " +
+      "escorts buy you the seconds the concrete demands.",
+    art: "art/theatre-pens.png",
     theme: {
       ground: "#1e252a", field: "#28322f", wood: "#182521", town: "#31302c",
       water: "#123244", waterEdge: "#3e7088", riverCount: 6,
@@ -482,6 +507,12 @@ const LEVELS: LevelDef[] = [
     id: "ruhr",
     name: "The Ruhr Valley",
     epigraph: "The happy valley — the war's own forge, ringed in more guns than any sky in the world. Everything the defence has learned waits here.",
+    story: "The last leg of the tour is the valley the crews call happy because none " +
+      "of them are: the war's own forge, ringed in more guns than any sky in the " +
+      "world. Everything the defence has learned about you waits here, and everything " +
+      "you have learned about it must answer. Silence the forge and the tour is " +
+      "flown; there is no target after this one.",
+    art: "art/theatre-ruhr.png",
     theme: {
       ground: "#26221a", field: "#342c1b", wood: "#1f1c12", town: "#3c3226",
       water: "#16242e", waterEdge: "#42606f", riverCount: 4,
@@ -496,6 +527,48 @@ const LEVELS: LevelDef[] = [
 
 function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
+}
+
+// ---------- The campaign (the raids as one tour) ----------
+// The theatres are a single arc, told in order: one crew's tour flown deeper and
+// deeper into defended country — the coastal chain, the rail arteries, the
+// concrete harbour, and at last the valley of guns. The PROLOGUE frames the
+// first raid; each LevelDef.story is a chapter linking the theatre before to the
+// theatre after; the EPILOGUE plays once every theatre is silenced. The theatres
+// unlock in LEVELS order (`theatreUnlocked`), so the campaign is the progression
+// — you cannot reach the yards until the coast is blind.
+const PROLOGUE =
+  "The briefing map is more red than country now: works, columns, squadrons, " +
+  "and gun after gun after gun. Someone must fly against it, and the lot fell " +
+  "to you — a heavy bomber that can never stop, a handful of escorts, and a " +
+  "bombsight that only trusts a straight and level run. The flak trusts one " +
+  "too. Between those two truths lies the whole tour: coast, rails, harbour, " +
+  "forge. Take off. The weather over the target is what it is.";
+const EPILOGUE =
+  "Four theatres, and nothing left on the map worth a bomb. The chain is " +
+  "blind, the rails are cold, the concrete is cracked open to the rain, and " +
+  "the forge-fires of the valley are out. The guns that learned your line " +
+  "stand silent over country that no longer feeds a front. The tour is flown; " +
+  "the crews that follow will cross an empty sky. Whatever was won here, it " +
+  "was paid for straight and level.";
+
+// Sequential progression: the first theatre is always open; each later one
+// unlocks only once the theatre before it in LEVELS has been raided at least
+// once (a `best` time is recorded on every completed raid). This is what
+// threads the raids into a campaign — you fly the tour the way it is told. (A
+// duel link bypasses this on purpose: answering a gauntlet is a guest pass into
+// a theatre the tour has not yet reached, exactly like the Vigil's.)
+function theatreUnlocked(level: LevelDef, l: BomberLegacy): boolean {
+  const i = LEVELS.indexOf(level);
+  if (i <= 0) return true;
+  return !!l.best[LEVELS[i - 1].id];
+}
+
+// Roman-numeral chapter label for a theatre (its 1-based place in the campaign).
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function storyChapter(level: LevelDef): string {
+  const i = LEVELS.indexOf(level);
+  return ROMAN[i] ?? String(i + 1);
 }
 
 // ---------- Arena generation ----------
@@ -2641,7 +2714,19 @@ function start(): void {
       ? `The whole wing came home — <em>${s.escortsTotal}</em> escorts.`
       : `<em>${escortsAlive(s)}</em> of ${s.escortsTotal} escorts came home.`;
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    // The story beat for this raid: the whole campaign done plays the epilogue;
+    // otherwise, completing a theatre opens the route to the next (and says so),
+    // threading the raids into one tour.
+    const idx = LEVELS.indexOf(s.level);
+    const next = LEVELS[idx + 1];
+    const allDone = LEVELS.every((lv) => l.best[lv.id]);
+    const storyBeat = allDone
+      ? `<p class="city-story story-end">${EPILOGUE}</p>`
+      : next
+        ? `<p class="city-story">The tour flies on: <em>${next.name}</em>. ${next.epigraph}</p>`
+        : "";
     const breakdown =
+      storyBeat +
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Targets silenced", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
@@ -2692,21 +2777,44 @@ function start(): void {
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
     const l = loadBomberLegacy();
-    const sel = levelById(selId || "") || LEVELS[0];
+    // The selected theatre — a still-locked one can never be the selection (its
+    // button is disabled), so the Raid button below always targets open sky.
+    let sel = levelById(selId || "") || LEVELS[0];
+    if (!theatreUnlocked(sel, l)) sel = LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
+    // The campaign chapter for the selected theatre — the prologue stands in
+    // front of the very first raid (before any theatre is completed), then each
+    // theatre tells its own chapter, naming the tour on.
+    const firstEver = l.raids === 0 && Object.keys(l.best).length === 0;
+    const story = firstEver && sel.id === LEVELS[0].id
+      ? `<p class="story-pre">${PROLOGUE}</p><p class="city-story">${sel.story}</p>`
+      : `<p class="city-story"><span class="story-ch">Sortie ${storyChapter(sel)}</span>${sel.story}</p>`;
     let html =
-      card +
+      card + story +
       `<p class="lede">Choose a theatre to raid. Your bomber cannot stop — hold a ` +
       `straight and level run to arm the bombsight and lay your sticks on the works ` +
       `and the columns. But the flak leads a straight run perfectly, the squadrons ` +
       `scramble to meet you, and only your escorts stand between them and your ` +
       `tail. Silence every target to complete the raid.</p><div class="cities">`;
-    for (const lv of LEVELS) {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const lv = LEVELS[i];
       const done = l.best[lv.id];
+      const open = theatreUnlocked(lv, l);
+      const ch = `<span class="city-ch">${ROMAN[i] ?? i + 1}</span>`;
+      if (!open) {
+        // A locked theatre keeps its mystery: name veiled behind the front, the
+        // route there closed until the theatre before it is raided.
+        const prev = LEVELS[i - 1];
+        html +=
+          `<button class="city locked" disabled>` +
+          `<span class="city-name">${ch}A closed theatre <span class="legacy-new">locked</span></span>` +
+          `<span class="city-line">Complete the raid on ${prev.name} to open the route here.</span></button>`;
+        continue;
+      }
       const mark = done ? ` <span class="legacy-new">raided ${fmtTime(done)}</span>` : "";
       html +=
         `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
-        `<span class="city-name">${lv.name}${mark}</span>` +
+        `<span class="city-name">${ch}${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
@@ -2848,7 +2956,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
     stepFlak, stepShells, stepPlanes, stepPosts, stepGunners, stepFires, stepChutes, stepClouds,
     destroyTarget, hurtTarget, hurtFlak, hurtBomber, hurtPlane, downPlane,
     aliveTargets, clearedPct, escortsAlive, raidReadout, scoreRun, difficultyMult,
-    LEVELS, levelById,
+    LEVELS, levelById, theatreUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, pushOut, inCloud, angleDiff,
     bombsightPath, planePath,
     render, scaffold, spriteFor,
