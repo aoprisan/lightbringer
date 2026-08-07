@@ -601,5 +601,41 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
   ok(eld.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 }
 
+// The campaign — the four places as one investigation, unlocked in LEVELS order,
+// with the prologue in front and the epilogue at the end of the trail.
+{
+  ok(eld.LEVELS.length === 4, "four places make the campaign");
+  ok(eld.LEVELS.every((lv) => typeof lv.epigraph === "string" && lv.epigraph.length > 0),
+    "every place carries its epigraph");
+  ok(eld.LEVELS.every((lv) => typeof lv.story === "string" && lv.story.length > 40),
+    "every place tells a story chapter");
+  ok(eld.LEVELS.every((lv) => lv.art === `art/place-${lv.id}.png`),
+    "every place names its establishing scene");
+  ok(typeof eld.PROLOGUE === "string" && eld.PROLOGUE.length > 40
+    && typeof eld.EPILOGUE === "string" && eld.EPILOGUE.length > 40,
+    "the campaign opens with a prologue and closes with an epilogue");
+  ok(eld.storyChapter(eld.LEVELS[0]) === "I" && eld.storyChapter(eld.LEVELS[3]) === "IV",
+    "chapters are numbered in LEVELS order");
+
+  const empty = eld.emptyEldLegacy();
+  ok(eld.placeUnlocked(eld.LEVELS[0], empty), "the first place is always open");
+  ok(eld.LEVELS.slice(1).every((lv) => !eld.placeUnlocked(lv, empty)),
+    "every later place starts locked");
+  const part = eld.emptyEldLegacy();
+  part.best.innsmouth = 90000;
+  ok(eld.placeUnlocked(eld.LEVELS[1], part) && !eld.placeUnlocked(eld.LEVELS[2], part),
+    "sealing a place opens exactly the next one");
+  const done = eld.emptyEldLegacy();
+  for (const lv of eld.LEVELS) done.best[lv.id] = 90000;
+  ok(eld.LEVELS.every((lv) => eld.placeUnlocked(lv, done)), "a sealed trail stays open");
+
+  // recordSeal is what opens the road: a seal writes best[place].
+  store.delete(LEGACY_KEY);
+  eld.recordSeal(eld.LEVELS[0], 55555, 1, 3, 4);
+  const l2 = eld.loadEldLegacy();
+  ok(!!l2.best.innsmouth && eld.placeUnlocked(eld.LEVELS[1], l2),
+    "a recorded seal opens the trail to the next place");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
