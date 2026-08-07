@@ -538,7 +538,14 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
-  art?: string;           // optional establishing image (art/village-*.jpg); silent-fail
+  // The hunt's story. The villages are one campaign — the cursed soul driven
+  // from his home, hunted village by village until nothing in the dale or the
+  // outlands can hunt him. `story` is a chapter that names where the trail came
+  // from and where it runs next; a village is reachable only after claiming the
+  // one before it (see `villageUnlocked` — the villages unlock in LEVELS order).
+  // Shown in the picker (with the PROLOGUE in front of the very first hunt).
+  story: string;
+  art?: string;           // optional establishing image (art/village-*.png); silent-fail
   nodeCount: number;
   minDist: number;
   stoneCount: number;     // standing stones (solid, blocks bodies)
@@ -583,6 +590,11 @@ const LEVELS: LevelDef[] = [
     id: "thornwick",
     name: "Thornwick",
     epigraph: "A small thatched holt under a thin grey moon, its greens deep in snow. The watch is few and slow to rouse. A fair first hunt.",
+    story: "It begins where the curse began: the snow-bound holt that was your home. " +
+      "The watch is thin and drowsy, and the folk still call you by name when they scream. " +
+      "Learn the shape of the hunt here — the baying, the turning, the feeding — for word " +
+      "travels faster than a wolf runs.",
+    art: "art/village-thornwick.png",
     nodeCount: 110, minDist: 72,
     stoneCount: 4, cottageCount: 7, cairnCount: 6, moonwellCount: 2,
     greenCount: 5, greenSpacing: 360,
@@ -593,6 +605,11 @@ const LEVELS: LevelDef[] = [
     id: "greymoor",
     name: "Greymoor",
     epigraph: "Bleak moorland of gorse and standing stones, where houndsmen course the fog and bowmen wait the ridge.",
+    story: "The survivors of Thornwick fled over the moor and sold your scent to the " +
+      "houndsmen of Greymoor. Now dogs course the gorse and bowmen wait the ridgelines. " +
+      "Take the fog when it drifts, and take the hounds first — a watch that cannot smell " +
+      "you cannot hold.",
+    art: "art/village-greymoor.png",
     nodeCount: 122, minDist: 66,
     stoneCount: 8, cottageCount: 5, cairnCount: 7, moonwellCount: 2,
     greenCount: 7, greenSpacing: 320,
@@ -602,6 +619,11 @@ const LEVELS: LevelDef[] = [
     id: "hollowby",
     name: "Hollowby",
     epigraph: "A walled market town under the abbey bell. Friars keep their relics, men-at-arms their wall, and the bowmen the gate.",
+    story: "The abbey at Hollowby has named the thing you are, and the bell tolls it over " +
+      "the wall each dusk. Friars walk the lanes with relics that bleed your fury thin. " +
+      "Break their lines of sight, and break them — when the bell falls silent the town " +
+      "will learn its wall was built to keep the wrong thing out.",
+    art: "art/village-hollowby.png",
     nodeCount: 116, minDist: 70,
     stoneCount: 6, cottageCount: 10, cairnCount: 5, moonwellCount: 1,
     greenCount: 8, greenSpacing: 280,
@@ -612,6 +634,11 @@ const LEVELS: LevelDef[] = [
     id: "wulfmere",
     name: "Wulfmere",
     epigraph: "A drowned fen-village of black water and willow, the moon dead overhead. Every soul of it hunts you, and they are many.",
+    story: "What was left of three villages waded into the fen and raised Wulfmere " +
+      "against you — black water, willow, and every soul armed. The moon hangs dead " +
+      "overhead here and the mist is yours. Drown the dale's last hope in it, and the " +
+      "old country is beaten.",
+    art: "art/village-wulfmere.png",
     nodeCount: 104, minDist: 84,
     stoneCount: 10, cottageCount: 4, cairnCount: 4, moonwellCount: 3,
     greenCount: 9, greenSpacing: 300,
@@ -625,6 +652,11 @@ const LEVELS: LevelDef[] = [
     id: "ashthorn",
     name: "Ashthorn",
     epigraph: "A holt the fire took and never left. The pyres still burn — and the watch fears them more than you.",
+    story: "Beyond the dale the outlands begin, and the outlanders burned Ashthorn's " +
+      "fields themselves rather than leave you cover. The pyres never went out. But fire " +
+      "is no friend of theirs either — herd the watch through their own burning and the " +
+      "holt will finish itself.",
+    art: "art/village-ashthorn.png",
     nodeCount: 140, minDist: 64,
     stoneCount: 4, cottageCount: 6, cairnCount: 6, moonwellCount: 2,
     greenCount: 6, greenSpacing: 330,
@@ -636,6 +668,10 @@ const LEVELS: LevelDef[] = [
     id: "mirefen",
     name: "Mirefen",
     epigraph: "Black water and bane-herb under a drowned moon. The bog holds them; the wolfsbane bleeds you — find the springs.",
+    story: "Mirefen heard how Ashthorn ended and sowed its bog with wolfsbane — " +
+      "bane-herb enough to bleed the beast back into the man. Keep to the springs, keep " +
+      "the change fed, and teach them that a starved wolf is not a cured one.",
+    art: "art/village-mirefen.png",
     nodeCount: 150, minDist: 62,
     stoneCount: 5, cottageCount: 4, cairnCount: 6, moonwellCount: 2,
     greenCount: 7, greenSpacing: 310,
@@ -647,6 +683,10 @@ const LEVELS: LevelDef[] = [
     id: "galehead",
     name: "Galehead",
     epigraph: "A bare, wind-scoured headland where hot springs steam and the gale holds the watch off the open stone.",
+    story: "The last of them ran for the sea and made their stand at Galehead, where the " +
+      "gale scours the stone and nothing can hide. Nothing but you: the glades hold your " +
+      "stride, the geysers hold their nerve. Run the headland down to its final door.",
+    art: "art/village-galehead.png",
     nodeCount: 145, minDist: 64,
     stoneCount: 6, cottageCount: 3, cairnCount: 5, moonwellCount: 2,
     greenCount: 8, greenSpacing: 295,
@@ -658,6 +698,10 @@ const LEVELS: LevelDef[] = [
     id: "direhollow",
     name: "Direhollow",
     epigraph: "The last hollow, where every soul of the watch has cornered itself for one final night. Everything you have learned, turned on them.",
+    story: "Every soul that fled every village you emptied is cornered in Direhollow, " +
+      "and they have made of it one great trap — pyre and bane, gale and bog. There is " +
+      "no village after this one. End the war they started, and the long winter is yours.",
+    art: "art/village-direhollow.png",
     nodeCount: 160, minDist: 60,
     stoneCount: 6, cottageCount: 6, cairnCount: 5, moonwellCount: 3,
     greenCount: 9, greenSpacing: 280,
@@ -670,6 +714,46 @@ const LEVELS: LevelDef[] = [
 
 function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
+}
+
+// ---------- The campaign (the hunts as one war) ----------
+// The villages are a single arc, told in order: the cursed soul driven out of his
+// home, hunted from village to village until nothing in the dale or the outlands
+// is left to hunt him. The PROLOGUE frames the first hunt; each LevelDef.story is
+// a chapter linking the village before to the village after; the EPILOGUE plays
+// once every village is claimed. The villages unlock in LEVELS order
+// (`villageUnlocked`), so the campaign is the progression — you cannot reach
+// Greymoor until Thornwick is yours.
+const PROLOGUE =
+  "The wolf that opened your arm died on a huntsman's silver, but its hunger " +
+  "lived, and moved in. Your own village saw the first moon take you — and " +
+  "reached for the torches. The dale has closed against you now: every green " +
+  "mustered, every road watched. Very well. If they will not let you be a man, " +
+  "you will show them, village by village, what they made instead.";
+const EPILOGUE =
+  "Eight villages, eight moons, and no bell left ringing in the dale or beyond " +
+  "it. The watch that named you devil is cut down to the last soul, and the " +
+  "country lies silver and silent under a moon no one is left to fear. You are " +
+  "what they made you — and everything they had is yours. The hunger, at last, " +
+  "is quiet.";
+
+// Sequential progression: the first village is always open; each later one
+// unlocks only once the village before it in LEVELS has been claimed at least
+// once (a `best` time is recorded on every claim). This is what threads the
+// hunts into a campaign — you walk the trail the way it is told. (A duel link
+// bypasses this on purpose: answering a gauntlet is a guest pass into a village
+// the trail has not yet reached, exactly like the Vigil's.)
+function villageUnlocked(level: LevelDef, l: WwLegacy): boolean {
+  const i = LEVELS.indexOf(level);
+  if (i <= 0) return true;
+  return !!l.best[LEVELS[i - 1].id];
+}
+
+// Roman-numeral chapter label for a village (its 1-based place in the campaign).
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function storyChapter(level: LevelDef): string {
+  const i = LEVELS.indexOf(level);
+  return ROMAN[i] ?? String(i + 1);
 }
 
 // ---------- Arena generation ----------
@@ -2481,7 +2565,17 @@ function render(s: WwState, layer: SVGGElement): void {
     }
   }
   const hwKey = spriteFor(s.level, wolf ? "wolf-beast" : "wolf-human");
-  if (hwKey) { layer.appendChild(spriteImage(hwKey, h.x, h.y, HERO_RADIUS * (wolf ? 3.0 : 2.4), 1)); }
+  if (hwKey) {
+    // The beast sprite is authored facing east and spun to the wolf's heading, so
+    // a static image keeps the procedural body's directional read; the man stands
+    // upright whichever way he walks.
+    const img = spriteImage(hwKey, h.x, h.y, HERO_RADIUS * (wolf ? 3.0 : 2.4), 1);
+    if (wolf) {
+      const g = el("g", { transform: `rotate(${deg.toFixed(1)} ${h.x} ${h.y})` });
+      g.appendChild(img);
+      layer.appendChild(g);
+    } else layer.appendChild(img);
+  }
   else {
     const hurt = h.hurt > 0 && Math.floor(s.elapsed / 80) % 2 === 0;
     if (wolf) {
@@ -3266,7 +3360,19 @@ function start(): void {
       + (s.cleansedCount ? ` The watch cleansed <em>${s.cleansedCount}</em> back to dark.` : "")
       + (s.quarrySlain ? ` You ran down <em>${s.quarrySlain}</em> of the moon's marked quarry.` : "");
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    // The story beat for this claim: the whole campaign done plays the epilogue;
+    // otherwise, claiming a village opens the trail to the next (and says so),
+    // threading the hunts into one war.
+    const idx = LEVELS.indexOf(s.level);
+    const next = LEVELS[idx + 1];
+    const allDone = LEVELS.every((lv) => l.best[lv.id]);
+    const storyBeat = allDone
+      ? `<p class="city-story story-end">${EPILOGUE}</p>`
+      : next
+        ? `<p class="city-story">The trail runs on: <em>${next.name}</em>. ${next.epigraph}</p>`
+        : "";
     const breakdown =
+      storyBeat +
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Watch cut down", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
@@ -3330,20 +3436,43 @@ function start(): void {
     mmEl.style.display = "none";
     moonEl.style.display = "none";
     const l = loadWwLegacy();
-    const sel = levelById(selId || "") || LEVELS[0];
+    // The selected village — a still-locked one can never be the selection (its
+    // button is disabled), so the Hunt button below always targets open ground.
+    let sel = levelById(selId || "") || LEVELS[0];
+    if (!villageUnlocked(sel, l)) sel = LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
+    // The campaign chapter for the selected village — the prologue stands in
+    // front of the very first hunt (before any village is claimed), then each
+    // village tells its own chapter, naming the trail on.
+    const firstEver = l.hunts === 0 && Object.keys(l.best).length === 0;
+    const story = firstEver && sel.id === LEVELS[0].id
+      ? `<p class="story-pre">${PROLOGUE}</p><p class="city-story">${sel.story}</p>`
+      : `<p class="city-story"><span class="story-ch">Night ${storyChapter(sel)}</span>${sel.story}</p>`;
     let html =
-      card +
+      card + story +
       `<p class="lede">Choose a village to hunt. You begin a man and frail; stand still to ` +
-      `bay at the moon and stoke your fury until you turn beast, then stand still as the ` +
-      `wolf to rend the watch around you. Feed to hold the change, run the lanes, lurk in ` +
-      `the fog, and cut down every soul to claim the village.</p><div class="cities">`;
-    for (const lv of LEVELS) {
+      `bay at the moon and stoke your fury until you turn beast, then run the watch down — ` +
+      `the wolf's weapon is momentum, the maul and the pounce. Feed to hold the change, run ` +
+      `the lanes, lurk in the fog, and cut down every soul to claim the village.</p><div class="cities">`;
+    for (let i = 0; i < LEVELS.length; i++) {
+      const lv = LEVELS[i];
       const done = l.best[lv.id];
+      const open = villageUnlocked(lv, l);
+      const ch = `<span class="city-ch">${ROMAN[i] ?? i + 1}</span>`;
+      if (!open) {
+        // A locked village keeps its mystery: name veiled behind its night, the
+        // trail there dark until the village before it is claimed.
+        const prev = LEVELS[i - 1];
+        html +=
+          `<button class="city locked" disabled>` +
+          `<span class="city-name">${ch}A dark village <span class="legacy-new">locked</span></span>` +
+          `<span class="city-line">Claim ${prev.name} to open the trail here.</span></button>`;
+        continue;
+      }
       const mark = done ? ` <span class="legacy-new">claimed ${fmtTime(done)}</span>` : "";
       html +=
         `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
-        `<span class="city-name">${lv.name}${mark}</span>` +
+        `<span class="city-name">${ch}${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
@@ -3502,7 +3631,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
     slay, hurtFoe, markCairn, cleanseCairn, nearScar, nearestFoe, isPrey, villagePanic,
     inMist, inMoonwell, daylight, moonlightOf, moonWord,
     aliveFoes, clearedPct, furyReadout, scoreRun, difficultyMult,
-    LEVELS, levelById,
+    LEVELS, levelById, villageUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, segsCross, wallBetween, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadWwLegacy, saveWwLegacy, recordHunt, recordFall, emptyWwLegacy,

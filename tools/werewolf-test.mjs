@@ -937,5 +937,58 @@ ok(ww.inNodeAura(ix, 10, 10, "spring", K.SPRING_AURA) && !ww.inNodeAura(ix, 10, 
   ok(ww.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 }
 
+// The campaign — the eight villages as one story, unlocked in LEVELS order, with
+// the prologue in front and the epilogue at the end of the trail.
+{
+  ok(ww.LEVELS.length === 8, "eight villages make the campaign");
+  ok(ww.LEVELS.every((lv) => typeof lv.story === "string" && lv.story.length > 40),
+    "every village tells a story chapter");
+  ok(ww.LEVELS.every((lv) => lv.art === `art/village-${lv.id}.png`),
+    "every village names its generated establishing scene");
+  ok(typeof ww.PROLOGUE === "string" && ww.PROLOGUE.length > 40
+    && typeof ww.EPILOGUE === "string" && ww.EPILOGUE.length > 40,
+    "the campaign opens with a prologue and closes with an epilogue");
+  ok(ww.storyChapter(ww.LEVELS[0]) === "I" && ww.storyChapter(ww.LEVELS[7]) === "VIII",
+    "chapters are numbered in LEVELS order");
+
+  const empty = ww.emptyWwLegacy();
+  ok(ww.villageUnlocked(ww.LEVELS[0], empty), "the first village is always open");
+  ok(ww.LEVELS.slice(1).every((lv) => !ww.villageUnlocked(lv, empty)),
+    "every later village starts locked");
+  const part = ww.emptyWwLegacy();
+  part.best.thornwick = 90000;
+  ok(ww.villageUnlocked(ww.LEVELS[1], part) && !ww.villageUnlocked(ww.LEVELS[2], part),
+    "claiming a village opens exactly the next one");
+  const done = ww.emptyWwLegacy();
+  for (const lv of ww.LEVELS) done.best[lv.id] = 90000;
+  ok(ww.LEVELS.every((lv) => ww.villageUnlocked(lv, done)), "a claimed trail stays open");
+
+  // recordHunt is what opens the road: a claim writes best[village].
+  store.delete(LEGACY_KEY);
+  ww.recordHunt(ww.LEVELS[0], 55555, 1, 3, 4);
+  const l2 = ww.loadWwLegacy();
+  ok(!!l2.best.thornwick && ww.villageUnlocked(ww.LEVELS[1], l2),
+    "a recorded claim opens the trail to the next village");
+}
+
+// The generated art — every base sprite the game probes and every campaign scene
+// must exist on disk (gen-ww-art.mjs output), be a real PNG, and be precached in
+// the service worker (addAll() rejects the whole install on a single 404).
+{
+  const fs = await import("node:fs");
+  const names = ["stone", "cottage", "cairn", "cairn-marked", "cairn-cleansed", "moonwell",
+    "wolf-human", "wolf-beast", "villager", "hound", "knight", "huntsman", "friar"];
+  const files = [...names.map((n) => `art/${n}.png`), ...ww.LEVELS.map((lv) => `art/village-${lv.id}.png`)];
+  const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
+  ok(files.every((f) => fs.existsSync(new URL("../" + f, import.meta.url))),
+    "every generated art file exists (run tools/gen-ww-art.mjs)");
+  ok(files.every((f) => {
+    const b = fs.readFileSync(new URL("../" + f, import.meta.url));
+    return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  }), "every generated art file is a real PNG");
+  ok(files.every((f) => sw.includes(`"./${f}"`)),
+    "every generated art file is precached in sw.js ASSETS");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

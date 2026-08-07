@@ -83,6 +83,7 @@ node tools/werewolf-test.mjs     # The Moon's Hunger hunt test (against werewolf
 node tools/bomber-test.mjs       # The Iron Rain raid test (against bomber.js)
 node tools/gen-icons.mjs         # regenerate the parent icons/*.png from code
 node tools/gen-ww-icons.mjs      # regenerate the werewolf icons/werewolf-*.png from code
+node tools/gen-ww-art.mjs        # regenerate the werewolf gameplay sprites + village scenes (art/*.png)
 node tools/gen-eld-icons.mjs     # regenerate the eldritch icons/eldritch-*.png from code
 node tools/gen-bomber-icons.mjs  # regenerate the bomber icons/bomber-*.png from code
 ```
@@ -244,7 +245,7 @@ be ported to all five:
 ### Service worker cache versioning
 
 `sw.js` is the offline app-shell cache for the **class-select hub and all five games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v118`). It is **network-first for the
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v119`). It is **network-first for the
 shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
 `eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`, `bomber.html`, `bomber.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
@@ -790,8 +791,13 @@ obstacles** (solids in `OBSTACLE_KINDS`): **pyre** (also a permanent foe-emitter
 dale, carrying the new terrain): **Thornwick** (fair first), **Greymoor** (moor; hounds & huntsmen),
 **Hollowby** (walled market town; knights, friars, the abbey), **Wulfmere** (drowned fen), then **Ashthorn**
 (pyre/marsh-fire/bramble), **Mirefen** (bog/wolfsbane/spring), **Galehead** (gale/glade/geyser/hoard), and
-**Direhollow** (the last hollow — the whole vocabulary). Werewolf villages don't chain narratively (no
-`story` field / unlock gate, unlike the Vigil) — just an `epigraph` each. Each `LevelDef` carries
+**Direhollow** (the last hollow — the whole vocabulary). The villages are now a **full campaign** (a
+mirror of the Vigil's journey): each `LevelDef` carries an `epigraph` **and a `story` chapter** linking the
+village before to the village after, plus an `art` establishing scene; a `PROLOGUE` frames the very first
+hunt and an `EPILOGUE` plays once every village is claimed. The villages **unlock in LEVELS order**
+(`villageUnlocked` — each opens once the one before it has a `best` claim; the picker shows locked ones
+veiled, and the win screen names the next village or plays the epilogue). A duel link deliberately bypasses
+the gate (a guest pass, exactly like the Vigil's). Each `LevelDef` carries
 `stoneCount`/`cottageCount`/`cairnCount`/`moonwellCount`, `greenCount`/`greenSpacing`,
 `wallCount`/`pathCount`/`mistCount`, the variant counts
 (`houndCount`/`knightCount`/`huntsmanCount`/`friarCount`), the **new terrain/obstacle counts** (above), and
@@ -816,17 +822,24 @@ No mid-hunt save. The legacy is `werewolf.legacy.v1` (`WwLegacy`: `runs`, `hunts
 bump**), via `loadWwLegacy`/`saveWwLegacy`/`emptyWwLegacy` and the write-once-per-end `recordHunt`/
 `recordFall`. Every sprite has a **procedural SVG fallback** (`scenerySprite`, `pentagramPath` — here a
 blood-moon claw sigil, the render fallbacks: the man, the beast, the watch, the cairns/moonwells/cottages), so
-the game is **fully playable with zero gameplay PNGs** — and it currently ships that way: **no gameplay PNG
-art of its own has shipped yet**. Sound is likewise zero-dep: a **WebAudio synth** (`sfx`, `voice`/`noiseBurst`)
+the game is **fully playable with zero gameplay PNGs** — but its gameplay art **has now shipped, fully
+GENERATED**: `tools/gen-ww-art.mjs` (zero-dep, deterministic — the same supersampled scalar-field approach as
+the icon generators) produces the entire base sprite set (`art/{stone,cottage,cairn,cairn-marked,
+cairn-cleansed,moonwell,wolf-human,wolf-beast,villager,hound,knight,huntsman,friar}.png`) **and** the eight
+campaign establishing scenes (`art/village-<id>.png`, wired via `LevelDef.art`). The `wolf-beast` sprite is
+authored facing EAST and render spins it to the wolf's heading (the one sprite drawn inside a rotated group).
+All 21 PNGs are in `sw.js` `ASSETS` (cache-first), asserted by the test. Sound is likewise zero-dep: a
+**WebAudio synth** (`sfx`, `voice`/`noiseBurst`)
 lives shell-side only — the frame loop **diffs observable sim state** across `stepHunt` and fires the matching
 gesture, so the pure sim never touches audio and the headless tests never do either; the mute toggle persists
-in the tiny `werewolf.sound` hint key (not the legacy). Its **PWA icons DO ship**, though — a blood-clawed full moon generated
+in the tiny `werewolf.sound` hint key (not the legacy). Its **PWA icons ship too** — a blood-clawed full moon generated
 zero-dep by `tools/gen-ww-icons.mjs` (`icons/werewolf-icon-{192,512,180}.png` + maskable), listed in `sw.js`
-`ASSETS`. When the man/beast/watch sprites ship, add them to `ASSETS` **and** bump `CACHE`. Sprite resolution
+`ASSETS`. Sprite resolution
 mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprites`).
 
-Shipping rules: `werewolf.html`/`werewolf.js`/`werewolf.webmanifest` and the `icons/werewolf-*.png` are in
-`sw.js` `ASSETS` (shell network-first, icons cache-first); bump `CACHE` when their bytes change.
+Shipping rules: `werewolf.html`/`werewolf.js`/`werewolf.webmanifest` are in `sw.js` `ASSETS` as shell
+(network-first); the `icons/werewolf-*.png`, the generated gameplay sprites, and the `art/village-*.png`
+scenes are cache-first art. Bump `CACHE` when any of their bytes change (regenerating art counts).
 
 ---
 
