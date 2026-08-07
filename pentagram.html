@@ -396,6 +396,11 @@
     #fresco { width: 142px; max-width: 44vw; bottom: calc(48px + env(safe-area-inset-bottom)); }
     #fresco-cap { font-size: 11px; margin-top: 7px; }
   }
+  /* Phones & touch devices: the sibling cross-links would wrap the header into
+     rows over the play area — hide them; ⌂ Class Select still reaches the hub. */
+  @media (max-width: 820px), (pointer: coarse) {
+    .sib { display: none; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, #toast { transition: none !important; }
     .grain { animation: none !important; }
@@ -413,9 +418,9 @@
       <div class="hpbar"><div id="hp"></div></div>
       <button id="reset" title="Return to the city select">Choose city</button>
       <a id="origin-link" href="./index.html" title="Class Select — choose a different class" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#9fb0d0;opacity:0.7;text-decoration:none;text-transform:uppercase;">⌂ Class Select</a>
-      <a id="necro-link" href="./necro.html" title="The Necromancer's March — raise the dead and overrun the village" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#3cff8a;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Necromancer's March</a>
-      <a id="watcher-link" href="./eldritch.html" title="The Watcher at the Threshold — trace the Elder Sign and banish the eldritch host" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#7ad8ff;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Watcher at the Threshold</a>
-      <a id="werewolf-link" href="./werewolf.html" title="The Moon's Hunger — turn beast under the moon and hunt the village watch" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#cdd6ea;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Moon's Hunger</a>
+      <a class="sib" id="necro-link" href="./necro.html" title="The Necromancer's March — raise the dead and overrun the village" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#3cff8a;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Necromancer's March</a>
+      <a class="sib" id="watcher-link" href="./eldritch.html" title="The Watcher at the Threshold — trace the Elder Sign and banish the eldritch host" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#7ad8ff;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Watcher at the Threshold</a>
+      <a class="sib" id="werewolf-link" href="./werewolf.html" title="The Moon's Hunger — turn beast under the moon and hunt the village watch" style="pointer-events:auto;font-size:10.5px;letter-spacing:0.1em;padding:4px 8px;color:#cdd6ea;opacity:0.7;text-decoration:none;text-transform:uppercase;">The Moon's Hunger</a>
       <button id="refresh" title="Clear the offline cache and reload — forces the newest version of the game">Update</button>
     </div>
   </header>
