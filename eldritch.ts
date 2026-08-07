@@ -360,8 +360,16 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
+  // The watch's story. The places are one campaign — the Watcher following the
+  // horror from the shunned coast inland and at last to the drowned city itself,
+  // each threshold sealed only revealing the next. `story` is a chapter that
+  // names where the trail came from and where it runs next; a place is reachable
+  // only after sealing the one before it (see `placeUnlocked` — the places
+  // unlock in LEVELS order). Shown in the picker (with the PROLOGUE in front of
+  // the very first watch).
+  story: string;
   theme: EldTheme;
-  art?: string;          // optional establishing image (art/place-*.jpg); silent-fail
+  art?: string;          // optional establishing image (art/place-*.png); silent-fail
   nodeCount: number;
   minDist: number;
   menhirCount: number;   // solid standing stones (cover, blocks bodies)
@@ -382,7 +390,12 @@ const LEVELS: LevelDef[] = [
     id: "innsmouth",
     name: "Innsmouth",
     epigraph: "A shunned fishing port, its people gone strange and gilled. The host is thin here, the threshold shallow. A fair first watch.",
-    art: "art/place-innsmouth.jpg",
+    story: "It begins on the rotting waterfront your inquiry led you to: Innsmouth, " +
+      "whose folk went into the water at Devil Reef and came back gilled and wrong. " +
+      "The Deep Ones wade ashore thin here and the threshold is shallow — a place to " +
+      "learn the Sign's true price, which is paid in mind, not blood. Seal it, and " +
+      "follow the harbour ledgers inland to the hills they traded with.",
+    art: "art/place-innsmouth.png",
     // A rotting harbour town — brackish green tide-pools, salt-rain, kelp-dark stone.
     theme: {
       ground: "#0a1512", stone: "#1b2a26", stoneEdge: "#34564a",
@@ -397,7 +410,13 @@ const LEVELS: LevelDef[] = [
     id: "dunwich",
     name: "Dunwich",
     epigraph: "Decayed hill-country under whippoorwill skies. The old blood runs thick and the things it calls run faster. Darters haunt the gambrel roofs.",
-    art: "art/place-dunwich.jpg",
+    story: "Innsmouth's ledgers named the buyers of its gold: the decayed hill-farms " +
+      "of Dunwich, where the old blood called something down off Sentinel Hill long " +
+      "ago and never sent it back. The whippoorwills pace your heartbeat here, and " +
+      "what the old blood calls runs faster than anything the sea sent. Keep to the " +
+      "old roads and keep your mind whole — beyond these hills the sea-fog is " +
+      "gathering over Kingsport.",
+    art: "art/place-dunwich.png",
     // Sour back-country — a sluggish brown creek, fungal spores adrift, sallow stone.
     theme: {
       ground: "#13110a", stone: "#2a2417", stoneEdge: "#56492a",
@@ -412,7 +431,13 @@ const LEVELS: LevelDef[] = [
     id: "kingsport",
     name: "Kingsport",
     epigraph: "A queer old town of terrible high houses and sea-fog. The faithful of strange churches keep their rites — and mend their own.",
-    art: "art/place-kingsport.jpg",
+    story: "What you banished in the hills whispered, before it went, of a town that " +
+      "dreams: Kingsport, its terrible high houses climbing into the sea-fog where " +
+      "strange steeples keep older rites than any church admits. The faithful mend " +
+      "their own — break the acolytes first, or banish the same horror twice. And in " +
+      "the fog the harbour charts agree on one impossible thing: a city has risen " +
+      "where no city can stand.",
+    art: "art/place-kingsport.png",
     // Cliff-town drowned in sea-fog — cold steel harbour, thick haze, pale ash-mist.
     theme: {
       ground: "#0a0e15", stone: "#1c2430", stoneEdge: "#3c5070",
@@ -427,7 +452,14 @@ const LEVELS: LevelDef[] = [
     id: "rlyeh",
     name: "R'lyeh",
     epigraph: "The drowned city risen, its geometry all wrong. Here the star-spawn wade and the great gazers watch. In his house the dreamer waits.",
-    art: "art/place-rlyeh.jpg",
+    story: "The charts did not lie. R'lyeh is risen, dripping and aeon-slimed, its " +
+      "geometry all wrong to the eye that must nonetheless trace true lines upon it — " +
+      "and every threshold you sealed on that long road from Innsmouth was only a " +
+      "door to this one. The star-spawn wade its streets; the great gazers watch " +
+      "from angles that are not angles. In his house the dreamer waits. Trace the " +
+      "Sign a last time, and hold your mind together while you shut what the strange " +
+      "aeons opened.",
+    art: "art/place-rlyeh.png",
     // The corpse-city under the waves — luminous abyssal water everywhere, rising
     // bubbles, basalt gone green with aeons. The most flooded threshold of all.
     theme: {
@@ -443,6 +475,48 @@ const LEVELS: LevelDef[] = [
 
 function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
+}
+
+// ---------- The campaign (the watches as one investigation) ----------
+// The places are a single arc, told in order: the Watcher following the horror
+// from the shunned coast inland and finally out to the drowned city itself, each
+// threshold sealed only revealing the next. The PROLOGUE frames the first watch;
+// each LevelDef.story is a chapter linking the place before to the place after;
+// the EPILOGUE plays once every threshold is sealed. The places unlock in LEVELS
+// order (`placeUnlocked`), so the campaign is the progression — you cannot reach
+// Dunwich until Innsmouth is sealed.
+const PROLOGUE =
+  "You were a scholar once, and should have burned the book. Instead you read " +
+  "it — and now you alone can see the thresholds standing open along this " +
+  "rotten coast, and the host that wades through them. The Elder Sign you " +
+  "took from that page will banish them; it will also, stroke by stroke, " +
+  "spend your mind to do it. Keep the watch anyway. No one else can see the " +
+  "doors, and the doors are opening.";
+const EPILOGUE =
+  "Four thresholds, four seals, and the sea lies flat from Innsmouth harbour " +
+  "to the impossible meridian where R'lyeh went under again. The dreamer is " +
+  "not dead — that is not dead which can eternal lie — but the doors are " +
+  "shut, and your Sign holds them shut. What remains of your mind keeps the " +
+  "watch still, by lamplight, over charts no sane man will ever read. It is " +
+  "enough. It has to be.";
+
+// Sequential progression: the first place is always open; each later one unlocks
+// only once the place before it in LEVELS has been sealed at least once (a
+// `best` time is recorded on every seal). This is what threads the watches into
+// a campaign — you follow the horror the way the story is told. (A duel link
+// bypasses this on purpose: answering a gauntlet is a guest pass into a place
+// the investigation has not yet reached, exactly like the Vigil's.)
+function placeUnlocked(level: LevelDef, l: EldLegacy): boolean {
+  const i = LEVELS.indexOf(level);
+  if (i <= 0) return true;
+  return !!l.best[LEVELS[i - 1].id];
+}
+
+// Roman-numeral chapter label for a place (its 1-based place in the campaign).
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function storyChapter(level: LevelDef): string {
+  const i = LEVELS.indexOf(level);
+  return ROMAN[i] ?? String(i + 1);
 }
 
 // ---------- Arena generation ----------
@@ -2167,7 +2241,19 @@ function start(): void {
       : `You sealed <em>${wards}</em> of ${total} ward-stones.`)
       + (s.defiledCount ? ` The host defiled <em>${s.defiledCount}</em> back to dark.` : "");
     const row = (label: string, val: string) => `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    // The story beat for this seal: the whole campaign done plays the epilogue;
+    // otherwise, sealing a place opens the trail to the next (and says so),
+    // threading the watches into one investigation.
+    const idx = LEVELS.indexOf(s.level);
+    const next = LEVELS[idx + 1];
+    const allDone = LEVELS.every((lv) => l.best[lv.id]);
+    const storyBeat = allDone
+      ? `<p class="city-story story-end">${EPILOGUE}</p>`
+      : next
+        ? `<p class="city-story">The trail runs on: <em>${next.name}</em>. ${next.epigraph}</p>`
+        : "";
     const breakdown =
+      storyBeat +
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Host banished", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
@@ -2221,20 +2307,43 @@ function start(): void {
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
     const l = loadEldLegacy();
-    const sel = levelById(selId || "") || LEVELS[0];
+    // The selected place — a still-locked one can never be the selection (its
+    // button is disabled), so the Watch button below always targets open ground.
+    let sel = levelById(selId || "") || LEVELS[0];
+    if (!placeUnlocked(sel, l)) sel = LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
+    // The campaign chapter for the selected place — the prologue stands in front
+    // of the very first watch (before any threshold is sealed), then each place
+    // tells its own chapter, naming the trail on.
+    const firstEver = l.seals === 0 && Object.keys(l.best).length === 0;
+    const story = firstEver && sel.id === LEVELS[0].id
+      ? `<p class="story-pre">${PROLOGUE}</p><p class="city-story">${sel.story}</p>`
+      : `<p class="city-story"><span class="story-ch">Watch ${storyChapter(sel)}</span>${sel.story}</p>`;
     let html =
-      card +
+      card + story +
       `<p class="lede">Choose a place to keep watch over. Stand still to trace the Elder ` +
       `Sign and banish the host around you — but tracing frays the mind, and the host's ` +
       `nearness bleeds it. Seal the ward-stones to steady your sanity, run the old roads ` +
       `to outpace the press, and banish every horror to seal the threshold.</p><div class="cities">`;
-    for (const lv of LEVELS) {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const lv = LEVELS[i];
       const done = l.best[lv.id];
+      const open = placeUnlocked(lv, l);
+      const ch = `<span class="city-ch">${ROMAN[i] ?? i + 1}</span>`;
+      if (!open) {
+        // A locked place keeps its mystery: name veiled behind its fog, the
+        // trail there dark until the place before it is sealed.
+        const prev = LEVELS[i - 1];
+        html +=
+          `<button class="city locked" disabled>` +
+          `<span class="city-name">${ch}A shunned place <span class="legacy-new">locked</span></span>` +
+          `<span class="city-line">Seal ${prev.name} to open the trail here.</span></button>`;
+        continue;
+      }
       const mark = done ? ` <span class="legacy-new">sealed ${fmtTime(done)}</span>` : "";
       html +=
         `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
-        `<span class="city-name">${lv.name}${mark}</span>` +
+        `<span class="city-name">${ch}${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
@@ -2376,7 +2485,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__ELD_TEST__) {
     stepSign, firePulse, stepHorrors, stepWards, stepDread, stepMotes,
     banish, hurtHorror, kindleWard, defileWard, nearScar, nearestHorror,
     aliveHorrors, clearedPct, sanityReadout, scoreRun, difficultyMult,
-    LEVELS, levelById,
+    LEVELS, levelById, placeUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, segsCross, wallBetween, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadEldLegacy, saveEldLegacy, recordSeal, recordFall, emptyEldLegacy,

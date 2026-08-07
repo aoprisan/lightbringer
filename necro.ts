@@ -546,6 +546,14 @@ interface LevelDef {
   id: string;
   name: string;
   epigraph: string;
+  // The march's story. The villages are one campaign — the wronged dead-speaker
+  // risen from unhallowed ground, marching village by village until nothing in
+  // the low country can stand between the horde and the last bell. `story` is a
+  // chapter that names where the march came from and where it rolls next; a
+  // village is reachable only after overrunning the one before it (see
+  // `villageUnlocked` — the villages unlock in LEVELS order). Shown in the
+  // picker (with the PROLOGUE in front of the very first march).
+  story: string;
   art?: string;        // optional establishing image (art/village-*.jpg); silent-fail
   nodeCount: number;
   minDist: number;
@@ -572,6 +580,11 @@ const LEVELS: LevelDef[] = [
     id: "hollowmere",
     name: "Hollowmere",
     epigraph: "A drowsy lakeside hamlet, its watch thin and its dead shallow-buried. A fair first march.",
+    story: "It begins where they buried you: the drowsy hamlet by the lake, its dead " +
+      "laid shallow and its watch half-asleep at the posts. The folk here still speak " +
+      "your name in whispers — let their knights learn to speak it too. Master the shape " +
+      "of the march — the raising, the razing, the feeding of the horde — for the church " +
+      "has long ears, and word rows faster than a corpse can walk.",
     art: "art/village-hollowmere.jpg",
     nodeCount: 112, minDist: 72,
     houseFrac: 0.18, wellCount: 4, altarCount: 2, graveCount: 6,
@@ -582,6 +595,11 @@ const LEVELS: LevelDef[] = [
     id: "tithe-barrows",
     name: "The Tithe Barrows",
     epigraph: "Burial mounds heaped over generations. Graves are many here — but so are the knights who keep them.",
+    story: "The survivors of Hollowmere fled to the barrows and knelt among their " +
+      "ancestors, and the church answered: captains at the mounds, a priest with his " +
+      "smiting fire, crossbows on the heights. But generations of the dutiful dead lie " +
+      "tithed here, grave upon grave — every one of them yours to call. Take the priest " +
+      "first; he burns what you raise.",
     art: "art/village-barrows.jpg",
     nodeCount: 124, minDist: 66,
     houseFrac: 0.22, wellCount: 3, altarCount: 4, graveCount: 9,
@@ -593,6 +611,11 @@ const LEVELS: LevelDef[] = [
     id: "saint-aubers",
     name: "Saint Auber's Rest",
     epigraph: "A walled chantry-town where the faithful sleep. The watch is thick and the barricades many.",
+    story: "The chantry-town has walled itself against you, and the bell over Saint " +
+      "Auber's bones tolls your coming each dusk. The church has emptied its garrisons " +
+      "behind those barricades — captains, paladins, banners, and priests enough to " +
+      "scorch a legion. Few graves lie within the wall, so husband every soul; when the " +
+      "bell falls silent, the faithful will learn what their saint sleeps through.",
     art: "art/village-aubers.jpg",
     nodeCount: 118, minDist: 70,
     houseFrac: 0.16, wellCount: 5, altarCount: 3, graveCount: 5,
@@ -604,6 +627,11 @@ const LEVELS: LevelDef[] = [
     id: "gallows-fen",
     name: "Gallows Fen",
     epigraph: "Marsh and gibbet, far from any lord's help. Few houses, but the dead lie thick and willing.",
+    story: "What was left of three villages waded into the fen, where the lords' law " +
+      "ends and only the gibbet keeps order. The marshals' horses churn the causeways " +
+      "and no help is coming — for them or from them. But the hanged lie thick in that " +
+      "black water, and every one went down with a grievance. Raise them all, and the " +
+      "low country is yours.",
     art: "art/village-fen.jpg",
     nodeCount: 104, minDist: 84,
     houseFrac: 0.30, wellCount: 2, altarCount: 5, graveCount: 8,
@@ -615,6 +643,47 @@ const LEVELS: LevelDef[] = [
 
 function levelById(id: string): LevelDef | undefined {
   return LEVELS.find((l) => l.id === id);
+}
+
+// ---------- The campaign (the marches as one war) ----------
+// The villages are a single arc, told in order: the wronged dead-speaker risen
+// from unhallowed ground, marching from village to village until nothing in the
+// low country is left to stand against the horde. The PROLOGUE frames the first
+// march; each LevelDef.story is a chapter linking the village before to the
+// village after; the EPILOGUE plays once every village is overrun. The villages
+// unlock in LEVELS order (`villageUnlocked`), so the campaign is the
+// progression — you cannot reach the Tithe Barrows until Hollowmere is yours.
+const PROLOGUE =
+  "They buried you in unhallowed ground for the crime of asking the dead a " +
+  "question, and the village slept sounder for it. But the grave taught you the " +
+  "answer, and the answer walked you back out. The church has closed the low " +
+  "country against you now: every post mustered, every steeple watching. Very " +
+  "well. If they will not let you rest, you will show them, village by village, " +
+  "how many of their dead agree with you.";
+const EPILOGUE =
+  "Four villages, four hosts, and no bell left ringing between the lake and the " +
+  "fen. The watch that put you in the ground is undone to the last knight, and " +
+  "the low country lies quiet under a sky no prayer troubles. The dead walk " +
+  "beside you now, patient and past counting — and at last, so are you. The " +
+  "grave, for once, keeps faith.";
+
+// Sequential progression: the first village is always open; each later one
+// unlocks only once the village before it in LEVELS has been overrun at least
+// once (a `best` time is recorded on every overrun). This is what threads the
+// marches into a campaign — you walk the road the way it is told. (A duel link
+// bypasses this on purpose: answering a gauntlet is a guest pass into a village
+// the march has not yet reached, exactly like the Vigil's.)
+function villageUnlocked(level: LevelDef, l: NecroLegacy): boolean {
+  const i = LEVELS.indexOf(level);
+  if (i <= 0) return true;
+  return !!l.best[LEVELS[i - 1].id];
+}
+
+// Roman-numeral chapter label for a village (its 1-based place in the campaign).
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function storyChapter(level: LevelDef): string {
+  const i = LEVELS.indexOf(level);
+  return ROMAN[i] ?? String(i + 1);
 }
 
 // ---------- Arena generation ----------
@@ -3053,7 +3122,19 @@ function start(): void {
       + (s.reconsecrated ? ` The watch re-blessed <em>${s.reconsecrated}</em> back to standing.` : "");
     const row = (label: string, val: string) =>
       `<div><dt>${label}</dt><dd>${val}</dd></div>`;
+    // The story beat for this overrun: the whole campaign done plays the
+    // epilogue; otherwise, overrunning a village opens the road to the next
+    // (and says so), threading the marches into one war.
+    const idx = LEVELS.indexOf(s.level);
+    const next = LEVELS[idx + 1];
+    const allDone = LEVELS.every((lv) => l.best[lv.id]);
+    const storyBeat = allDone
+      ? `<p class="city-story story-end">${EPILOGUE}</p>`
+      : next
+        ? `<p class="city-story">The march goes on: <em>${next.name}</em>. ${next.epigraph}</p>`
+        : "";
     const breakdown =
+      storyBeat +
       `<div class="legacy"><div class="legacy-head">Score</div><dl>` +
       row("Host overrun", `${sc.base}`) +
       row("Speed", `${sc.speed}`) +
@@ -3103,21 +3184,44 @@ function start(): void {
     introHold = false; clearTimeout(introHoldTimer);
     mmEl.style.display = "none";
     const l = loadNecroLegacy();
-    const sel = levelById(selId || "") || LEVELS[0];
+    // The selected village — a still-locked one can never be the selection (its
+    // button is disabled), so the March button below always targets open ground.
+    let sel = levelById(selId || "") || LEVELS[0];
+    if (!villageUnlocked(sel, l)) sel = LEVELS[0];
     const card = sel.art ? `<img class="city-art" src="${sel.art}" alt="">` : "";
+    // The campaign chapter for the selected village — the prologue stands in
+    // front of the very first march (before any village is overrun), then each
+    // village tells its own chapter, naming the road on.
+    const firstEver = l.overruns === 0 && Object.keys(l.best).length === 0;
+    const story = firstEver && sel.id === LEVELS[0].id
+      ? `<p class="story-pre">${PROLOGUE}</p><p class="city-story">${sel.story}</p>`
+      : `<p class="city-story"><span class="story-ch">March ${storyChapter(sel)}</span>${sel.story}</p>`;
     let html =
-      card +
+      card + story +
       `<p class="lede">Choose a village to march upon. March onto an open grave to ` +
       `raise skeletons — they cost souls and hunt the knights on their own. Raze the ` +
       `houses to heal your horde, weave around the wells and altars, and run the ` +
       `causeways to outpace the watch. Defeat every knight and the village is overrun.` +
       `</p><div class="cities">`;
-    for (const lv of LEVELS) {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const lv = LEVELS[i];
       const done = l.best[lv.id];
+      const open = villageUnlocked(lv, l);
+      const ch = `<span class="city-ch">${ROMAN[i] ?? i + 1}</span>`;
+      if (!open) {
+        // A locked village keeps its mystery: name veiled behind its watch, the
+        // road there dark until the village before it is overrun.
+        const prev = LEVELS[i - 1];
+        html +=
+          `<button class="city locked" disabled>` +
+          `<span class="city-name">${ch}A dark village <span class="legacy-new">locked</span></span>` +
+          `<span class="city-line">Overrun ${prev.name} to open the road here.</span></button>`;
+        continue;
+      }
       const mark = done ? ` <span class="legacy-new">overrun ${fmtTime(done)}</span>` : "";
       html +=
         `<button class="city${lv.id === sel.id ? " sel" : ""}" data-id="${lv.id}">` +
-        `<span class="city-name">${lv.name}${mark}</span>` +
+        `<span class="city-name">${ch}${lv.name}${mark}</span>` +
         `<span class="city-line">${lv.epigraph}</span></button>`;
     }
     html += `</div>`;
@@ -3290,7 +3394,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     killKnight, hurtKnight, killMinion, stepMiasma, desecrateHouse, reconsecrateHouse, nearScar,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
-    LEVELS, levelById,
+    LEVELS, levelById, villageUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, segsCross, barricadeBetween, pushOut, pentagramPath,
     render, scaffold, scenerySprite, spriteFor,
     loadNecroLegacy, saveNecroLegacy, recordOverrun, recordFall, emptyNecroLegacy,

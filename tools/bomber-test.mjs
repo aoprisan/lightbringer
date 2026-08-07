@@ -677,5 +677,41 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
   ok(bb.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 }
 
+// The campaign — the four theatres as one tour, unlocked in LEVELS order, with
+// the prologue in front and the epilogue at the end of the route.
+{
+  ok(bb.LEVELS.length === 4, "four theatres make the campaign");
+  ok(bb.LEVELS.every((lv) => typeof lv.epigraph === "string" && lv.epigraph.length > 0),
+    "every theatre carries an epigraph");
+  ok(bb.LEVELS.every((lv) => typeof lv.story === "string" && lv.story.length > 40),
+    "every theatre tells a story chapter");
+  ok(bb.LEVELS.every((lv) => lv.art === `art/theatre-${lv.id}.png`),
+    "every theatre names its establishing scene");
+  ok(typeof bb.PROLOGUE === "string" && bb.PROLOGUE.length > 40
+    && typeof bb.EPILOGUE === "string" && bb.EPILOGUE.length > 40,
+    "the campaign opens with a prologue and closes with an epilogue");
+  ok(bb.storyChapter(bb.LEVELS[0]) === "I" && bb.storyChapter(bb.LEVELS[3]) === "IV",
+    "sorties are numbered in LEVELS order");
+
+  const empty = bb.emptyBomberLegacy();
+  ok(bb.theatreUnlocked(bb.LEVELS[0], empty), "the Channel Coast is always open");
+  ok(bb.LEVELS.slice(1).every((lv) => !bb.theatreUnlocked(lv, empty)),
+    "every later theatre starts locked");
+  const part = bb.emptyBomberLegacy();
+  part.best.channel = 90000;
+  ok(bb.theatreUnlocked(bb.LEVELS[1], part) && !bb.theatreUnlocked(bb.LEVELS[2], part),
+    "completing a theatre opens exactly the next one");
+  const done = bb.emptyBomberLegacy();
+  for (const lv of bb.LEVELS) done.best[lv.id] = 90000;
+  ok(bb.LEVELS.every((lv) => bb.theatreUnlocked(lv, done)), "a flown tour stays open");
+
+  // recordRaid is what opens the route: a completed raid writes best[theatre].
+  store.delete(LEGACY_KEY);
+  bb.recordRaid(bb.LEVELS[0], 55555, 3, 4, 2);
+  const l2 = bb.loadBomberLegacy();
+  ok(!!l2.best.channel && bb.theatreUnlocked(bb.LEVELS[1], l2),
+    "a recorded raid opens the route to the next theatre");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

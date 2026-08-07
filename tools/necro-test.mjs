@@ -918,5 +918,39 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
   ok(necro.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 }
 
+// The campaign — the four villages as one story, unlocked in LEVELS order, with
+// the prologue in front and the epilogue at the end of the road.
+{
+  ok(necro.LEVELS.length === 4, "four villages make the campaign");
+  ok(necro.LEVELS.every((lv) => typeof lv.story === "string" && lv.story.length > 40),
+    "every village tells a story chapter");
+  ok(necro.LEVELS.every((lv) => typeof lv.epigraph === "string" && lv.epigraph.length > 0),
+    "every village keeps its epigraph");
+  ok(typeof necro.PROLOGUE === "string" && necro.PROLOGUE.length > 40
+    && typeof necro.EPILOGUE === "string" && necro.EPILOGUE.length > 40,
+    "the campaign opens with a prologue and closes with an epilogue");
+  ok(necro.storyChapter(necro.LEVELS[0]) === "I" && necro.storyChapter(necro.LEVELS[3]) === "IV",
+    "chapters are numbered in LEVELS order");
+
+  const empty = necro.emptyNecroLegacy();
+  ok(necro.villageUnlocked(necro.LEVELS[0], empty), "the first village is always open");
+  ok(necro.LEVELS.slice(1).every((lv) => !necro.villageUnlocked(lv, empty)),
+    "every later village starts locked");
+  const part = necro.emptyNecroLegacy();
+  part.best.hollowmere = 90000;
+  ok(necro.villageUnlocked(necro.LEVELS[1], part) && !necro.villageUnlocked(necro.LEVELS[2], part),
+    "overrunning a village opens exactly the next one");
+  const done = necro.emptyNecroLegacy();
+  for (const lv of necro.LEVELS) done.best[lv.id] = 90000;
+  ok(necro.LEVELS.every((lv) => necro.villageUnlocked(lv, done)), "an overrun road stays open");
+
+  // recordOverrun is what opens the road: an overrun writes best[village].
+  store.delete(LEGACY_KEY);
+  necro.recordOverrun(necro.LEVELS[0], 55555, 1, 1, 4);
+  const l2 = necro.loadNecroLegacy();
+  ok(!!l2.best.hollowmere && necro.villageUnlocked(necro.LEVELS[1], l2),
+    "a recorded overrun opens the road to the next village");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -942,7 +942,7 @@ const LEVELS: LevelDef[] = [
       "The Foundry fed every lamp the city ever lit — and every ward the watch " +
       "ever raised. Follow the source behind the white walls, to the fortress that " +
       "holds the last of the dark: the Pale Bastion.",
-    art: "art/city-foundry.jpg",
+    art: "art/city-foundry.png",
     // The Ember Foundry map: a grid of dark courts, each with a molten well
     // glowing at its heart, lava veins running the streets between. Its signature
     // fonts ARE those wells — plazaKind "font" seats one at each of seven courts
@@ -987,7 +987,7 @@ const LEVELS: LevelDef[] = [
       "not simply die: its last shades flee the broken Bastion outward, past the " +
       "walls, into the half-burned trees at the city's edge — and the smoke leads " +
       "you on, to The Emberwood.",
-    art: "art/city-bastion.jpg",
+    art: "art/city-bastion.png",
     // The Pale Bastion map: a walled fortress, five ward-obelisks each glowing at
     // the heart of its own court (a quincunx), white streets radiating between,
     // dense blocks, and a heavy gated rampart around the whole. Its signature
@@ -1044,6 +1044,7 @@ const LEVELS: LevelDef[] = [
       "the cinders burn shades, not the flame-bearer, and a great pyre still stands " +
       "in every clearing. Burn the wood clean, and follow the trail down into the " +
       "fog where the river meets the road: The Mistmarket.",
+    art: "art/city-emberwood.png",
     // A wood, not a city block: sparse, broad clearings (low node count, big minDist),
     // its signature cinder-ground and thickets thick among barrow-mounds and bonfires.
     nodeCount: 170, minDist: 52, plazaRadius: 110, districtRadius: 300,
@@ -1062,6 +1063,7 @@ const LEVELS: LevelDef[] = [
       "bolts and the mire bogs any chase, friend or foe. Find the clear springs to " +
       "catch your breath. Clear the fen, and climb out of the fog onto the " +
       "wind-scoured terraces above: Windward Heights.",
+    art: "art/city-mistmarket.png",
     // A fen: boggy mires and drifting mist dominate; springs and statues (dry stone)
     // dot it. Sparse and patient, with the ranged watch the mist is the answer to.
     nodeCount: 180, minDist: 48, plazaRadius: 104, districtRadius: 300,
@@ -1080,6 +1082,7 @@ const LEVELS: LevelDef[] = [
       "hallowed tiles let you keep the sigil lit even on the move. Ember vents " +
       "breathe fire from the rock. Sweep the heights, and descend at last to where " +
       "the dark has made its final stand: The Last Vigil.",
+    art: "art/city-windward.png",
     // A bare, open terrace: gusts and hallows define it, broken pillars for cover,
     // vents and caches scattered. Open ground rewards the burn-on-the-run hallows.
     nodeCount: 175, minDist: 50, plazaRadius: 106, districtRadius: 300,
@@ -1098,6 +1101,7 @@ const LEVELS: LevelDef[] = [
       "hallowed ground and springs to hold, cinders and vents and gusts to turn the " +
       "host against itself. Light this last hold, and there is no dark left in the " +
       "city to hold the morning out. Keep the vigil to its end.",
+    art: "art/city-last-vigil.png",
     // The culmination: a dense hold that gathers the whole vocabulary — its own
     // ward-obelisks and acolytes, plus bonfires/lanterns/hallows/springs/cinders/
     // vents/gusts — and the broadest, hardest ground (capped at the ceiling).

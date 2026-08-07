@@ -1,7 +1,7 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v120";
+const CACHE = "lightbringer-v121";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
@@ -28,6 +28,12 @@ const ASSETS = [
   "./eldritch.html",
   "./eldritch.js",
   "./eldritch.webmanifest",
+  // Watcher campaign establishing scenes (shown on the picker card; silent-fail),
+  // generated zero-dep by tools/gen-eld-art.mjs.
+  "./art/place-innsmouth.png",
+  "./art/place-dunwich.png",
+  "./art/place-kingsport.png",
+  "./art/place-rlyeh.png",
   // Watcher branding — PWA icons (a glowing Elder Sign over the threshold),
   // generated zero-dep by tools/gen-eld-icons.mjs. Maskable for adaptive launchers.
   "./icons/eldritch-icon-192.png",
@@ -80,6 +86,12 @@ const ASSETS = [
   "./bomber.html",
   "./bomber.js",
   "./bomber.webmanifest",
+  // Bomber campaign establishing scenes (shown on the picker card; silent-fail),
+  // generated zero-dep by tools/gen-bomber-art.mjs.
+  "./art/theatre-channel.png",
+  "./art/theatre-yards.png",
+  "./art/theatre-pens.png",
+  "./art/theatre-ruhr.png",
   // Bomber branding — PWA icons (a bomber silhouette caught in crossing
   // searchlights), generated zero-dep by tools/gen-bomber-icons.mjs. Maskable
   // variant for adaptive launchers.
@@ -132,6 +144,20 @@ const ASSETS = [
   "./icons/og-image.jpg",
   "./art/title-backdrop.jpg",
   "./art/keeper-sigil.png",
+  // Vigil city establishing scenes (shown on the picker card; silent-fail). The
+  // first five are painted jpgs; the Foundry, Bastion and the four Edge-Lands
+  // cities are generated zero-dep by tools/gen-pg-art.mjs.
+  "./art/city-old.jpg",
+  "./art/city-ashfold.jpg",
+  "./art/city-drowned.jpg",
+  "./art/city-glassworks.jpg",
+  "./art/city-vesper.jpg",
+  "./art/city-foundry.png",
+  "./art/city-bastion.png",
+  "./art/city-emberwood.png",
+  "./art/city-mistmarket.png",
+  "./art/city-windward.png",
+  "./art/city-last-vigil.png",
   "./art/fresco-sun.jpg",
   "./art/fresco-mercy.jpg",
   "./art/fresco-star.jpg",
