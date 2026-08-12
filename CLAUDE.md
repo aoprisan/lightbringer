@@ -283,6 +283,32 @@ standing still ramps `penta.charge` (`PENTA_CHARGE_MS`) and the full sigil pulse
 `PENTA_RADIUS`; moving dodges and lets it fade. A city holds a **finite** host (`keeperCount *
 SHADE_PER_KEEPER`) — **clear them all to win; lose your HP to fall.**
 
+### The descent's heartbeat — the Tolling, Fervor, and the Flare (the gameplay redesign)
+
+The old loop (walk to a pack → camp → walk to the next) was player-paced and flat; three mechanics turn
+it into a rhythm. All are pure sim (`stepToll`, the `killShade` fervor stoke, the `stepCombat` overcharge
+branch, the `stepPentagram` eruption), tuned in one block (`TOLL_*`, `FERVOR_*`, `PENTA_OVERCHARGE_MS`/
+`FLARE_*`), read out by the pure `vigilReadout(s)` on the HUD, and test-covered (the "R." groups in
+`tools/pentagram-test.mjs`):
+
+- **The Tolling** (`stepToll`, `s.tollNext`/`s.tolls`/`s.tollFlash`) — the pacing engine. On a cadence
+  (`TOLL_FIRST_MS` grace, then `TOLL_INTERVAL_MS`) the city's bell tolls: the cohort of waiting wanderers
+  **nearest the hero** rouses and converges. Each toll rings a bigger cohort (`TOLL_ROUSE_BASE` +
+  `TOLL_ROUSE_GROWTH` per toll), and the cadence shortens as the host thins (`TOLL_ACCEL` × `clearedPct`),
+  so a descent **accelerates toward its end** — the last stragglers hunt you and the mop-up walks itself
+  onto the sigil. The shell toasts + buzzes on each toll; render rings a gold wave out from the hero.
+- **Fervor** (`s.fervor`/`s.fervorUntil`) — the kill-streak. Every kill (stoked centrally in `killShade`)
+  adds `FERVOR_PER_KILL` and re-opens a `FERVOR_WINDOW_MS` window; while it burns, pulses bite harder
+  (×(1 + `FERVOR_DMG` × fervor)) and the hero strides faster (×(1 + `FERVOR_SPEED` × fervor)). A lapsed
+  window drains it over `FERVOR_DECAY_MS`. Rewards diving the next pack over resting; drawn as a hot aura.
+- **The Flare** (`s.penta.over` — the siblings' overcharge, come home) — depth on the stand-still verb.
+  Stillness held **past** a full inscription banks a flare over `PENTA_OVERCHARGE_MS`; any fade spends it
+  back twice as fast. The pulse that fires with a full bank **erupts**: `FLARE_RADIUS_MUL` wider,
+  `FLARE_DMG_MUL` harder, shatters veil-shields outright, hurls survivors back `FLARE_PUSH`, kindles
+  dwellings across the whole widened ring, then the bank resets. The longer stand is exactly what spitters
+  punish — the risk/reward trade IS the core verb now. Render: a dashed outer ring swelling to the
+  eruption's true reach, ablaze once armed.
+
 ### Sigils — the weapon shop (`PENTA_TYPES`, embers)
 
 The hero equips **one** sigil per descent (`s.type`, a `PentaType` resolved from the legacy at build via
