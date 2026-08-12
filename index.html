@@ -182,7 +182,10 @@
   } catch (_) {}
 
   // Register the shared service worker so the hub (and the games) work offline.
-  if ("serviceWorker" in navigator) {
+  // Skipped inside the native app (Capacitor sets window.Capacitor): there the
+  // shell is already the app bundle, so a service worker would only add a second,
+  // staler copy of it — and iOS WKWebView has no service worker at all.
+  if (!window.Capacitor && "serviceWorker" in navigator) {
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("./sw.js").catch(function () {});
     });

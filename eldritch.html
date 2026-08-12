@@ -402,7 +402,10 @@
   // during the game module's own top-level init. eldritch.js also registers
   // (with updateViaCache:"none", to force a fresh sw.js check on every load);
   // re-registering the same script URL is a no-op, so doing it twice is safe.
-  if ("serviceWorker" in navigator) {
+  // Skipped inside the native app (Capacitor sets window.Capacitor): there the
+  // shell is already the app bundle, so a service worker would only add a second,
+  // staler copy of it — and iOS WKWebView has no service worker at all.
+  if (!window.Capacitor && "serviceWorker" in navigator) {
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("./sw.js").catch(function () {});
     });
