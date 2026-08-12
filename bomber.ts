@@ -170,6 +170,11 @@ interface RaidState {
   fires: Fire[];         // incendiary ground (the Firestorm's power)
   chutes: Chute[];       // supply parachutes (catch to patch the airframe)
   alert: number;         // 0..1 — the defence's rousing: bombs raise it, time bleeds it
+  fervor: number;        // 0..1 ace streak — silenced targets ramp bombs & airspeed
+  fervorUntil: number;   // s.elapsed the streak window stays open to (then it drains)
+  tollNext: number;      // s.elapsed at which the defence's klaxon next sounds
+  tolls: number;         // klaxons so far this raid
+  tollFlash: number;     // s.elapsed until which the fresh klaxon reads on screen
   elapsed: number;       // ms since the raid began (clear time)
   destroyed: number;     // targets silenced (structures + columns)
   total: number;         // the finite target list: silence them all to win
@@ -248,6 +253,28 @@ const ALERT_PER_BURST = 0.09;    // alert a bomb burst adds
 const ALERT_DECAY = 0.03;        // alert shed per second
 const ALERT_FLAK_HASTE = 1.9;    // at full alert a battery fires this × faster
 const ALERT_SCRAMBLE_MUL = 0.9;  // at full alert the scramble radius grows this fraction
+
+// ---- The raid's heartbeat (the family's engagement redesign, ported) ----
+// THE KLAXON — the defence net's own bell (the Vigil's Tolling flown to war).
+// On a cadence the net vectors interceptors at the bomber regardless of radar
+// or cloud — a net-wide order, not a sighting: the NEAREST grounded squadron
+// scrambles and the alert spikes (quickening the flak, stretching the radar).
+// The cadence shortens as the target list thins, so the endgame flies at YOU
+// instead of waiting to be overflown.
+const TOLL_FIRST_MS = 20000;     // quiet grace before the first klaxon
+const TOLL_INTERVAL_MS = 16000;  // base gap (a raid is longer-limbed than the ground games)…
+const TOLL_ACCEL = 0.6;          // …shaved by up to this fraction as the list thins
+const TOLL_ALERT_SPIKE = 0.25;   // alert each klaxon adds
+const TOLL_FLASH_MS = 1400;      // how long the klaxon's cry reads on screen
+
+// THE ACE STREAK — the kill-streak. Targets silenced in quick succession run the
+// crew hot: bursts hit harder and the airframe flies faster, until the window
+// lapses and the nerve settles. Rewards chaining the target list over circling.
+const FERVOR_PER_KILL = 0.34;    // targets are few and slow to die — each counts a lot
+const FERVOR_WINDOW_MS = 9000;   // a silenced target holds the streak this long
+const FERVOR_DECAY_MS = 2000;    // a lapsed streak drains full→empty this fast
+const FERVOR_DMG = 0.5;          // burst damage ×(1 + this × streak)
+const FERVOR_SPEED = 0.15;       // airspeed ×(1 + this × streak)
 
 // FIGHTERS — the axis interceptors. Each airfield holds a grounded squadron that
 // SCRAMBLES when the bomber comes inside its (alert-stretched) radar reach — or
@@ -921,7 +948,10 @@ function buildArena(level: LevelDef, seed?: number): RaidState {
     structures, columns, flak, balloons, clouds, streams,
     hero, loadout, planes,
     bombs: [], shells: [], bursts: [], fires: [], chutes: [],
-    alert: 0, elapsed: 0,
+    alert: 0,
+    fervor: 0, fervorUntil: 0,
+    tollNext: TOLL_FIRST_MS, tolls: 0, tollFlash: 0,
+    elapsed: 0,
     destroyed: 0, total: structures.length + columns.length,
     flakTotal: flak.length, flakDown: 0, fightersDown: 0,
     escortsTotal: level.escortCount, hits: 0,
@@ -953,9 +983,39 @@ function escortsAlive(s: RaidState): number {
   return n;
 }
 
-// The HUD's secondary readout: the wing, the guns silenced, the defence's temper.
+// The HUD's secondary readout: the wing, the guns silenced, the defence's temper —
+// and the heartbeat: the klaxon's countdown and the ace streak's burn.
 function raidReadout(s: RaidState): string {
-  return `${escortsAlive(s)} escorts · ${s.flakDown}/${s.flakTotal} guns · alert ${Math.round(s.alert * 100)}%`;
+  let out = `${escortsAlive(s)} escorts · ${s.flakDown}/${s.flakTotal} guns · alert ${Math.round(s.alert * 100)}%`;
+  const klaxon = Math.max(0, Math.ceil((s.tollNext - s.elapsed) / 1000));
+  if (klaxon <= 6) out += ` · Klaxon ${klaxon}s`;
+  if (s.fervor > 0) out += ` · Ace ×${(1 + FERVOR_DMG * s.fervor).toFixed(1)}`;
+  return out;
+}
+
+// The Klaxon — the raid's pacing engine (the Vigil's Tolling flown to war). When
+// its time comes the defence net vectors the NEAREST grounded squadron onto the
+// bomber — radar and cloud be damned, it is an order, not a sighting — and the
+// alert spikes. The cadence shortens as the target list thins, so the last legs
+// of a raid fly at you.
+function stepToll(s: RaidState): void {
+  if (s.elapsed < s.tollNext) return;
+  let bestField = -1, bd = Infinity;
+  for (const p of s.planes) {
+    if (p.dead || !p.axis || p.state !== "base") continue;
+    const d = (p.x - s.hero.x) ** 2 + (p.y - s.hero.y) ** 2;
+    if (d < bd) { bd = d; bestField = p.fieldIdx; }
+  }
+  if (bestField >= 0) {
+    for (const p of s.planes) {
+      if (!p.dead && p.axis && p.state === "base" && p.fieldIdx === bestField) p.state = "fly";
+    }
+  }
+  s.alert = Math.min(1, s.alert + TOLL_ALERT_SPIKE);
+  s.tolls++;
+  s.tollFlash = s.elapsed + TOLL_FLASH_MS;
+  const cleared = s.total ? s.destroyed / s.total : 0;
+  s.tollNext = s.elapsed + TOLL_INTERVAL_MS * (1 - TOLL_ACCEL * cleared);
 }
 
 function difficultyMult(level: LevelDef): number {
@@ -991,6 +1051,9 @@ function destroyTarget(s: RaidState, t: Structure | Column): void {
   t.dead = true;
   s.destroyed += 1;
   s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
+  // Every silenced target runs the crew hot and re-opens the streak's window.
+  s.fervor = Math.min(1, s.fervor + FERVOR_PER_KILL);
+  s.fervorUntil = s.elapsed + FERVOR_WINDOW_MS;
   const st = t as Structure;
   if (st.kind === "airfield") {
     const idx = s.structures.indexOf(st);
@@ -1075,7 +1138,9 @@ function stepSight(s: RaidState, dt = 16): void {
 // the alert rises, and the Firestorm leaves the ground burning.
 function burstBomb(s: RaidState, b: Bomb): void {
   const radius = BOMB_RADIUS * s.loadout.radiusMul * (b.master ? MASTER_RADIUS_MUL : 1);
-  const dmg = BOMB_DMG * s.loadout.dmgMul * (b.master ? MASTER_DMG_MUL : 1);
+  // The payload: the airframe's lean × a blockbuster × the ace streak's edge.
+  const dmg = BOMB_DMG * s.loadout.dmgMul * (b.master ? MASTER_DMG_MUL : 1)
+    * (1 + FERVOR_DMG * s.fervor);
   for (const t of s.structures) {
     if (!t.dead && Math.hypot(t.x - b.x, t.y - b.y) <= radius + STRUCT_RADIUS[t.kind]) hurtTarget(s, t, dmg);
   }
@@ -1370,8 +1435,9 @@ function stepRaid(s: RaidState, dt: number, move: Move): void {
   const onStream = s.streams.some(
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= STREAM_HALF,
   );
+  // A running ace streak opens the engines a little further.
   h.speed = (SPEED_CRUISE + (SPEED_MAX - SPEED_CRUISE) * throttle) *
-    (onStream ? STREAM_BOOST : 1) * s.loadout.speedMul;
+    (onStream ? STREAM_BOOST : 1) * s.loadout.speedMul * (1 + FERVOR_SPEED * s.fervor);
   h.vx = Math.cos(h.heading) * h.speed;
   h.vy = Math.sin(h.heading) * h.speed;
   {
@@ -1379,6 +1445,11 @@ function stepRaid(s: RaidState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // The ace streak settles once its window lapses — a streak must be FED to run.
+  if (s.fervor > 0 && s.elapsed > s.fervorUntil) {
+    s.fervor = Math.max(0, s.fervor - dt / FERVOR_DECAY_MS);
+  }
 
   // The bomb run: a steady course arms the sight, a hard turn bleeds it, and
   // cloud blinds it outright. Past a full arm the held run banks an overcharge
@@ -1395,6 +1466,7 @@ function stepRaid(s: RaidState, dt: number, move: Move): void {
   }
   h.angle = (h.angle + dt * SIGHT_SPIN) % 360;
 
+  stepToll(s);         // the defence's klaxon: vector a squadron on its cadence
   stepSight(s, dt);    // an armed run releases bombs on its cadence
   stepBombs(s);        // matured bombs burst on the works below
   stepColumns(s, dt);  // the columns crawl on
@@ -2118,6 +2190,29 @@ function render(s: RaidState, layer: SVGGElement): void {
       }));
     }
   }
+  // The ace streak — the crew runs hot: a warm exhaust aura around the airframe.
+  if (s.fervor > 0) {
+    const fp = 1 + 0.1 * Math.sin(s.elapsed / 110);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 10 + 14 * s.fervor) * fp, fill: "none",
+      stroke: "#f0c060", "stroke-width": 1.5 + 2 * s.fervor, opacity: 0.25 + 0.5 * s.fervor,
+      filter: "url(#glow)",
+    }));
+  }
+
+  // The Klaxon — the defence's cry races outward: a squadron is already vectored.
+  if (s.tollFlash > s.elapsed) {
+    const prog = 1 - (s.tollFlash - s.elapsed) / TOLL_FLASH_MS;
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 60 + 640 * prog, fill: "none",
+      stroke: "#d05a4a", "stroke-width": 3 * (1 - prog) + 0.5, opacity: 0.55 * (1 - prog),
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 30 + 640 * prog * 0.8, fill: "none",
+      stroke: "#ffd8c0", "stroke-width": 1.5, opacity: 0.35 * (1 - prog),
+    }));
+  }
+
   const hbKey = spriteFor(s.level, "bomber");
   if (hbKey) { layer.appendChild(spriteImage(hbKey, h.x, h.y, HERO_RADIUS * 3.2, 1)); }
   else {
@@ -2576,8 +2671,10 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
-      const kBefore = s.killTimes.length, hpBefore = s.hero.hp;
+      const kBefore = s.killTimes.length, hpBefore = s.hero.hp, tollsBefore = s.tolls;
       stepRaid(s, dt, move);
+      // The klaxon just sounded — a vectored squadron is inbound. Say so.
+      if (s.tolls > tollsBefore) { buzz([20, 40, 20]); showToast("The defence klaxon sounds — a squadron is vectored onto you."); }
       // Haptics: a tick per target silenced, a heavier knock when the airframe
       // takes a hit (the later call wins if both fire in one frame).
       if (s.killTimes.length > kBefore) buzz(15);
@@ -2964,6 +3061,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
     stepSight, releaseBomb, burstBomb, stepBombs, stepColumns,
     stepFlak, stepShells, stepPlanes, stepPosts, stepGunners, stepFires, stepChutes, stepClouds,
     destroyTarget, hurtTarget, hurtFlak, hurtBomber, hurtPlane, downPlane,
+    stepToll,
     aliveTargets, clearedPct, escortsAlive, raidReadout, scoreRun, difficultyMult,
     LEVELS, levelById, theatreUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, pushOut, inCloud, angleDiff,
@@ -2980,6 +3078,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__BOMBER_TEST__) {
       FLAK_RANGE, FLAK_CD_MS, FLAK_FUSE_MS, FLAK_BURST_R, FLAK_DMG, FLAK_SCATTER,
       FLAK_HP, FLAK_RADIUS,
       ALERT_PER_BURST, ALERT_DECAY, ALERT_FLAK_HASTE, ALERT_SCRAMBLE_MUL,
+      TOLL_FIRST_MS, TOLL_INTERVAL_MS, TOLL_ACCEL, TOLL_ALERT_SPIKE, TOLL_FLASH_MS,
+      FERVOR_PER_KILL, FERVOR_WINDOW_MS, FERVOR_DECAY_MS, FERVOR_DMG, FERVOR_SPEED,
       FIGHTER_HP, FIGHTER_SPEED, FIGHTER_RANGE, FIGHTER_CD, FIGHTER_DMG,
       FIGHTER_DMG_PLANE, FIGHTER_TANGLE_R, SCRAMBLE_RANGE, FIGHTER_PER_FIELD,
       PLANE_RADIUS, PLANE_SEP,

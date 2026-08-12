@@ -952,5 +952,73 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
     "a recorded overrun opens the road to the next village");
 }
 
+// R. The march's heartbeat — the Muster and Terror (the family redesign, ported).
+
+// R1. Terror: a felled knight stokes the meter and opens its window; lapse drains it.
+{
+  const s = necro.buildArena(necro.levelById(id));
+  stowAll(s);
+  ok(s.fervor === 0 && s.tollNext === K.TOLL_FIRST_MS && s.tolls === 0,
+    "a fresh march starts cold: no terror, the horn waiting its grace");
+  necro.killKnight(s, s.knights[0]);
+  ok(s.fervor > 0 && s.fervorUntil > s.elapsed, `a felled knight spreads terror (${s.fervor.toFixed(2)})`);
+  run(s, K.FERVOR_WINDOW_MS + K.FERVOR_DECAY_MS + 200, still);
+  ok(s.fervor === 0, "lapsed terror drains back to nothing");
+}
+
+// R2. Terror emboldens the horde's swing (read at the single damage site).
+{
+  const s = necro.buildArena(necro.levelById(id));
+  stowAll(s);
+  const target = s.knights[0];
+  target.x = s.hero.x + 40; target.y = s.hero.y; wake(target);
+  target.hp = target.maxHp = 100000; target.attackCd = 1e9; // an anvil that never swings back
+  s.minions.push({
+    x: target.x - 30, y: target.y, vx: 0, vy: 0,
+    hp: 1e9, maxHp: 1e9, dead: false, state: "attack", variant: "grave",
+    attackCd: 0, targetIdx: -1, champion: false,
+  });
+  s.fervor = 0;
+  const hp0 = target.hp;
+  necro.stepMinions(s, 16);
+  const coldBite = hp0 - target.hp;
+  s.fervor = 1; s.fervorUntil = Infinity;
+  s.minions[s.minions.length - 1].attackCd = 0;
+  const hp1 = target.hp;
+  necro.stepMinions(s, 16);
+  const hotBite = hp1 - target.hp;
+  ok(coldBite > 0 && Math.abs(hotBite / coldBite - (1 + K.FERVOR_DMG)) < 0.01,
+    `full terror multiplies the horde's bite ×${(1 + K.FERVOR_DMG).toFixed(1)} (${coldBite.toFixed(1)} -> ${hotBite.toFixed(1)})`);
+}
+
+// R3. The Muster: the horn rouses the nearest guarding cohort, each horn a bigger
+// one, and the cadence shortens as the watch thins.
+{
+  const s = necro.buildArena(necro.levelById(id));
+  stowAll(s); // all guarding, far beyond aggro
+  s.tollNext = 50;
+  run(s, 200, still);
+  ok(s.tolls === 1, "the village horn sounds when its time comes");
+  const mustered1 = s.knights.filter((e) => !e.dead && e.state === "engage").length;
+  ok(mustered1 === K.TOLL_ROUSE_BASE, `the first horn musters ${K.TOLL_ROUSE_BASE} knights (${mustered1})`);
+  ok(s.tollFlash > s.elapsed, "the fresh horn reads on screen");
+  s.tollNext = s.elapsed + 50;
+  run(s, 200, still);
+  const mustered2 = s.knights.filter((e) => !e.dead && e.state === "engage").length;
+  ok(s.tolls === 2 && mustered2 === K.TOLL_ROUSE_BASE * 2 + K.TOLL_ROUSE_GROWTH,
+    `the second horn musters a bigger cohort (${mustered2} marching)`);
+  const s2 = necro.buildArena(necro.levelById(id));
+  stowAll(s2);
+  s2.kills = Math.floor(s2.total * 0.8); // fake a nearly-overrun watch
+  s2.tollNext = 50;
+  run(s2, 200, still);
+  ok(s2.tollNext - s2.elapsed < K.TOLL_INTERVAL_MS * (1 - K.TOLL_ACCEL * 0.8) + 250,
+    "the cadence shortens as the watch thins");
+  ok(necro.marchReadout(s2).includes("Horn") === (s2.tollNext - s2.elapsed <= 6000),
+    "the readout counts the horn down only when it draws near");
+  s2.fervor = 0.5;
+  ok(necro.marchReadout(s2).includes("Terror"), "the readout shows the terror's spread");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

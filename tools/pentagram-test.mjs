@@ -1458,5 +1458,114 @@ ok(pg.duelVerdict(mkRun("lost", 30000, 12), mkRun("lost", 90000, 9)) === "win", 
 ok(pg.duelVerdict(mkRun("lost", 30000, 9), mkRun("lost", 90000, 9)) === "loss", "kills level — the longer stand takes it");
 ok(pg.duelVerdict(mkRun("won", 50000, 18), mkRun("won", 50000, 18)) === "draw", "an exact tie stands unsettled");
 
+// R. The redesigned heartbeat — the Tolling, Fervor, and the Flare.
+
+// R1. Fervor: a kill stokes the meter and opens its window; lapse drains it.
+const rf = pg.buildArena(pg.levelById("old-city"));
+for (const e of rf.shades) park(e, 5, 5);
+const meal = rf.shades[0];
+meal.x = rf.hero.x + 40; meal.y = rf.hero.y; wake(meal); meal.hp = 1;
+run(rf, K.PENTA_CHARGE_MS + K.PENTA_PULSE_MS * 2, still);
+ok(meal.dead, "fervor test: the sigil fells the isolated shade");
+ok(rf.fervor > 0 && rf.fervor <= 1, `a kill stokes fervor (${rf.fervor.toFixed(2)})`);
+ok(rf.fervorUntil > rf.elapsed, "the kill opens the streak window");
+run(rf, K.FERVOR_WINDOW_MS + K.FERVOR_DECAY_MS + 200, still);
+ok(rf.fervor === 0, "a lapsed streak bleeds fervor back to nothing");
+
+// R2. Fervor scales the pulse's bite (the streak burns hotter).
+const rd = pg.buildArena(pg.levelById("old-city"));
+for (const e of rd.shades) park(e, 5, 5);
+const tough = rd.shades[0];
+tough.x = rd.hero.x + 40; tough.y = rd.hero.y; wake(tough);
+tough.hp = tough.maxHp = 100000;
+run(rd, K.PENTA_CHARGE_MS + 40, still); // full inscription, no pulse damage lost to ramp-up
+const hpAt = tough.hp;
+rd.fervor = 0; rd.penta.over = 0; rd.pulseAcc = 0;
+pg.stepPentagram(rd, rd.fxPulse);
+const coldBite = hpAt - tough.hp;
+rd.fervor = 1; rd.fervorUntil = Infinity; rd.penta.over = 0; rd.pulseAcc = 0;
+const hpAt2 = tough.hp;
+pg.stepPentagram(rd, rd.fxPulse);
+const hotBite = hpAt2 - tough.hp;
+ok(coldBite > 0 && Math.abs(hotBite / coldBite - (1 + K.FERVOR_DMG)) < 0.01,
+  `full fervor multiplies the pulse ×${(1 + K.FERVOR_DMG).toFixed(1)} (${coldBite.toFixed(1)} -> ${hotBite.toFixed(1)})`);
+
+// R3. Fervor quickens the stride.
+const rs = pg.buildArena(pg.levelById("old-city"));
+rs.pathways = [];
+for (const e of rs.shades) park(e, 5, 5);
+const x0 = rs.hero.x;
+run(rs, 1000, { x: 1, y: 0 });
+const coldStride = rs.hero.x - x0;
+const rs2 = pg.buildArena(pg.levelById("old-city"));
+rs2.pathways = [];
+for (const e of rs2.shades) park(e, 5, 5);
+rs2.fervor = 1; rs2.fervorUntil = Infinity;
+const x1 = rs2.hero.x;
+run(rs2, 1000, { x: 1, y: 0 });
+const hotStride = rs2.hero.x - x1;
+ok(hotStride > coldStride * (1 + K.FERVOR_SPEED * 0.6),
+  `full fervor quickens the hero (${Math.round(coldStride)} -> ${Math.round(hotStride)} units/s)`);
+
+// R4. Overcharge: stillness past full banks the flare; walking spends it back.
+const ro = pg.buildArena(pg.levelById("old-city"));
+ro.pathways = [];
+for (const e of ro.shades) park(e, 5, 5);
+run(ro, K.PENTA_CHARGE_MS + K.PENTA_OVERCHARGE_MS + 120, still);
+ok(ro.penta.charge >= 1 && ro.penta.over >= 1, `holding the stand banks a full flare (over=${ro.penta.over.toFixed(2)})`);
+ok(pg.vigilReadout(ro).includes("FLARE armed"), "the readout announces the armed flare");
+run(ro, K.PENTA_OVERCHARGE_MS, { x: 1, y: 0 });
+ok(ro.penta.over === 0, "walking spends the banked flare back to nothing");
+
+// R5. The flare erupts: wider than the sigil, shield-shattering, and it hurls
+// the survivor back — then the bank is spent.
+const rx = pg.buildArena(pg.levelById("old-city"));
+for (const e of rx.shades) park(e, 5, 5);
+const elite = rx.shades[0];
+elite.x = rx.hero.x + rx.fxRadius * 1.4; elite.y = rx.hero.y; wake(elite);
+elite.shielded = true; elite.hp = elite.maxHp = 100000;
+run(rx, K.PENTA_CHARGE_MS + 60, still); // full inscription; over not yet banked
+const hpPre = elite.hp;
+ok(hpPre === 100000, "a normal pulse never reaches beyond the sigil's ring");
+rx.penta.over = 1; rx.pulseAcc = 0; rx.fervor = 0;
+const dPre = Math.hypot(elite.x - rx.hero.x, elite.y - rx.hero.y);
+pg.stepPentagram(rx, rx.fxPulse); // exactly one pulse — the eruption
+const bite = hpPre - elite.hp;
+ok(Math.abs(bite - rx.fxDmg * K.FLARE_DMG_MUL) < 0.01,
+  `the flare bites ×${K.FLARE_DMG_MUL} through the widened ring (${bite.toFixed(1)})`);
+ok(elite.shielded === false, "the flare shatters a veil-shield outright");
+const dPost = Math.hypot(elite.x - rx.hero.x, elite.y - rx.hero.y);
+ok(dPost > dPre + K.FLARE_PUSH * 0.5, `the survivor is hurled back (${Math.round(dPre)} -> ${Math.round(dPost)})`);
+ok(rx.penta.over === 0, "the eruption spends the bank");
+ok(rx.novas.length === 1, "the eruption reads as a nova ring");
+
+// R6. The Tolling: the bell rouses the nearest waiting cohort, each toll rings
+// a bigger one, and the cadence shortens as the host thins.
+const rt = pg.buildArena(pg.levelById("old-city"));
+ok(rt.tollNext === K.TOLL_FIRST_MS && rt.tolls === 0, "the first toll waits its grace");
+for (const e of rt.shades) park(e, 5, 5); // all asleep, far beyond aggro
+rt.tollNext = 50;
+run(rt, 200, still);
+ok(rt.tolls === 1, "the bell tolls when its time comes");
+const roused1 = rt.shades.filter((e) => !e.dead && e.state === "chase").length;
+ok(roused1 === K.TOLL_ROUSE_BASE, `the first toll rouses ${K.TOLL_ROUSE_BASE} waiting shades (${roused1})`);
+ok(rt.tollFlash > rt.elapsed, "the fresh toll reads on screen");
+ok(Math.abs(rt.tollNext - rt.elapsed - K.TOLL_INTERVAL_MS) < 250,
+  "with nothing cleared the next toll waits the full base cadence");
+rt.tollNext = rt.elapsed + 50;
+run(rt, 200, still);
+const roused2 = rt.shades.filter((e) => !e.dead && e.state === "chase").length;
+ok(rt.tolls === 2 && roused2 === K.TOLL_ROUSE_BASE * 2 + K.TOLL_ROUSE_GROWTH,
+  `the second toll rings a bigger cohort (${roused2} roused)`);
+const rt2 = pg.buildArena(pg.levelById("old-city"));
+for (const e of rt2.shades) park(e, 5, 5);
+rt2.kills = Math.floor(rt2.total * 0.8); // fake a nearly-cleared host
+rt2.tollNext = 50;
+run(rt2, 200, still);
+ok(rt2.tollNext - rt2.elapsed < K.TOLL_INTERVAL_MS * (1 - K.TOLL_ACCEL * 0.8) + 250,
+  "the cadence shortens as the host thins — the endgame hunts YOU");
+ok(pg.vigilReadout(rt2).includes("Bell") === (rt2.tollNext - rt2.elapsed <= 6000),
+  "the readout counts the bell down only when it draws near");
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

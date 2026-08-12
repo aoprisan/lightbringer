@@ -713,5 +713,76 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
     "a recorded raid opens the route to the next theatre");
 }
 
+// R. The raid's heartbeat — the Klaxon and the Ace streak (the family redesign).
+
+// R1. Ace streak: a silenced target runs the crew hot; lapse settles it.
+{
+  const s = bb.buildArena(bb.levelById(id));
+  ok(s.fervor === 0 && s.tollNext === K.TOLL_FIRST_MS && s.tolls === 0,
+    "a fresh raid starts cold: no streak, the klaxon waiting its grace");
+  bb.destroyTarget(s, s.structures[0]);
+  ok(s.fervor > 0 && s.fervorUntil > s.elapsed, `a silenced target stokes the streak (${s.fervor.toFixed(2)})`);
+  emptySky(s); farTarget(s);
+  run(s, K.FERVOR_WINDOW_MS + K.FERVOR_DECAY_MS + 400, still);
+  ok(s.fervor === 0, "a lapsed streak settles back to nothing");
+}
+
+// R2. The streak sharpens the payload (read at the single burst site).
+{
+  const s = bb.buildArena(bb.levelById(id));
+  emptySky(s);
+  const t = farTarget(s);
+  s.fervor = 0;
+  const hp0 = t.hp;
+  // burstBomb is internal; drive it through a matured bomb in stepBombs.
+  const mkBomb = () => ({ x: t.x, y: t.y, at: 0, master: false });
+  s.bombs = [mkBomb()];
+  bb.stepRaid(s, 16, still);
+  const coldHit = hp0 - t.hp;
+  s.fervor = 1; s.fervorUntil = Infinity;
+  const hp1 = t.hp;
+  s.bombs = [mkBomb()];
+  bb.stepRaid(s, 16, still);
+  const hotHit = hp1 - t.hp;
+  ok(coldHit > 0 && Math.abs(hotHit / coldHit - (1 + K.FERVOR_DMG)) < 0.01,
+    `a full streak sharpens the burst ×${(1 + K.FERVOR_DMG).toFixed(1)} (${coldHit.toFixed(1)} -> ${hotHit.toFixed(1)})`);
+}
+
+// R3. The Klaxon: it vectors the nearest grounded squadron (cloud be damned),
+// spikes the alert, and its cadence shortens as the list thins.
+{
+  const s = bb.buildArena(bb.levelById(id));
+  calm(s); // strip fighters…
+  // …then seed two grounded squadrons on airfields: one near, one far.
+  const nearField = { x: s.hero.x + 300, y: s.hero.y, kind: "airfield", hp: 100, maxHp: 100, dead: false, hit: 0 };
+  const farField = { x: 30, y: 30, kind: "airfield", hp: 100, maxHp: 100, dead: false, hit: 0 };
+  s.structures = [nearField, farField]; s.columns = []; s.total = 2;
+  const mkBased = (f, fi) => ({
+    x: f.x, y: f.y, vx: 0, vy: 0, hp: K.FIGHTER_HP, maxHp: K.FIGHTER_HP, dead: false,
+    axis: true, state: "base", fieldIdx: fi, slot: 0, attackCd: 0, hit: 0,
+  });
+  s.planes = [mkBased(nearField, 0), mkBased(nearField, 0), mkBased(farField, 1)];
+  s.clouds = [{ x: s.hero.x, y: s.hero.y, vx: 0, vy: 0, r: 300 }]; // hidden — a sighting couldn't scramble
+  const alert0 = s.alert;
+  s.tollNext = 50;
+  run(s, 200, still);
+  ok(s.tolls === 1, "the klaxon sounds when its time comes");
+  ok(s.planes[0].state === "fly" && s.planes[1].state === "fly",
+    "the klaxon vectors the NEAREST grounded squadron — cloud is no cover from an order");
+  ok(s.planes[2].state === "base", "the far squadron stays grounded");
+  ok(s.alert > alert0, `the klaxon spikes the alert (${s.alert.toFixed(2)})`);
+  ok(s.tollFlash > s.elapsed, "the fresh klaxon reads on screen");
+  s.destroyed = Math.floor(s.total * 0.5);
+  s.tollNext = s.elapsed + 50;
+  const before = s.elapsed;
+  run(s, 200, still);
+  ok(s.tolls === 2 && s.tollNext - before < K.TOLL_INTERVAL_MS,
+    "the cadence shortens as the target list thins");
+  s.fervor = 0.5; s.tollNext = s.elapsed + 3000;
+  const readout = bb.raidReadout(s);
+  ok(readout.includes("Klaxon") && readout.includes("Ace ×"),
+    "the readout counts the klaxon down and shows the streak's burn");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -151,6 +151,7 @@ interface Bolt {
 
 interface Penta {
   charge: number; // 0..1 — how fully the sigil is inscribed (ramps while still)
+  over: number;   // 0..1 — the flare bank: stillness held PAST a full inscription
   angle: number;  // current rotation, degrees (cosmetic)
 }
 
@@ -231,6 +232,11 @@ interface PgState {
   motes: Mote[];         // gatherable ember sparks dropped by slain shades
   bolts: Bolt[];         // spitters' in-flight bolts (live FX, not persisted)
   surgeUntil: number;    // s.elapsed time the gathered-ember damage surge lasts to
+  fervor: number;        // 0..1 kill-streak heat — ramps pulse damage and hero speed
+  fervorUntil: number;   // s.elapsed the streak window stays open to (then it drains)
+  tollNext: number;      // s.elapsed at which the city's bell next tolls
+  tolls: number;         // tolls rung so far this descent (each rouses a bigger cohort)
+  tollFlash: number;     // s.elapsed until which the fresh toll reads on screen
   arcs: Arc[];           // fading chain sparks (Pyre power) — purely cosmetic
   novas: Nova[];         // fading eruption rings (Wrath power) — purely cosmetic
   bursts: Burst[];       // fading constellation-kindle flashes — purely cosmetic
@@ -387,6 +393,41 @@ const MOTE_TTL_MS = 6000;        // how long a mote waits to be gathered
 const MOTE_RADIUS = 16;          // gather reach (over and above the hero's radius)
 const MOTE_SURGE_MS = 2600;      // how long the gathered surge lasts
 const MOTE_SURGE_DMG = 1.6;      // pulse-damage multiplier while surging
+
+// ---- The descent's heartbeat (the redesign): the Tolling, Fervor, the Flare ----
+// Three mechanics that turn the old walk→camp→walk loop into a rhythm.
+//
+// THE TOLLING — the city's bell answers the carrier's trespass. On a cadence a
+// cohort of the nearest waiting shades rouses and CONVERGES on the hero, so the
+// fight comes to you instead of waiting to be walked to. The cadence shortens as
+// the host thins, so a descent accelerates toward its end — the last stragglers
+// hunt YOU, and the mop-up walks itself onto the sigil.
+const TOLL_FIRST_MS = 18000;     // quiet grace before the first toll
+const TOLL_INTERVAL_MS = 14000;  // base gap between tolls…
+const TOLL_ACCEL = 0.6;          // …shaved by up to this fraction as the host thins
+const TOLL_ROUSE_BASE = 3;       // shades roused by the first toll…
+const TOLL_ROUSE_GROWTH = 2;     // …plus this many more per toll since
+const TOLL_FLASH_MS = 1400;      // how long the bell's ring reads on screen
+
+// FERVOR — the kill-streak. Every kill stokes the meter and re-opens its window;
+// while it burns, the sigil bites harder and the carrier runs faster. Let the
+// window lapse and it bleeds away. Rewards diving the next pack over resting.
+const FERVOR_PER_KILL = 0.2;     // meter gained per kill (0..1)
+const FERVOR_WINDOW_MS = 4000;   // a kill holds the streak alive this long
+const FERVOR_DECAY_MS = 1500;    // a lapsed streak drains full→empty this fast
+const FERVOR_DMG = 0.5;          // pulse damage ×(1 + this × fervor)
+const FERVOR_SPEED = 0.18;       // hero speed ×(1 + this × fervor)
+
+// THE FLARE — overcharge on the stand-still verb (the siblings' overcharge come
+// home to the Vigil). Holding a FULL inscription banks a flare; letting the
+// charge fade spends the bank back. The pulse that fires with a full bank
+// ERUPTS: much wider, much harder, shield-shattering, and it hurls the
+// survivors back. A deeper stand is a bigger payoff — and longer exposure to
+// the spitters that punish standing still. That trade IS the core verb now.
+const PENTA_OVERCHARGE_MS = 1600; // stillness past full needed to bank a flare
+const FLARE_RADIUS_MUL = 1.75;    // the flare ring's reach over the sigil's
+const FLARE_DMG_MUL = 2.2;        // its bite over a normal pulse
+const FLARE_PUSH = 90;            // units survivors are hurled back
 
 // Dwellings — a dark one caught in the charged sigil kindles alight, mending the
 // hero. Relighting the city is a vigil kept alongside the killing (not a win gate).
@@ -1648,7 +1689,7 @@ function buildArena(level: LevelDef, ascension = 0, seed?: number): PgState {
     conduitLinks, spreadQueue: [],
     fences, pathways, plazas,
     hero, shades,
-    penta: { charge: 0, angle: 0 },
+    penta: { charge: 0, over: 0, angle: 0 },
     type,
     fxRadius: PENTA_RADIUS * type.radiusMul,
     fxCharge: PENTA_CHARGE_MS * type.chargeMul,
@@ -1657,6 +1698,8 @@ function buildArena(level: LevelDef, ascension = 0, seed?: number): PgState {
     curse,
     scorch: [], rings: [], veils: weaveVeils(w, h, (level.veilCount ?? 0) + curse.extraVeils),
     mists: weaveMists(w, h, level.mistCount ?? 0), motes: [], bolts: [], surgeUntil: 0,
+    fervor: 0, fervorUntil: 0,
+    tollNext: TOLL_FIRST_MS, tolls: 0, tollFlash: 0,
     arcs: [], novas: [], bursts: [], novaFired: false,
     pulseAcc: 0, elapsed: 0, kills: 0, hits: 0, total: shades.length,
     dwellingsTotal: scenery.filter((n) => n.kind === "dwelling").length,
@@ -1761,9 +1804,43 @@ function killShade(s: PgState, e: Shade): void {
   e.dead = true;
   s.kills++;
   s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
+  // Every kill stokes the fervor and re-opens its window — the streak engine.
+  s.fervor = Math.min(1, s.fervor + FERVOR_PER_KILL);
+  s.fervorUntil = s.elapsed + FERVOR_WINDOW_MS;
   if (Math.random() < MOTE_DROP_CHANCE) {
     s.motes.push({ x: e.x, y: e.y, until: s.elapsed + MOTE_TTL_MS });
   }
+}
+
+// The Tolling — the descent's pacing engine. When the bell's time comes, the
+// cohort of waiting wanderers NEAREST the hero rouses and converges (near ones
+// so a fight arrives soon, from every direction at once). Each toll rings a
+// bigger cohort, and the cadence shortens as the host thins, so the endgame
+// accelerates: the last stragglers hunt you instead of being hunted down.
+function stepToll(s: PgState): void {
+  if (s.elapsed < s.tollNext) return;
+  const wanderers = s.shades
+    .filter((e) => !e.dead && e.state === "wander")
+    .map((e) => ({ e, d: (e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2 }))
+    .sort((a, b) => a.d - b.d);
+  const count = TOLL_ROUSE_BASE + s.tolls * TOLL_ROUSE_GROWTH;
+  for (const { e } of wanderers.slice(0, count)) e.state = "chase";
+  s.tolls++;
+  s.tollFlash = s.elapsed + TOLL_FLASH_MS;
+  s.tollNext = s.elapsed + TOLL_INTERVAL_MS * (1 - TOLL_ACCEL * clearedPct(s));
+}
+
+// The heartbeat readout for the HUD — the live state of the three redesign
+// mechanics, pure so the harness can assert it: the bell's countdown, the
+// fervor's burn, and a banked flare.
+function vigilReadout(s: PgState): string {
+  const parts: string[] = [];
+  const bell = Math.max(0, Math.ceil((s.tollNext - s.elapsed) / 1000));
+  if (bell <= 6) parts.push(`Bell ${bell}s`);
+  if (s.fervor > 0) parts.push(`Fervor ×${(1 + FERVOR_DMG * s.fervor).toFixed(1)}`);
+  if (s.penta.over >= 1) parts.push("FLARE armed");
+  else if (s.penta.over > 0) parts.push(`Flare ${Math.round(s.penta.over * 100)}%`);
+  return parts.join(" · ");
 }
 
 // Drift the veil pools and bounce them off the world's edge. Pure motion — the
@@ -2334,27 +2411,46 @@ function stepPentagram(s: PgState, dt: number): void {
   s.pulseAcc += dt;
   while (s.pulseAcc >= s.fxPulse) {
     s.pulseAcc -= s.fxPulse;
-    const r2 = s.fxRadius ** 2;
+    // A banked flare erupts on this pulse: much wider, much harder, and it
+    // shatters shields outright. The widened ring kindles dwellings too — a
+    // flare in a dark street lights the whole block.
+    const flare = s.penta.over >= 1;
+    const pulseR = s.fxRadius * (flare ? FLARE_RADIUS_MUL : 1);
+    const r2 = pulseR ** 2;
     const charged = s.penta.charge > 0;
     if (charged) {
       const full = s.penta.charge >= 1; // only a full inscription shatters an elite's shield
       if (full) consecrate(s); // a full inscription sears warded ground underfoot
       const surge = s.surgeUntil > s.elapsed ? MOTE_SURGE_DMG : 1; // gathered-ember bite
-      const dmg = s.fxDmg * s.penta.charge * surge;
+      // The bite: charge × ember surge × the fervor streak × a flare's eruption.
+      const dmg = s.fxDmg * s.penta.charge * surge
+        * (1 + FERVOR_DMG * s.fervor) * (flare ? FLARE_DMG_MUL : 1);
       const justKilled: Shade[] = [];
       for (const e of s.shades) {
         if (e.dead) continue;
         if ((e.x - hero.x) ** 2 + (e.y - hero.y) ** 2 <= r2) {
           e.state = "chase"; // a pulse that catches a wanderer rouses it
           if (e.shielded) {
-            // Shielded: a partial pulse does nothing; a full one shatters the shield.
-            if (full) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
-            continue;
+            // Shielded: a partial pulse does nothing; a full one shatters the
+            // shield; a flare shatters it AND bites through in the same eruption.
+            if (full || flare) { e.shielded = false; e.hit = s.elapsed + SHADE_HIT_MS; }
+            if (!flare) continue;
           }
           e.hp -= dmg;
           e.hit = s.elapsed + SHADE_HIT_MS;
           if (e.hp <= 0) { killShade(s, e); justKilled.push(e); }
+          else if (flare) {
+            // Survivors of the eruption are hurled from the ring.
+            const dx = e.x - hero.x, dy = e.y - hero.y, d = Math.hypot(dx, dy) || 1;
+            const p = pushOut(s, e.x + (dx / d) * FLARE_PUSH, e.y + (dy / d) * FLARE_PUSH, SHADE_RADIUS);
+            e.x = p.x; e.y = p.y;
+          }
         }
+      }
+      if (flare) {
+        // The eruption spends the bank and reads as a nova ring.
+        s.penta.over = 0;
+        s.novas.push({ x: hero.x, y: hero.y, r: pulseR, until: s.elapsed + NOVA_FX_MS });
       }
       // Chain (Pyre): each fresh kill arcs once to the shades clustered around it.
       if (s.type.power === "chain" && justKilled.length) {
@@ -2500,7 +2596,9 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   );
   // A pathway speeds the hero; a mire bogs them (terrainSpeedMul, hero = not a shade,
   // so a thicket leaves them be). The two compose — a boosted lane through a bog.
-  const speed = HERO_SPEED * (onPath ? PATHWAY_BOOST : 1) * terrainSpeedMul(s, h.x, h.y, false);
+  // A burning fervor streak quickens the stride too — slaughter feeds momentum.
+  const speed = HERO_SPEED * (1 + FERVOR_SPEED * s.fervor)
+    * (onPath ? PATHWAY_BOOST : 1) * terrainSpeedMul(s, h.x, h.y, false);
   h.vx = move.x * speed;
   h.vy = move.y * speed;
   {
@@ -2508,6 +2606,11 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // Fervor bleeds once its kill-window lapses — a streak must be FED to burn.
+  if (s.fervor > 0 && s.elapsed > s.fervorUntil) {
+    s.fervor = Math.max(0, s.fervor - dt / FERVOR_DECAY_MS);
+  }
 
   // First-footing: the hero's body reaching an un-walked place may uncover a
   // fresco beneath the whitewash. Queued on the state; the shell pauses to show
@@ -2556,6 +2659,13 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   } else {
     s.penta.charge = Math.max(0, s.penta.charge - dt / s.fxCharge);
   }
+  // Overcharge: stillness held PAST a full inscription banks the flare; any
+  // fade spends the bank back (twice as fast as it filled — hesitation is dear).
+  if (s.penta.charge >= 1) {
+    s.penta.over = Math.min(1, s.penta.over + dt / PENTA_OVERCHARGE_MS);
+  } else {
+    s.penta.over = Math.max(0, s.penta.over - dt / (PENTA_OVERCHARGE_MS * 0.5));
+  }
   s.penta.angle = (s.penta.angle + dt * PENTA_SPIN) % 360;
 
   // A healing spring slowly mends the hero while they stand in its water — gated by
@@ -2570,6 +2680,7 @@ function stepCombat(s: PgState, dt: number, move: Move): void {
   stepMotes(s);
   stepCaches(s);
 
+  stepToll(s);       // the bell: rouse a converging cohort on its shrinking cadence
   stepShades(s, dt);
   stepBolts(s, dt);  // advance spitters' in-flight bolts (may bite the hero)
   stepObelisks(s);   // ward shades near standing obelisks (and crack one underfoot)
@@ -3769,6 +3880,18 @@ function render(s: PgState, layer: SVGGElement): void {
       cx: h.x, cy: h.y, r: r * 0.92, fill: "none", stroke: s.type.ring,
       "stroke-width": 1, opacity: op * 0.7,
     }));
+    // The flare bank — an outer ring swelling toward the eruption's true reach
+    // as the carrier holds the stand: dashed while banking, ablaze once armed.
+    if (s.penta.over > 0) {
+      const or = s.fxRadius * (1 + (FLARE_RADIUS_MUL - 1) * s.penta.over);
+      const armed = s.penta.over >= 1;
+      layer.appendChild(el("circle", {
+        cx: h.x, cy: h.y, r: or, fill: "none", stroke: s.type.star,
+        "stroke-width": armed ? 3 : 1.5,
+        opacity: armed ? 0.85 + 0.15 * Math.sin(s.elapsed / 90) : 0.25 + 0.4 * s.penta.over,
+        ...(armed ? { filter: LOW_FX ? "url(#glow)" : "url(#bloom)" } : { "stroke-dasharray": "6 8" }),
+      }));
+    }
   }
 
   // Shades — Keepers risen. Roused ones draw full; wanderers lurk faint.
@@ -3877,6 +4000,31 @@ function render(s: PgState, layer: SVGGElement): void {
       cx: h.x, cy: h.y, r: (HERO_RADIUS + 12) * sp, fill: "none",
       stroke: s.type.star, "stroke-width": 3, opacity: 0.85,
       filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+  }
+
+  // Fervor — the kill-streak burns as a hot aura around the carrier, scaling
+  // with the meter so a deep streak visibly rages.
+  if (s.fervor > 0) {
+    const fp = 1 + 0.1 * Math.sin(s.elapsed / 110);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 8 + 14 * s.fervor) * fp, fill: "none",
+      stroke: "#ff9a3c", "stroke-width": 1.5 + 2 * s.fervor, opacity: 0.25 + 0.5 * s.fervor,
+      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+  }
+
+  // The Tolling — the bell's ring races outward from the carrier: the city has
+  // called its watch, and the roused cohort is already converging.
+  if (s.tollFlash > s.elapsed) {
+    const prog = 1 - (s.tollFlash - s.elapsed) / TOLL_FLASH_MS;
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 60 + 640 * prog, fill: "none",
+      stroke: "#e8c24a", "stroke-width": 3 * (1 - prog) + 0.5, opacity: 0.55 * (1 - prog),
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 30 + 640 * prog * 0.8, fill: "none",
+      stroke: "#fff0c0", "stroke-width": 1.5, opacity: 0.35 * (1 - prog),
     }));
   }
 
@@ -4527,6 +4675,9 @@ function start(): void {
       const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
       foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
     }
+    // The heartbeat: the bell's countdown, the fervor's burn, a banked flare.
+    const beat = vigilReadout(s);
+    if (beat) foes += ` · ${beat}`;
     foesEl.textContent = foes;
     lightsEl.textContent = litReadout(s);
     cityEl.textContent = s.level.name;
@@ -4654,12 +4805,14 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
-      const kBefore = s.killTimes.length, hpBefore = s.hero.hp;
+      const kBefore = s.killTimes.length, hpBefore = s.hero.hp, tollsBefore = s.tolls;
       stepCombat(s, dt, move);
       // Haptics: a tick per shade burned, a heavier knock when a blow lands
       // (the later call wins if both fire in one frame).
       if (s.killTimes.length > kBefore) buzz(15);
       if (s.hero.hp < hpBefore) buzz(40);
+      // The bell just tolled — a roused cohort is converging. Say so.
+      if (s.tolls > tollsBefore) { buzz([20, 40, 20]); showToast("The bell tolls — the watch converges on you."); }
       // stepCombat may have raised the warden (cast defeats the "fight" narrowing).
       if ((s.phase as Phase) === "boss") onBossRise(); // the host just fell
       else centerCam(s.hero.x, s.hero.y);
@@ -5371,6 +5524,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
     stepMists, inMist, inGrove, inHallow, inNodeAura, terrainSpeedMul, stepFields, stepVents, stepCaches,
     kindleDwelling, snuffDwelling, stepSpread, stepDwellings, stepPress, stepObelisks,
     stepRings, consecrate, nearScar, inShrineAura, inFontAura, inConsecration, litReadout,
+    stepToll, vigilReadout,
     startBoss, stepBoss, submitTrace, evalTrace, cycleSel, keyBind,
     bossBiteInterval, makeBossVeils, strokeVeiled, nextUnbound,
     pentagramSegments, traceScore,
@@ -5404,6 +5558,9 @@ if (typeof globalThis !== "undefined" && testGlobal.__PG_TEST__) {
       HEALER_HP, HEALER_STANDOFF, HEALER_SPEED_MUL, HEALER_RANGE, HEALER_HEAL, HEALER_COOLDOWN_MS,
       VEIL_RADIUS, VEIL_DRIFT, VEIL_DRAIN_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_SURGE_MS, MOTE_SURGE_DMG,
+      TOLL_FIRST_MS, TOLL_INTERVAL_MS, TOLL_ACCEL, TOLL_ROUSE_BASE, TOLL_ROUSE_GROWTH, TOLL_FLASH_MS,
+      FERVOR_PER_KILL, FERVOR_WINDOW_MS, FERVOR_DECAY_MS, FERVOR_DMG, FERVOR_SPEED,
+      PENTA_OVERCHARGE_MS, FLARE_RADIUS_MUL, FLARE_DMG_MUL, FLARE_PUSH,
       BONFIRE_AURA, BONFIRE_DPS, LANTERN_AURA, LANTERN_DPS,
       CINDER_AURA, CINDER_DPS, MIRE_AURA, MIRE_SLOW, THICKET_AURA, THICKET_SLOW,
       HALLOW_AURA, SPRING_AURA, SPRING_HEAL_DPS, CACHE_REACH,

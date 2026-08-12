@@ -150,6 +150,8 @@ interface WwState {
   pulses: Pulse[];        // fading rending rings (cosmetic)
   motes: Mote[];          // gatherable blood-motes dropped by the felled
   mists: Mist[];          // drifting fog banks (the wolf's cover from the watch)
+  fervor: number;         // 0..1 blood-heat — the kill-streak (ramps the bite)
+  fervorUntil: number;    // s.elapsed the streak window stays open to (then it cools)
   moon: number;           // 0..1 — the day/night wheel (0/1 = noon, 0.5 = midnight)
   quarry: number;         // index into foes of the night's marked quarry (-1 = none)
   quarryNight: boolean;   // are we inside the true-night window (edge-detects the mark)
@@ -251,6 +253,19 @@ const MOON_START = 0.35;         // begin near dusk — night, and the beast, co
 const FURY_RISE_MS = 4600;       // human → full fury, standing under a full moon (slower to turn beast)
 const FURY_DRAIN_MS = 7200;      // wolf fury drain at base (daylight bleeds it faster — a shorter beast window)
 const FURY_PER_KILL = 0.14;      // fury a kill feeds the beast (sustains the change)
+
+// ---- BLOOD-HEAT — the kill-streak (the family's engagement redesign, in the
+// predator's coin). Kills chained inside the window heat the blood: every bite
+// rends harder until the streak lapses and the blood cools. The hunt's OTHER
+// redesign beats already live here natively — the moon cycle and the spreading
+// alarm ARE its pacing engine, and baying at the moon IS its risk/reward stand —
+// so the streak is the one piece the hunt was missing. Deliberately NO bell: a
+// converging toll would cut against the stalk-and-strike loop that makes this
+// game itself. No speed lean either — momentum already pays the runner.
+const FERVOR_PER_KILL = 0.25;    // heat gained per kill (0..1)
+const FERVOR_WINDOW_MS = 5000;   // a kill keeps the blood hot this long
+const FERVOR_DECAY_MS = 1500;    // cooled blood drains full→empty this fast
+const FERVOR_DMG = 0.5;          // bite damage ×(1 + this × heat)
 
 // Blood-motes — a felled foe may leave hot blood; gathering it (walk over it) STOKES
 // the curse. The fury economy's heartbeat (mirror of the Vigil's ember surge).
@@ -1137,6 +1152,7 @@ function buildArena(level: LevelDef, seed?: number): WwState {
     walls, paths,
     hero, pelt, foes,
     bolts: [], pulses: [], motes: [], mists,
+    fervor: 0, fervorUntil: 0,
     moon: MOON_START,
     quarry: -1, quarryNight: false, quarrySlain: 0,
     elapsed: 0, slain: 0, hits: 0, total: foes.length,
@@ -1188,7 +1204,9 @@ function furyReadout(s: WwState): string {
   const shape = s.hero.form === "wolf" ? "Wolf" : "Man";
   const panic = Math.round(villagePanic(s) * 100);
   const mark = s.quarry >= 0 ? " · QUARRY marked" : "";
-  return `${shape} · ${moonWord(s)} · village ${panic}% roused${mark}`;
+  // Blood-heat: the kill-streak's burn, shown while the blood runs hot.
+  const heat = s.fervor > 0 ? ` · Blood-heat ×${(1 + FERVOR_DMG * s.fervor).toFixed(1)}` : "";
+  return `${shape} · ${moonWord(s)} · village ${panic}% roused${mark}${heat}`;
 }
 
 function difficultyMult(level: LevelDef): number {
@@ -1223,6 +1241,9 @@ function slay(s: WwState, e: Foe): void {
   e.dead = true;
   s.slain += 1;
   s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
+  // Every kill heats the blood and re-opens the streak's window.
+  s.fervor = Math.min(1, s.fervor + FERVOR_PER_KILL);
+  s.fervorUntil = s.elapsed + FERVOR_WINDOW_MS;
   const h = s.hero;
   // Feeding the beast: a kill always stokes the curse a little AND mends the predator
   // (the lit-dwelling heal of the Vigil, inverted to the kill).
@@ -1425,6 +1446,7 @@ function bite(s: WwState, e: Foe): void {
   const lunging = h.lunge > 0;
   const momMul = MAUL_MIN_MUL + (1 - MAUL_MIN_MUL) * h.momentum;
   let dmg = MAUL_DMG * momMul * s.pelt.dmgMul;
+  dmg *= 1 + FERVOR_DMG * s.fervor; // hot blood rends harder (the kill-streak)
   if (lunging) dmg *= POUNCE_DMG_MUL;
   // Shove the prey — a plain bite nudges, a pounce or a Black-pelt bite flings.
   const a = Math.atan2(e.y - h.y, e.x - h.x);
@@ -1878,6 +1900,11 @@ function stepHunt(s: WwState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // Blood-heat cools once its kill-window lapses — a streak must be FED to burn.
+  if (s.fervor > 0 && s.elapsed > s.fervorUntil) {
+    s.fervor = Math.max(0, s.fervor - dt / FERVOR_DECAY_MS);
+  }
 
   // The wolf faces where it runs — the pounce cone and the drawn body both read off it.
   const movdSpeed = Math.hypot(h.vx, h.vy);
@@ -2703,6 +2730,16 @@ function render(s: WwState, layer: SVGGElement): void {
         "stroke-width": 2, opacity: 0.55, filter: "url(#glow)",
       }));
     }
+  }
+  // Blood-heat — the kill-streak burns as a hot red aura around the predator,
+  // scaling with the meter so a chained hunt visibly rages.
+  if (s.fervor > 0) {
+    const fp = 1 + 0.1 * Math.sin(s.elapsed / 110);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 8 + 14 * s.fervor) * fp, fill: "none",
+      stroke: "#e84a3c", "stroke-width": 1.5 + 2 * s.fervor, opacity: 0.25 + 0.5 * s.fervor,
+      filter: "url(#glow)",
+    }));
   }
   const hwKey = spriteFor(s.level, wolf ? "wolf-beast" : "wolf-human");
   if (hwKey) {
@@ -3861,6 +3898,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__WW_TEST__) {
       ALARM_SPREAD_R, ALARM_SPREAD_RATE, ALARM_DECAY, ALARM_KILL_SPIKE_R, ALARM_ROUSE,
       PREY_FLEE_ALARM, PREY_FLEE_SPEED_MUL, PREY_COHESION,
       MOON_CYCLE_MS, MOON_START, FURY_RISE_MS, FURY_DRAIN_MS, FURY_PER_KILL,
+      FERVOR_PER_KILL, FERVOR_WINDOW_MS, FERVOR_DECAY_MS, FERVOR_DMG,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, MOTE_FURY, HIT_FLASH_MS,
       FOE_HP, FOE_SPEED, FOE_RADIUS, FOE_CONTACT, FOE_ATTACK_CD,
       FOE_ATTACK_REACH, FOE_SEP, FOE_AGGRO, FOE_WANDER_SPEED, FOE_LEASH,

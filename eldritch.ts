@@ -105,6 +105,11 @@ interface EldState {
   horrors: Horror[];
   pulses: Pulse[];       // fading banishing rings (cosmetic)
   motes: Mote[];         // gatherable clue-motes dropped by the banished
+  fervor: number;        // 0..1 zeal — the banish-streak (ramps pulse damage & stride)
+  fervorUntil: number;   // s.elapsed the streak window stays open to (then it drains)
+  tollNext: number;      // s.elapsed at which the drowned bell next tolls
+  tolls: number;         // tolls so far this watch (each stirs a bigger cohort)
+  tollFlash: number;     // s.elapsed until which the fresh toll reads on screen
   elapsed: number;       // ms since the watch began (clear time)
   banished: number;      // horrors banished
   hits: number;          // times a horror has landed a blow on the Watcher
@@ -159,6 +164,29 @@ const PULSE_FX_MS = 360;         // how long a banishing ring lingers
 const SIGN_OVERCHARGE_MS = 720;      // time past a full trace to bank one overcharge
 const OVERCHARGE_RADIUS_MUL = 1.7;   // an empowered pulse's reach × the Sign's reach
 const OVERCHARGE_SANITY = 14;        // sanity an empowered pulse restores
+
+// ---- The watch's heartbeat (the family's engagement redesign, ported) ----
+// THE TOLLING — Innsmouth's drowned bell. On a cadence the deep stirs: the
+// cohort of lurking horrors NEAREST the Watcher rouses and converges, so the
+// fight comes to him instead of waiting at its rift to be walked to. Each toll
+// stirs a bigger cohort and the cadence shortens as the host thins — the last
+// stragglers hunt YOU. (The Vigil's Tolling, re-themed; same shape, same names,
+// so a fix in one ports to the other.)
+const TOLL_FIRST_MS = 18000;     // quiet grace before the first toll
+const TOLL_INTERVAL_MS = 14000;  // base gap between tolls…
+const TOLL_ACCEL = 0.6;          // …shaved by up to this fraction as the host thins
+const TOLL_ROUSE_BASE = 3;       // horrors stirred by the first toll…
+const TOLL_ROUSE_GROWTH = 2;     // …plus this many more per toll since
+const TOLL_FLASH_MS = 1400;      // how long the bell's ring reads on screen
+
+// ZEAL — the banish-streak (the Vigil's fervor, re-themed): each banishing in
+// quick succession hardens the Watcher's conviction — pulses bite harder and
+// his stride quickens — until the window lapses and doubt seeps back.
+const FERVOR_PER_KILL = 0.2;     // meter gained per banishing (0..1)
+const FERVOR_WINDOW_MS = 4000;   // a banishing holds the zeal alive this long
+const FERVOR_DECAY_MS = 1500;    // lapsed zeal drains full→empty this fast
+const FERVOR_DMG = 0.5;          // pulse damage ×(1 + this × zeal)
+const FERVOR_SPEED = 0.18;       // Watcher speed ×(1 + this × zeal)
 const REPEL_KNOCK = 64;              // units an empowered (or Naacal) pulse flings the host back
 
 // SANITY — the second life-bar, and the soul of this spinoff. It bleeds from DREAD
@@ -853,6 +881,8 @@ function buildArena(level: LevelDef, seed?: number): EldState {
     walls, paths, pools,
     hero, sign, horrors,
     pulses: [], motes: [],
+    fervor: 0, fervorUntil: 0,
+    tollNext: TOLL_FIRST_MS, tolls: 0, tollFlash: 0,
     elapsed: 0, banished: 0, hits: 0, total: horrors.length,
     wardsTotal: scenery.filter((n) => n.kind === "ward").length,
     litCount: 0, defiledCount: 0,
@@ -914,6 +944,9 @@ function banish(s: EldState, e: Horror): void {
   e.dead = true;
   s.banished += 1;
   s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
+  // Every banishing stokes the Watcher's zeal and re-opens its window.
+  s.fervor = Math.min(1, s.fervor + FERVOR_PER_KILL);
+  s.fervorUntil = s.elapsed + FERVOR_WINDOW_MS;
   // The Sign's on-banish powers.
   if (s.sign.power === "calm") {
     s.hero.sanity = clamp(s.hero.sanity + CALM_SANITY, 0, s.hero.maxSanity);
@@ -956,7 +989,8 @@ function firePulse(s: EldState): void {
   const h = s.hero;
   const empowered = h.overcharge >= 1;
   const radius = SIGN_RADIUS * s.sign.radiusMul * (empowered ? OVERCHARGE_RADIUS_MUL : 1);
-  const dmg = SIGN_DMG * s.sign.dmgMul;
+  // The bite: the Sign's lean × the zeal of the banish-streak.
+  const dmg = SIGN_DMG * s.sign.dmgMul * (1 + FERVOR_DMG * s.fervor);
   // Tracing the Sign frays the mind (an empowered pulse repays it below).
   h.sanity = clamp(h.sanity - SIGN_SANITY_COST * s.sign.sanityCostMul, 0, h.maxSanity);
   for (const e of s.horrors) {
@@ -996,6 +1030,36 @@ function stepSign(s: EldState, dt = 16): void {
   if (h.signCd > 0) return;
   h.signCd = SIGN_PULSE_MS * s.sign.pulseMul;
   firePulse(s);
+}
+
+// The Tolling — the watch's pacing engine, the Vigil's bell heard through fathoms
+// of black water. When its time comes, the cohort of lurking horrors NEAREST the
+// Watcher rouses and converges (near ones, so a fight arrives soon, from every
+// direction at once). Each toll stirs a bigger cohort, and the cadence shortens
+// as the host thins, so the endgame hunts the Watcher instead of hiding from him.
+function stepToll(s: EldState): void {
+  if (s.elapsed < s.tollNext) return;
+  const lurkers = s.horrors
+    .filter((e) => !e.dead && e.state === "lurk")
+    .map((e) => ({ e, d: (e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2 }))
+    .sort((a, b) => a.d - b.d);
+  const count = TOLL_ROUSE_BASE + s.tolls * TOLL_ROUSE_GROWTH;
+  for (const { e } of lurkers.slice(0, count)) e.state = "hunt";
+  s.tolls++;
+  s.tollFlash = s.elapsed + TOLL_FLASH_MS;
+  const cleared = s.total ? s.banished / s.total : 0;
+  s.tollNext = s.elapsed + TOLL_INTERVAL_MS * (1 - TOLL_ACCEL * cleared);
+}
+
+// The heartbeat readout for the HUD — pure, so the harness can assert it: the
+// bell's countdown, the zeal's burn, and a banked overcharge.
+function watchReadout(s: EldState): string {
+  const parts: string[] = [];
+  const bell = Math.max(0, Math.ceil((s.tollNext - s.elapsed) / 1000));
+  if (bell <= 6) parts.push(`Bell ${bell}s`);
+  if (s.fervor > 0) parts.push(`Zeal ×${(1 + FERVOR_DMG * s.fervor).toFixed(1)}`);
+  if (s.hero.overcharge >= 1) parts.push("SIGN charged");
+  return parts.join(" · ");
 }
 
 // The host's dread bleeds the Watcher's mind — each hunting horror within
@@ -1199,7 +1263,8 @@ function stepWatch(s: EldState, dt: number, move: Move): void {
   const onPath = s.paths.some(
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= PATH_HALF,
   );
-  const speed = HERO_SPEED * (onPath ? PATH_BOOST : 1);
+  // Burning zeal quickens the stride — the streak feeds momentum.
+  const speed = HERO_SPEED * (1 + FERVOR_SPEED * s.fervor) * (onPath ? PATH_BOOST : 1);
   h.vx = move.x * speed;
   h.vy = move.y * speed;
   {
@@ -1207,6 +1272,11 @@ function stepWatch(s: EldState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // Zeal bleeds once its banish-window lapses — a streak must be FED to burn.
+  if (s.fervor > 0 && s.elapsed > s.fervorUntil) {
+    s.fervor = Math.max(0, s.fervor - dt / FERVOR_DECAY_MS);
+  }
 
   // The Sign traces while the Watcher holds still and fades as he moves; past a full
   // trace the held stand banks an overcharge (the next pulse erupts, see firePulse).
@@ -1220,6 +1290,7 @@ function stepWatch(s: EldState, dt: number, move: Move): void {
   }
   h.angle = (h.angle + dt * SIGN_SPIN) % 360;
 
+  stepToll(s);         // the drowned bell: stir a converging cohort on its cadence
   stepSign(s, dt);     // a traced Sign pulses, banishing the host in reach (costs sanity)
   stepHorrors(s, dt);  // the host lurks / hunts the Watcher, claws or lances the mind
   stepWards(s, dt);    // sealed wards steady the mind and burn the host in their aura
@@ -1610,6 +1681,30 @@ function render(s: EldState, layer: SVGGElement): void {
       }));
     }
   }
+  // Zeal — the banish-streak burns as a pale-fire aura around the Watcher.
+  if (s.fervor > 0) {
+    const fp = 1 + 0.1 * Math.sin(s.elapsed / 110);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 8 + 14 * s.fervor) * fp, fill: "none",
+      stroke: "#9fe8d8", "stroke-width": 1.5 + 2 * s.fervor, opacity: 0.25 + 0.5 * s.fervor,
+      filter: "url(#glow)",
+    }));
+  }
+
+  // The Tolling — the drowned bell's ring races outward: the deep has stirred,
+  // and the roused cohort is already converging.
+  if (s.tollFlash > s.elapsed) {
+    const prog = 1 - (s.tollFlash - s.elapsed) / TOLL_FLASH_MS;
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 60 + 640 * prog, fill: "none",
+      stroke: "#3f7f8f", "stroke-width": 3 * (1 - prog) + 0.5, opacity: 0.55 * (1 - prog),
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 30 + 640 * prog * 0.8, fill: "none",
+      stroke: "#bfeff0", "stroke-width": 1.5, opacity: 0.35 * (1 - prog),
+    }));
+  }
+
   const hwKey = spriteFor(s.level, "watcher");
   if (hwKey) { layer.appendChild(spriteImage(hwKey, h.x, h.y, HERO_RADIUS * 2.6, 1)); }
   else {
@@ -2004,6 +2099,9 @@ function start(): void {
       const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
       foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
     }
+    // The heartbeat: the bell's countdown, the zeal's burn, a charged Sign.
+    const beat = watchReadout(s);
+    if (beat) foes += ` · ${beat}`;
     foesEl.textContent = foes;
   }
 
@@ -2104,12 +2202,14 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
-      const kBefore = s.killTimes.length, hpBefore = s.hero.hp;
+      const kBefore = s.killTimes.length, hpBefore = s.hero.hp, tollsBefore = s.tolls;
       stepWatch(s, dt, move);
       // Haptics: a tick per horror banished, a heavier knock when the Watcher
       // is struck (the later call wins if both fire in one frame).
       if (s.killTimes.length > kBefore) buzz(15);
       if (s.hero.hp < hpBefore) buzz(40);
+      // The drowned bell just tolled — a stirred cohort is converging. Say so.
+      if (s.tolls > tollsBefore) { buzz([20, 40, 20]); showToast("A bell tolls beneath the water — the deep stirs, and it comes for you."); }
       centerCam(s.hero.x, s.hero.y);
     }
 
@@ -2130,7 +2230,7 @@ function start(): void {
     setupZoom();
     centerCam(s.hero.x, s.hero.y);
     hud();
-    showToast("Seal the threshold: BANISH every horror (count, top-right). Stand STILL to trace the Elder Sign — a sigil that banishes the host around you; move to dodge and it fades. But tracing frays the MIND, and the nearness of the host bleeds it — watch your SANITY (top-left, beneath your health). Seal the ward-stones and gather the clue-motes the banished leave to steady it. Lose your health and you are SLAIN; lose your sanity and you go MAD.");
+    showToast("Seal the threshold: BANISH every horror (count, top-right). Stand STILL to trace the Elder Sign — a sigil that banishes the host around you; move to dodge and it fades. Hold the trace past full to charge the Sign: the next pulse erupts wider and steadies the mind. Banishings in quick succession stoke your ZEAL — a streak that hardens the Sign's bite and quickens your stride. But tracing frays the MIND, and the nearness of the host bleeds it — watch your SANITY (top-left, beneath your health). Seal the ward-stones and gather the clue-motes the banished leave to steady it. And listen for the drowned BELL: on its toll the nearest lurking horrors stir and converge, faster and in greater numbers as the host thins. Lose your health and you are SLAIN; lose your sanity and you go MAD.");
     introHold = true;
     clearTimeout(introHoldTimer);
     introHoldTimer = setTimeout(() => { introHold = false; }, TOAST_MS);
@@ -2493,6 +2593,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__ELD_TEST__) {
     generateEldritch, buildArena, freshWatch, stepWatch,
     stepSign, firePulse, stepHorrors, stepWards, stepDread, stepMotes,
     banish, hurtHorror, kindleWard, defileWard, nearScar, nearestHorror,
+    stepToll, watchReadout,
     aliveHorrors, clearedPct, sanityReadout, scoreRun, difficultyMult,
     LEVELS, levelById, placeUnlocked, storyChapter, PROLOGUE, EPILOGUE,
     weaveSegments, closestOnSegment, segsCross, wallBetween, pushOut, pentagramPath,
@@ -2505,6 +2606,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__ELD_TEST__) {
       HERO_STILL_MAXSPEED, SIGN_CHARGE_MS, SIGN_BANISH_AT, SIGN_RADIUS, SIGN_PULSE_MS,
       SIGN_DMG, SIGN_SANITY_COST, SIGN_SPIN, PULSE_FX_MS,
       SIGN_OVERCHARGE_MS, OVERCHARGE_RADIUS_MUL, OVERCHARGE_SANITY, REPEL_KNOCK,
+      TOLL_FIRST_MS, TOLL_INTERVAL_MS, TOLL_ACCEL, TOLL_ROUSE_BASE, TOLL_ROUSE_GROWTH, TOLL_FLASH_MS,
+      FERVOR_PER_KILL, FERVOR_WINDOW_MS, FERVOR_DECAY_MS, FERVOR_DMG, FERVOR_SPEED,
       DREAD_RADIUS, DREAD_DPS, PANIC_SANITY,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, CLUE_SANITY, HIT_FLASH_MS,
       HORROR_HP, HORROR_SPEED, HORROR_RADIUS, HORROR_CONTACT, HORROR_ATTACK_CD,
