@@ -2093,6 +2093,11 @@ function scaffold(svg: SVGSVGElement): SVGGElement {
       <stop offset="60%" stop-color="#b8c4d4" stop-opacity="0.26"/>
       <stop offset="100%" stop-color="#b8c4d4" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="shadow">
+      <stop offset="0%" stop-color="#04060b" stop-opacity="0.5"/>
+      <stop offset="65%" stop-color="#04060b" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#04060b" stop-opacity="0"/>
+    </radialGradient>
     <radialGradient id="spriteFadeGrad">
       <stop offset="0%" stop-color="#fff"/>
       <stop offset="58%" stop-color="#fff"/>
@@ -2332,6 +2337,54 @@ function renderNewTerrain(s: WwState, n: ArenaNode, layer: SVGGElement): boolean
   }
 }
 
+// ---- Render-only FX pacing (cosmetic timings the sim never reads) ----
+const TRANSFORM_FX_MS = 750;  // the form-change burst's life
+const CAIRN_BLOOM_MS = 900;   // a just-marked cairn's blood bloom
+const BAY_RING_MS = 1500;     // one baying ring's spread (the man stoking fury)
+
+// A tiny deterministic hash for render-only particle placement (weather, smoke,
+// blood splats): same inputs → same jitter every frame, so nothing pops between
+// repaints. Cosmetic only — the sim rolls no dice here.
+function jitter(a: number, b: number): number {
+  const t = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return t - Math.floor(t);
+}
+
+// A soft grounding shadow under a body — what keeps the watch and the wolf from
+// floating over the village floor.
+function drawShadow(layer: SVGGElement, x: number, y: number, rx: number, ry: number, op: number): void {
+  layer.appendChild(el("ellipse", { cx: x, cy: y, rx, ry, fill: "url(#shadow)", opacity: op }));
+}
+
+// Weather — the sky made visible. A winter village gets falling snow (swaying,
+// drifting with a faint crosswind); a summer village gets fireflies once true
+// night is on, winking over the fields. Pure functions of (seedless) index hash
+// and s.elapsed, so the same frame always draws the same sky.
+function renderWeather(s: WwState, layer: SVGGElement, night: number, winter: boolean): void {
+  if (winter) {
+    const count = Math.min(120, Math.round((s.w * s.h) / 22000));
+    for (let i = 0; i < count; i++) {
+      const fall = 26 + jitter(i, 1) * 34;   // px/s straight down
+      const drift = 4 + jitter(i, 4) * 6;    // px/s of crosswind
+      const x = (jitter(i, 2) * s.w + (s.elapsed * drift) / 1000 + Math.sin(s.elapsed / 900 + i * 1.7) * 10 + s.w * 4) % s.w;
+      const y = (jitter(i, 3) * s.h + (s.elapsed * fall) / 1000) % s.h;
+      layer.appendChild(el("circle", {
+        cx: x, cy: y, r: 1.1 + jitter(i, 5) * 1.6,
+        fill: "#eef2fa", opacity: 0.3 + jitter(i, 6) * 0.45, "pointer-events": "none",
+      }));
+    }
+  } else if (night > 0.2) {
+    const count = Math.min(52, Math.round((s.w * s.h) / 46000));
+    for (let i = 0; i < count; i++) {
+      const x = jitter(i, 7) * s.w + Math.cos(s.elapsed / 1700 + i * 2.4) * 16;
+      const y = jitter(i, 8) * s.h + Math.sin(s.elapsed / 1300 + i * 1.7) * 12;
+      const tw = 0.5 + 0.5 * Math.sin(s.elapsed / 430 + i * 5.3);
+      layer.appendChild(el("circle", { cx: x, cy: y, r: 3.4, fill: "#9fe0a0", opacity: night * tw * 0.12, "pointer-events": "none" }));
+      layer.appendChild(el("circle", { cx: x, cy: y, r: 1.3, fill: "#e8ffd0", opacity: night * (0.2 + 0.6 * tw), "pointer-events": "none" }));
+    }
+  }
+}
+
 function render(s: WwState, layer: SVGGElement): void {
   layer.innerHTML = "";
   const night = moonlightOf(s.moon);
@@ -2384,9 +2437,18 @@ function render(s: WwState, layer: SVGGElement): void {
     }));
   }
 
-  // Moonwell auras — pools where the moon always reaches.
+  // Moonwell auras — pools where the moon always reaches, with slow moonlight
+  // ripples spreading across each pool's reach so the water reads alive.
   for (const n of s.moonwells) {
     layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: MOONWELL_AURA, fill: "url(#well)" }));
+    for (let j = 0; j < 2; j++) {
+      const rk = (s.elapsed / 2600 + j * 0.5) % 1;
+      layer.appendChild(el("circle", {
+        cx: n.x, cy: n.y, r: 18 + (MOONWELL_AURA * 0.55 - 18) * rk,
+        fill: "none", stroke: "#cfe0ff", "stroke-width": 1.3 * (1 - rk) + 0.2,
+        opacity: (1 - rk) * 0.35,
+      }));
+    }
   }
 
   // Scar rings under cleansed cairns (bars re-marking).
@@ -2400,10 +2462,21 @@ function render(s: WwState, layer: SVGGElement): void {
     }
   }
 
-  // Marked-cairn auras (grant fury, rend the host).
+  // Marked-cairn auras (grant fury, rend the host) — a fresh claim blooms: a
+  // blood ring rushes out to the den's reach, then the steady aura holds.
   for (const n of s.cairns) {
     if (!n.lit) continue;
     layer.appendChild(el("circle", { cx: n.x, cy: n.y, r: CAIRN_AURA, fill: "url(#cairn)" }));
+    if (n.litAt !== undefined) {
+      const bk = (s.elapsed - n.litAt) / CAIRN_BLOOM_MS;
+      if (bk >= 0 && bk < 1) {
+        layer.appendChild(el("circle", {
+          cx: n.x, cy: n.y, r: 12 + (CAIRN_AURA - 12) * bk,
+          fill: "none", stroke: "#e0566a", "stroke-width": 3 * (1 - bk) + 0.5,
+          opacity: (1 - bk) * 0.8, filter: "url(#glow)",
+        }));
+      }
+    }
   }
 
   // Scenery — fields, stones, cottages, cairns, moonwells. Sprite if loaded, else a
@@ -2461,15 +2534,42 @@ function render(s: WwState, layer: SVGGElement): void {
     }
   }
 
-  // Blood-motes.
+  // Chimney smoke — a thread of hearth-smoke drifting from every cottage (drawn
+  // over sprite and fallback alike), so the sleeping village reads alive.
+  for (const n of s.scenery) {
+    if (n.kind !== "cottage") continue;
+    for (let j = 0; j < 3; j++) {
+      const life = (s.elapsed / 2600 + j / 3 + jitter(n.x, n.y)) % 1;
+      const sx = n.x + 14 + Math.sin(life * 5 + n.y) * (2 + 8 * life);
+      const sy = n.y - 32 - life * 34;
+      layer.appendChild(el("circle", {
+        cx: sx, cy: sy, r: 2 + life * 5,
+        fill: winter ? "#dfe7f2" : "#b8c4d4", opacity: (1 - life) * 0.3,
+      }));
+    }
+  }
+
+  // Blood-motes — the spilled blood beneath each hot mote, then the mote's glow.
   for (const m of s.motes) {
+    for (let j = 0; j < 4; j++) {
+      const a = jitter(m.x + j, m.y) * Math.PI * 2;
+      const d = 3 + jitter(m.x, m.y + j) * 9;
+      layer.appendChild(el("circle", {
+        cx: m.x + Math.cos(a) * d, cy: m.y + Math.sin(a) * d,
+        r: 1.5 + jitter(m.x * 3 + j, m.y * 7) * 3, fill: "#5a1420", opacity: 0.6,
+      }));
+    }
     layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: 13, fill: "url(#mote)" }));
   }
 
-  // Silver bolts in flight.
+  // Silver bolts in flight — a long faint wake behind the bright head.
   for (const b of s.bolts) {
     const a = Math.atan2(b.vy, b.vx);
     const tx = b.x - Math.cos(a) * 12, ty = b.y - Math.sin(a) * 12;
+    layer.appendChild(el("line", {
+      x1: b.x - Math.cos(a) * 30, y1: b.y - Math.sin(a) * 30, x2: b.x, y2: b.y,
+      stroke: "#aeb6c0", "stroke-width": 1, opacity: 0.35,
+    }));
     layer.appendChild(el("line", {
       x1: tx, y1: ty, x2: b.x, y2: b.y,
       stroke: "#e8ecf6", "stroke-width": 2.4, "stroke-linecap": "round", filter: "url(#glow)",
@@ -2481,6 +2581,8 @@ function render(s: WwState, layer: SVGGElement): void {
   for (const e of s.foes) {
     if (e.dead) continue;
     const r = e.variant === "knight" ? 18 : e.variant === "hound" ? 11 : 14;
+    // A grounding shadow beneath every body of the watch.
+    drawShadow(layer, e.x, e.y + r * 0.75, r * 1.2, r * 0.45, e.state === "lurk" ? 0.55 : 0.8);
     // A friar's consecration beam.
     if (e.channeling && e.beamX != null && e.beamY != null) {
       layer.appendChild(el("line", {
@@ -2540,11 +2642,49 @@ function render(s: WwState, layer: SVGGElement): void {
     }));
   }
 
+  // Dawn & dusk — a brief ember wash as the wheel crosses the horizon, so the
+  // turn of the day reads on the land itself, not only on the moon dial.
+  const horizon = Math.max(0, 1 - Math.abs(daylight(s.moon) - 0.5) * 3.2);
+  if (horizon > 0.02) {
+    layer.appendChild(el("rect", {
+      x: 0, y: 0, width: s.w, height: s.h,
+      fill: "#c86a2a", opacity: horizon * 0.1, "pointer-events": "none",
+    }));
+  }
+
   // The hero — a speed-streak that swells with the wolf's MOMENTUM (and flares mid-
   // pounce), drawn beneath the body, then the body itself (oriented to its heading).
   const h = s.hero;
   const wolf = h.form === "wolf";
   const deg = (h.facing * 180) / Math.PI;
+  drawShadow(layer, h.x, h.y + HERO_RADIUS * 0.7, HERO_RADIUS * 1.25, HERO_RADIUS * 0.5, wolf ? 0.9 : 0.7);
+  // Baying rings — a slow silver pulse spreading from the still man, bright under
+  // moonlight (or in a well/glade) and faint by day: the fury-stoking, telegraphed.
+  if (!wolf && Math.hypot(h.vx, h.vy) < HERO_STILL_MAXSPEED && s.phase === "hunt") {
+    const glowK = inMoonwell(s, h.x, h.y) || inGlade(s, h.x, h.y) ? 1 : night;
+    for (let j = 0; j < 2; j++) {
+      const bk = (s.elapsed / BAY_RING_MS + j * 0.5) % 1;
+      layer.appendChild(el("circle", {
+        cx: h.x, cy: h.y, r: HERO_RADIUS + 4 + 42 * bk,
+        fill: "none", stroke: "#cdd6ea", "stroke-width": 1.6 * (1 - bk) + 0.3,
+        opacity: (1 - bk) * (0.12 + 0.38 * glowK),
+      }));
+    }
+  }
+  // Afterimages — ghost bodies streaming behind a wolf at speed, so the momentum
+  // that IS the weapon reads on the beast itself.
+  if (wolf && h.momentum > 0.15) {
+    for (let j = 1; j <= 3; j++) {
+      const back = j * (10 + 16 * h.momentum);
+      const gx = h.x - Math.cos(h.facing) * back, gy = h.y - Math.sin(h.facing) * back;
+      const shrink = 1 - j * 0.16;
+      layer.appendChild(el("ellipse", {
+        cx: gx, cy: gy, rx: (HERO_RADIUS + 2) * shrink, ry: (HERO_RADIUS - 3) * shrink,
+        fill: s.pelt.ring, opacity: h.momentum * 0.14 * (1 - (j - 1) * 0.3),
+        transform: `rotate(${deg.toFixed(1)} ${gx.toFixed(1)} ${gy.toFixed(1)})`,
+      }));
+    }
+  }
   if (wolf && (h.momentum > 0.05 || h.lunge > 0)) {
     const trail = (24 + 70 * h.momentum) * (h.lunge > 0 ? 1.5 : 1);
     const bx = h.x - Math.cos(h.facing) * trail, by = h.y - Math.sin(h.facing) * trail;
@@ -2636,9 +2776,43 @@ function render(s: WwState, layer: SVGGElement): void {
     }
   }
 
-  // Fog banks — drawn last, above all (the wolf's cover, the misty Britain).
-  for (const m of s.mists) {
+  // The transform burst — the change itself made visible: a rushing ring and torn
+  // fur-spike rays, blood-red into the beast, pale silver back into the man.
+  if (h.transformAt > 0) {
+    const tk = (s.elapsed - h.transformAt) / TRANSFORM_FX_MS;
+    if (tk >= 0 && tk < 1) {
+      layer.appendChild(el("circle", {
+        cx: h.x, cy: h.y, r: HERO_RADIUS + 6 + 64 * tk,
+        fill: "none", stroke: wolf ? s.pelt.ring : "#cdd6ea",
+        "stroke-width": 3.5 * (1 - tk) + 0.5, opacity: (1 - tk) * 0.85, filter: "url(#glow)",
+      }));
+      for (let j = 0; j < 8; j++) {
+        const a = (j / 8) * Math.PI * 2 + (wolf ? 0.4 : 0);
+        const r1 = HERO_RADIUS + 2 + 46 * tk, r2 = r1 + 12 * (1 - tk) + 4;
+        layer.appendChild(el("line", {
+          x1: h.x + Math.cos(a) * r1, y1: h.y + Math.sin(a) * r1,
+          x2: h.x + Math.cos(a) * r2, y2: h.y + Math.sin(a) * r2,
+          stroke: wolf ? s.pelt.star : "#e6ecf6", "stroke-width": 2,
+          "stroke-linecap": "round", opacity: (1 - tk) * 0.7,
+        }));
+      }
+    }
+  }
+
+  // Weather — snowfall over a winter village, fireflies over a summer night
+  // (above the world and the hero, beneath the fog).
+  renderWeather(s, layer, night, winter);
+
+  // Fog banks — drawn last, above all (the wolf's cover, the misty Britain). Each
+  // bank carries a brighter drifting core, so the fog churns instead of sitting flat.
+  for (let i = 0; i < s.mists.length; i++) {
+    const m = s.mists[i];
     layer.appendChild(el("circle", { cx: m.x, cy: m.y, r: m.r, fill: "url(#fog)", "pointer-events": "none" }));
+    const wob = s.elapsed / 4600 + i * 2.1;
+    layer.appendChild(el("circle", {
+      cx: m.x + Math.cos(wob) * m.r * 0.22, cy: m.y + Math.sin(wob * 0.8) * m.r * 0.18,
+      r: m.r * 0.55, fill: "url(#fog)", opacity: 0.85, "pointer-events": "none",
+    }));
   }
 }
 
