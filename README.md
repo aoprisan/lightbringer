@@ -152,6 +152,10 @@ Per-run progress and cross-run legacy are saved to `localStorage`.
 | `sw.js` | Service worker — offline app-shell cache (the hub + all four games) |
 | `pentagram.webmanifest`, `necro.webmanifest`, `eldritch.webmanifest`, `werewolf.webmanifest`, `manifest.webmanifest` | Install metadata (The Burning Vigil / The Necromancer's March / The Watcher at the Threshold / The Moon's Hunger / the class-select hub) |
 | `icons/` | Generated PWA icons (`tools/gen-icons.mjs`) |
+| `capacitor.config.json` | Native app config (id, name, `webDir: www`) — see [MOBILE.md](MOBILE.md) |
+| `tools/build-www.mjs` | Assembles `www/`, the web payload Capacitor wraps into the apps |
+| `scripts/build-android.sh`, `scripts/build-ios.sh` | Local native builds (APK/AAB, simulator/archive) |
+| `assets/` | 1024²/2732² sources for the native icon + splash (`tools/gen-cap-assets.mjs`) |
 | `gemini-prompts/` | All self-contained Gemini ("Nano Banana") image-generation prompts (icons, frescoes, city cards, scenery + `base/` original-game sprites, `necro/` undead + village art, and the per-city sprite folders) |
 | `art-prompts-output/` | Raw multi-megabyte PNGs emitted by Gemini, before optimizing into `art/` (e.g. `tools/process-city-sprites.py`) |
 | `tools/pentagram-test.mjs` | Headless combat test for The Burning Vigil (`npm test`) |
@@ -181,6 +185,27 @@ node tools/gen-ww-icons.mjs # rewrite the werewolf icons/werewolf-*.png
 npm test                    # compile, then exercise the simulation headlessly
 npm run typecheck           # type-check without emitting
 ```
+
+## Mobile apps (Android & iOS)
+
+The games also build as **native apps** via [Capacitor](https://capacitorjs.com) —
+the same HTML/JS/art, wrapped for the Play Store and the App Store. Builds run
+**locally only**; there is no CI job for mobile (see **[MOBILE.md](MOBILE.md)**
+for the full guide — signing, icons, size tiers, known gaps).
+
+```sh
+npm install
+npm run android        # debug APK      (needs the Android SDK)
+npm run ios            # simulator build (needs a Mac + Xcode)
+npm run android:open   # …or hand off to Android Studio
+npm run ios:open       # …or hand off to Xcode
+```
+
+`tools/build-www.mjs` assembles `www/` — the payload Capacitor wraps — from the
+same `sw.js` `ASSETS` list the PWA caches offline. Because every sprite has a
+procedural fallback, the default bundle keeps only assets ≤ 2 MB (**~12 MB**
+total, store-friendly) and draws the rest as vectors; `--full` bundles all
+~305 MB for a local device install.
 
 ## Deploy (GitHub Pages)
 

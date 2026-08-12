@@ -43,6 +43,12 @@ jobs:
           rm -rf node_modules tools gemini-prompts art-prompts-output docs
           rm -f ./*.ts ./*.md LICENSE the-light-bringer.html
           rm -f package.json package-lock.json tsconfig.json .gitignore
+          # Mobile (Capacitor) — built locally, never here (see MOBILE.md). The
+          # native projects and the www/ payload are git-ignored, but the config,
+          # the build scripts and the native icon sources are tracked, and none
+          # of them belong on the web site.
+          rm -rf scripts assets www android ios build
+          rm -f capacitor.config.json
       - uses: actions/configure-pages@v5
       - name: Upload site
         uses: actions/upload-pages-artifact@v3

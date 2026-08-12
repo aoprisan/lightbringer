@@ -1,7 +1,13 @@
 // Dependency-free PNG icon generator for The Light-Bringer.
 // Renders a warm gold flame-point glowing on deep indigo — the stolen flame.
+//
+// Also the shared flame renderer: tools/gen-cap-assets.mjs imports renderIcon()
+// and encodePNG() from here to draw the native app icon and splash at their own
+// sizes, so the PWA icon and the store icon are literally the same art. The
+// icon writes below only run when this file is executed directly.
 import zlib from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 const NIGHT = [0x0b, 0x0d, 0x1a];
 const NIGHT2 = [0x14, 0x12, 0x2a];
@@ -93,11 +99,17 @@ function encodePNG(size, rgba) {
   ]);
 }
 
-mkdirSync(new URL("../icons/", import.meta.url), { recursive: true });
-const out = (name) => new URL("../icons/" + name, import.meta.url);
+export { renderIcon, encodePNG };
 
-writeFileSync(out("icon-192.png"), encodePNG(192, renderIcon(192)));
-writeFileSync(out("icon-512.png"), encodePNG(512, renderIcon(512)));
-writeFileSync(out("maskable-512.png"), encodePNG(512, renderIcon(512, 0.18)));
-writeFileSync(out("icon-180.png"), encodePNG(180, renderIcon(180))); // apple-touch
-console.log("icons written");
+// Run directly (`node tools/gen-icons.mjs`) to write the PWA icon set; imported,
+// this file is just the two renderers above.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  mkdirSync(new URL("../icons/", import.meta.url), { recursive: true });
+  const out = (name) => new URL("../icons/" + name, import.meta.url);
+
+  writeFileSync(out("icon-192.png"), encodePNG(192, renderIcon(192)));
+  writeFileSync(out("icon-512.png"), encodePNG(512, renderIcon(512)));
+  writeFileSync(out("maskable-512.png"), encodePNG(512, renderIcon(512, 0.18)));
+  writeFileSync(out("icon-180.png"), encodePNG(180, renderIcon(180))); // apple-touch
+  console.log("icons written");
+}

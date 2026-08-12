@@ -3738,7 +3738,16 @@ function start(): void {
   }
 
   // ---------- Start screen + sharing the game ----------
-  function gameUrl(): string { return location.origin + location.pathname; }
+  // Inside the native app (Capacitor) the page is served from the app shell
+  // itself — https://localhost / capacitor://localhost — an origin that means
+  // nothing to whoever receives the link. So a shared link (and a duel token,
+  // and the QR) always points at the public site instead; on the web it stays
+  // the page you are standing on.
+  const PUBLIC_SITE = "https://aoprisan.github.io/lightbringer/";
+  function gameUrl(): string {
+    const native = typeof (globalThis as any).Capacitor !== "undefined";
+    return native ? PUBLIC_SITE + "werewolf.html" : location.origin + location.pathname;
+  }
 
   function showStart(): void {
     s = null; running = false;

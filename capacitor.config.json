@@ -1,0 +1,19 @@
+{
+  "appId": "io.github.aoprisan.lightbringer",
+  "appName": "The Light-Bringer",
+  "webDir": "www",
+  "backgroundColor": "#0b0d1a",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#0b0d1a",
+    "allowMixedContent": false,
+    "captureInput": true
+  },
+  "ios": {
+    "backgroundColor": "#0b0d1a",
+    "contentInset": "never",
+    "scrollEnabled": false
+  }
+}
