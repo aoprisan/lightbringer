@@ -637,5 +637,68 @@ ok(!threw, "render and scaffold run headlessly with zero sprites, at start and a
     "a recorded seal opens the trail to the next place");
 }
 
+// R. The watch's heartbeat — the Tolling and Zeal (the family redesign, ported).
+
+// R1. Zeal: a banishing stokes the meter and opens its window; lapse drains it.
+{
+  const s = eld.buildArena(eld.levelById("innsmouth"));
+  stowAll(s);
+  ok(s.fervor === 0 && s.tollNext === K.TOLL_FIRST_MS && s.tolls === 0,
+    "a fresh watch starts cold: no zeal, the bell waiting its grace");
+  eld.banish(s, s.horrors[0]);
+  ok(s.fervor > 0 && s.fervorUntil > s.elapsed, `a banishing stokes zeal (${s.fervor.toFixed(2)})`);
+  run(s, K.FERVOR_WINDOW_MS + K.FERVOR_DECAY_MS + 200, still);
+  ok(s.fervor === 0, "lapsed zeal drains back to nothing");
+}
+
+// R2. Zeal scales the pulse's bite.
+{
+  const s = eld.buildArena(eld.levelById("innsmouth"));
+  stowAll(s);
+  const tough = s.horrors[0];
+  tough.x = s.hero.x + 40; tough.y = s.hero.y; wake(tough);
+  tough.hp = tough.maxHp = 100000;
+  s.hero.charge = 1; s.hero.overcharge = 0; s.fervor = 0;
+  const hp0 = tough.hp;
+  eld.firePulse(s);
+  const coldBite = hp0 - tough.hp;
+  s.fervor = 1; s.fervorUntil = Infinity; s.hero.overcharge = 0;
+  const hp1 = tough.hp;
+  eld.firePulse(s);
+  const hotBite = hp1 - tough.hp;
+  ok(coldBite > 0 && Math.abs(hotBite / coldBite - (1 + K.FERVOR_DMG)) < 0.01,
+    `full zeal multiplies the pulse ×${(1 + K.FERVOR_DMG).toFixed(1)} (${coldBite.toFixed(1)} -> ${hotBite.toFixed(1)})`);
+}
+
+// R3. The Tolling: the bell stirs the nearest lurking cohort, each toll a bigger
+// one, and the cadence shortens as the host thins.
+{
+  const s = eld.buildArena(eld.levelById("innsmouth"));
+  stowAll(s); // all lurking, far beyond aggro
+  s.tollNext = 50;
+  run(s, 200, still);
+  ok(s.tolls === 1, "the drowned bell tolls when its time comes");
+  const roused1 = s.horrors.filter((e) => !e.dead && e.state === "hunt").length;
+  ok(roused1 === K.TOLL_ROUSE_BASE, `the first toll stirs ${K.TOLL_ROUSE_BASE} lurkers (${roused1})`);
+  ok(s.tollFlash > s.elapsed, "the fresh toll reads on screen");
+  s.tollNext = s.elapsed + 50;
+  run(s, 200, still);
+  const roused2 = s.horrors.filter((e) => !e.dead && e.state === "hunt").length;
+  ok(s.tolls === 2 && roused2 === K.TOLL_ROUSE_BASE * 2 + K.TOLL_ROUSE_GROWTH,
+    `the second toll stirs a bigger cohort (${roused2} hunting)`);
+  const s2 = eld.buildArena(eld.levelById("innsmouth"));
+  stowAll(s2);
+  s2.banished = Math.floor(s2.total * 0.8); // fake a nearly-banished host
+  s2.tollNext = 50;
+  run(s2, 200, still);
+  ok(s2.tollNext - s2.elapsed < K.TOLL_INTERVAL_MS * (1 - K.TOLL_ACCEL * 0.8) + 250,
+    "the cadence shortens as the host thins");
+  ok(eld.watchReadout(s2).includes("Bell") === (s2.tollNext - s2.elapsed <= 6000),
+    "the readout counts the bell down only when it draws near");
+  s2.fervor = 1; s2.hero.overcharge = 1;
+  ok(eld.watchReadout(s2).includes("Zeal") && eld.watchReadout(s2).includes("SIGN charged"),
+    "the readout shows the zeal's burn and a charged Sign");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

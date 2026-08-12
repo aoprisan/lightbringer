@@ -285,6 +285,13 @@ SHADE_PER_KEEPER`) — **clear them all to win; lose your HP to fall.**
 
 ### The descent's heartbeat — the Tolling, Fervor, and the Flare (the gameplay redesign)
 
+> **Family-wide:** this heartbeat has been **ported to every sibling where it makes sense**, translated
+> into each game's fiction — Eldritch gets the Tolling + Zeal (its overcharge already existed), Necro the
+> Muster + Terror (ditto), Bomber the Klaxon + Ace streak (ditto), and Werewolf only Blood-heat (its moon
+> cycle/alarm already ARE a pacing engine, and a converging bell would cut against its stealth loop). The
+> `TOLL_*`/`FERVOR_*` constant names and the `stepToll`/`s.fervor` shapes are mirrored across modules so a
+> fix in one ports to the others — see each sibling's own heartbeat note below.
+
 The old loop (walk to a pack → camp → walk to the next) was player-paced and flat; three mechanics turn
 it into a rhythm. All are pure sim (`stepToll`, the `killShade` fervor stoke, the `stepCombat` overcharge
 branch, the `stepPentagram` eruption), tuned in one block (`TOLL_*`, `FERVOR_*`, `PENTA_OVERCHARGE_MS`/
@@ -613,6 +620,16 @@ LEVELS order** (`villageUnlocked` — each opens once the one before it has a `b
 locked ones veiled, and the win screen names the next village or plays the epilogue). A duel link
 deliberately bypasses the gate (a guest pass, exactly like the siblings').
 
+### The march's heartbeat — the Muster and Terror (the family redesign, ported)
+
+The Vigil's engagement redesign, in the March's own terms (same `TOLL_*`/`FERVOR_*` names, same shapes;
+overcharge already existed here as the champion raise): **the Muster** (`stepToll`) — on a shrinking
+cadence the village **horn** sounds and the guarding knights nearest the necromancer rouse to `engage`
+(smaller cohorts than the Vigil's, knights being deadlier); **Terror** (`s.fervor`, stoked in `killKnight`)
+— chained knight-kills embolden the horde's swing (read at the single damage site in `stepMinions`) and
+quicken the necromancer's stride, draining when the window lapses. HUD via the pure `marchReadout`;
+toast + haptic on each horn; test group "R." in `tools/necro-test.mjs`.
+
 ### What Necro does NOT have (deferred)
 
 Unlike the Vigil, Necro currently has **no boss/duel**, **no frescoes/reliquary collection**, and **no QR
@@ -688,6 +705,14 @@ rebuilt at `buildArena`, never persisted): **menhirs** (solids, block bodies via
 `nearScar`), **walls** (`weaveSegments`, block bodies *and* break a gaze), **paths** (`PATH_BOOST`, speed the
 Watcher). Places (four, Lovecraftian): **Innsmouth** (fair first), **Dunwich**, **Kingsport**, **R'lyeh**
 (hardest). `scoreRun` adds a **sanity-kept** bonus alongside speed/wards/survival/untouched × `difficultyMult`.
+
+**The watch's heartbeat (the family redesign, ported):** the Vigil's Tolling and fervor, re-themed (same
+`TOLL_*`/`FERVOR_*` names, same shapes; overcharge already existed here as the empowered pulse). **The
+Tolling** (`stepToll`) — on a shrinking cadence a **drowned bell** tolls and the lurking horrors nearest
+the Watcher stir to `hunt`, each toll a bigger cohort; **Zeal** (`s.fervor`, stoked in `banish`) — chained
+banishings harden the pulse's bite (`firePulse`) and the Watcher's stride, draining when the window
+lapses. HUD via the pure `watchReadout`; toast + haptic per toll; test group "R." in
+`tools/eldritch-test.mjs`.
 
 The places are now a **full campaign** (a mirror of the werewolf's): each `LevelDef` carries an `epigraph`
 **and a `story` chapter** linking the place before to the place after, plus an `art` establishing scene
@@ -790,6 +815,15 @@ LoS; break LoS behind a wall, hide, or close and rend it). Hunters are **sticky*
 proximity-wake shrinks for a muffled/human hero (`STEALTH_AGGRO_MUL`). **Stealth as a man falls out for
 free** — a calm man radiates nothing, so prey ignore him and the hunters sleep. The strategic core: **cull
 the quiet and the isolated; a botched spook raises the alarm and brings the hunters.**
+
+### Blood-heat — the kill-streak (the family redesign, the piece that fits)
+
+The family's fervor in the predator's coin (same `FERVOR_*` names; stoked in `slay`, read at the single
+damage site in `bite`): kills chained inside the window heat the blood — every bite rends harder — and a
+lapsed streak cools to nothing. Shown in `furyReadout` and as a hot aura. **Deliberately NO bell/toll
+here**: the moon cycle and the spreading alarm already ARE this game's pacing engine, and a converging
+toll would cut against the stalk-and-strike loop; no speed lean either — momentum already pays the runner.
+Test group "R." in `tools/werewolf-test.mjs`.
 
 ### Terrain — and two werewolf-specific innovations
 
@@ -945,6 +979,16 @@ hold a formation ring (`ESCORT_FORM_R`) around the bomber and peel off to engage
 `stepChutes`) — catch it to patch the airframe (`PATCH_HEAL`, the mote analog). Bringing escorts home pays
 (`SCORE_ESCORT_MAX`). Damage paths are centralized like the siblings': `hurtTarget`/`destroyTarget`,
 `hurtFlak`, `hurtBomber` (i-framed), `hurtPlane`/`downPlane`.
+
+### The raid's heartbeat — the Klaxon and the Ace streak (the family redesign, ported)
+
+The Vigil's redesign flown to war (same `TOLL_*`/`FERVOR_*` names; overcharge already existed here as the
+blockbuster): **the Klaxon** (`stepToll`) — on a shrinking cadence the defence net vectors the **nearest
+grounded squadron** onto the bomber (an order, not a sighting — cloud is no cover) and spikes the alert
+(`TOLL_ALERT_SPIKE`); **the Ace streak** (`s.fervor`, stoked in `destroyTarget`) — targets silenced in
+quick succession sharpen the burst (`burstBomb`) and open the engines (`stepRaid` speed), settling when
+the long window (`FERVOR_WINDOW_MS` 9s — targets are sparse) lapses. HUD folded into `raidReadout`;
+toast + haptic per klaxon; test group "R." in `tools/bomber-test.mjs`.
 
 ### Terrain of the sky
 

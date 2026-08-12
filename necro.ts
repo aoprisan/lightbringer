@@ -156,6 +156,11 @@ interface NecroState {
   raises: Raise[];       // fading bone-burst rings (cosmetic)
   smites: Smite[];       // fading holy flashes where a priest unmade a skeleton
   bolts: Bolt[];         // crossbowmen's loosed bolts in flight (the only projectiles)
+  fervor: number;        // 0..1 terror — the kill-streak (ramps horde bite & hero stride)
+  fervorUntil: number;   // s.elapsed the streak window stays open to (then it drains)
+  tollNext: number;      // s.elapsed at which the village horn next sounds
+  tolls: number;         // horns so far this march (each musters a bigger cohort)
+  tollFlash: number;     // s.elapsed until which the fresh horn reads on screen
   elapsed: number;       // ms since the march began (clear time)
   kills: number;         // knights felled
   hits: number;          // times a knight has landed a blow on the necromancer
@@ -238,6 +243,30 @@ const MOTE_RADIUS = 18;          // gather reach (over and above the hero's radi
 const FRENZY_MS = 3500;          // how long a gathered mote keeps the horde frenzied
 const FRENZY_HASTE = 0.7;        // a frenzied minion's swing cooldown × this (faster)
 const FRENZY_DMG_MUL = 1.3;      // …and its swing damage × this (harder)
+
+// ---- The march's heartbeat (the family's engagement redesign, ported) ----
+// THE MUSTER — the watch's horn (the Vigil's Tolling, heard from the defenders'
+// side). On a cadence the village horn sounds: the cohort of GUARDING knights
+// nearest the necromancer rouses and marches on him — the war comes to you
+// instead of waiting at its post to be walked to. Each horn musters a bigger
+// cohort and the cadence shortens as the watch thins, so a march accelerates
+// toward its end instead of petering into a hunt for the last posts.
+const TOLL_FIRST_MS = 18000;     // quiet grace before the first horn
+const TOLL_INTERVAL_MS = 14000;  // base gap between horns…
+const TOLL_ACCEL = 0.6;          // …shaved by up to this fraction as the watch thins
+const TOLL_ROUSE_BASE = 2;       // knights mustered by the first horn (a knight is far
+const TOLL_ROUSE_GROWTH = 1;     //   deadlier than a shade — smaller cohorts than the Vigil's)
+const TOLL_FLASH_MS = 1400;      // how long the horn's cry reads on screen
+
+// TERROR — the kill-streak (the Vigil's fervor, inverted onto the horde). Every
+// knight felled in quick succession spreads terror through the village: the
+// horde bites harder and the necromancer strides faster — until the window
+// lapses and the watch steadies itself. Rewards pressing the rout.
+const FERVOR_PER_KILL = 0.25;    // meter gained per felled knight (they die slower
+const FERVOR_WINDOW_MS = 6000;   //   than shades, so a kill counts more, held longer)
+const FERVOR_DECAY_MS = 1500;    // a lapsed streak drains full→empty this fast
+const FERVOR_DMG = 0.4;          // minion swing ×(1 + this × terror)
+const FERVOR_SPEED = 0.15;       // necromancer speed ×(1 + this × terror)
 
 // Plague Rite — a rite power (see RaiseType.power). A felled Plague skeleton bursts
 // into a lingering death-miasma that gnaws the knights standing in it every frame
@@ -1058,6 +1087,8 @@ function buildArena(level: LevelDef, seed?: number): NecroState {
     hero, rite, perk, perkMods: mods, souls: SOUL_START + mods.soulStart, soulRegen: 0,
     minions: [], knights,
     wisps: [], motes: [], miasmas: [], raises: [], smites: [], bolts: [],
+    fervor: 0, fervorUntil: 0,
+    tollNext: TOLL_FIRST_MS, tolls: 0, tollFlash: 0,
     elapsed: 0, kills: 0, hits: 0, total: knights.length,
     housesTotal: scenery.filter((n) => n.kind === "house").length,
     desecCount: 0, reconsecrated: 0, raisedTotal: 0,
@@ -1135,6 +1166,9 @@ function killKnight(s: NecroState, e: Knight): void {
   e.dead = true;
   s.kills++;
   s.killTimes.push(Math.round(s.elapsed)); // the echo a duel token carries
+  // Every felled knight spreads terror and re-opens the streak's window.
+  s.fervor = Math.min(1, s.fervor + FERVOR_PER_KILL);
+  s.fervorUntil = s.elapsed + FERVOR_WINDOW_MS;
   s.souls += SOUL_PER_KILL;
   if (Math.random() < WISP_DROP_CHANCE) {
     s.wisps.push({ x: e.x, y: e.y, until: s.elapsed + WISP_TTL_MS });
@@ -1287,6 +1321,7 @@ function stepMinions(s: NecroState, dt: number): void {
         let dmg = MINION_DMG * def.dmgMul;
         if (m.champion) dmg *= CHAMPION_DMG_MUL;
         if (frenzied) dmg *= FRENZY_DMG_MUL;
+        dmg *= 1 + FERVOR_DMG * s.fervor; // spreading terror emboldens the horde
         hurtKnight(s, target, dmg);
         m.attackCd = MINION_ATTACK_CD * (frenzied ? FRENZY_HASTE : 1);
       }
@@ -1337,6 +1372,34 @@ function nearestMinion(s: NecroState, x: number, y: number, range: number): numb
 // necromancer or a minion, whichever is closer — closes, and swings on a cooldown:
 // a minion takes a blow (and may die); the necromancer loses HP gated by i-frames
 // (hits++, knockback). Once only a handful remain, the rest rouse so a march ends.
+// The Muster — the march's pacing engine (the Vigil's Tolling from the defenders'
+// side). When the horn's time comes, the cohort of guarding knights NEAREST the
+// necromancer rouses and marches on him. Each horn musters a bigger cohort, and
+// the cadence shortens as the watch thins, so the last posts hunt YOU.
+function stepToll(s: NecroState): void {
+  if (s.elapsed < s.tollNext) return;
+  const guards = s.knights
+    .filter((e) => !e.dead && e.state === "guard")
+    .map((e) => ({ e, d: (e.x - s.hero.x) ** 2 + (e.y - s.hero.y) ** 2 }))
+    .sort((a, b) => a.d - b.d);
+  const count = TOLL_ROUSE_BASE + s.tolls * TOLL_ROUSE_GROWTH;
+  for (const { e } of guards.slice(0, count)) e.state = "engage";
+  s.tolls++;
+  s.tollFlash = s.elapsed + TOLL_FLASH_MS;
+  const cleared = s.total ? s.kills / s.total : 0;
+  s.tollNext = s.elapsed + TOLL_INTERVAL_MS * (1 - TOLL_ACCEL * cleared);
+}
+
+// The heartbeat readout for the HUD — pure, so the harness can assert it: the
+// horn's countdown and the terror's spread.
+function marchReadout(s: NecroState): string {
+  const parts: string[] = [];
+  const horn = Math.max(0, Math.ceil((s.tollNext - s.elapsed) / 1000));
+  if (horn <= 6) parts.push(`Horn ${horn}s`);
+  if (s.fervor > 0) parts.push(`Terror ×${(1 + FERVOR_DMG * s.fervor).toFixed(1)}`);
+  return parts.join(" · ");
+}
+
 function stepKnights(s: NecroState, dt: number): void {
   const h = s.hero;
   const cleanup = aliveKnights(s) <= Math.ceil(s.total * CLEANUP_AGGRO_FRAC);
@@ -1787,7 +1850,8 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   const onPath = s.causeways.some(
     (p) => closestOnSegment(h.x, h.y, p.x1, p.y1, p.x2, p.y2).d <= CAUSEWAY_HALF,
   );
-  const speed = HERO_SPEED * (onPath ? CAUSEWAY_BOOST : 1);
+  // Spreading terror quickens the necromancer's stride — press the rout.
+  const speed = HERO_SPEED * (1 + FERVOR_SPEED * s.fervor) * (onPath ? CAUSEWAY_BOOST : 1);
   h.vx = move.x * speed;
   h.vy = move.y * speed;
   {
@@ -1795,6 +1859,11 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
     h.x = p.x; h.y = p.y;
   }
   if (h.hurt > 0) h.hurt = Math.max(0, h.hurt - dt);
+
+  // Terror fades once its kill-window lapses — a rout must be PRESSED to spread.
+  if (s.fervor > 0 && s.elapsed > s.fervorUntil) {
+    s.fervor = Math.max(0, s.fervor - dt / FERVOR_DECAY_MS);
+  }
 
   // The raising-pentagram inscribes while the necromancer holds still and bleeds
   // away as he marches; only an inscribed sigil raises the dead (see stepRaise).
@@ -1824,6 +1893,7 @@ function stepMarch(s: NecroState, dt: number, move: Move): void {
   stepRaise(s);        // an inscribed sigil over a grave raises skeletons (costs souls)
   stepWisps(s);        // gather any soul-wisp underfoot
   stepMotes(s);        // gather any death-mote underfoot (frenzies the horde)
+  stepToll(s);         // the village horn: muster a marching cohort on its cadence
   stepMinions(s, dt);  // the horde follows / auto-targets the watch
   stepKnights(s, dt);  // the watch guards / engages the horde and the necromancer
   stepBolts(s, dt);    // crossbowmen's loosed bolts fly and strike (or are walled off)
@@ -2501,6 +2571,31 @@ function render(s: NecroState, layer: SVGGElement): void {
     }
   }
 
+  // Terror — the kill-streak spreads as a cold grave-fire aura around the
+  // necromancer, scaling with the meter so a pressed rout visibly rages.
+  if (s.fervor > 0) {
+    const fp = 1 + 0.1 * Math.sin(s.elapsed / 110);
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: (HERO_RADIUS + 8 + 14 * s.fervor) * fp, fill: "none",
+      stroke: "#3cff8a", "stroke-width": 1.5 + 2 * s.fervor, opacity: 0.25 + 0.5 * s.fervor,
+      filter: LOW_FX ? "url(#glow)" : "url(#bloom)",
+    }));
+  }
+
+  // The Muster — the horn's cry races outward from the necromancer: the watch
+  // has heard, and the mustered cohort is already marching.
+  if (s.tollFlash > s.elapsed) {
+    const prog = 1 - (s.tollFlash - s.elapsed) / TOLL_FLASH_MS;
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 60 + 640 * prog, fill: "none",
+      stroke: "#c9a86a", "stroke-width": 3 * (1 - prog) + 0.5, opacity: 0.55 * (1 - prog),
+    }));
+    layer.appendChild(el("circle", {
+      cx: h.x, cy: h.y, r: 30 + 640 * prog * 0.8, fill: "none",
+      stroke: "#f0e0b8", "stroke-width": 1.5, opacity: 0.35 * (1 - prog),
+    }));
+  }
+
   // The necromancer, drawn last over everything with a necrotic aura.
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 30, fill: "url(#haloRise)", opacity: 0.85 }));
   layer.appendChild(el("circle", { cx: h.x, cy: h.y, r: 22, fill: "url(#necro)", opacity: 0.5 }));
@@ -2865,6 +2960,9 @@ function start(): void {
       const done = s.elapsed >= s.rival.ms ? (s.rival.result === "won" ? " ✓" : " ✝") : "";
       foes += ` · ⚔ ${s.rival.name} ${rk}${done}`;
     }
+    // The heartbeat: the horn's countdown and the terror's spread.
+    const beat = marchReadout(s);
+    if (beat) foes += ` · ${beat}`;
     foesEl.textContent = foes;
   }
 
@@ -2982,12 +3080,14 @@ function start(): void {
         move.x = m ? mx / m : 0;
         move.y = m ? my / m : 0;
       }
-      const kBefore = s.killTimes.length, hpBefore = s.hero.hp;
+      const kBefore = s.killTimes.length, hpBefore = s.hero.hp, tollsBefore = s.tolls;
       stepMarch(s, dt, move);
       // Haptics: a tick per felled knight, a heavier knock when the necromancer
       // is struck (the later call wins if both fire in one frame).
       if (s.killTimes.length > kBefore) buzz(15);
       if (s.hero.hp < hpBefore) buzz(40);
+      // The village horn just sounded — a mustered cohort marches on you. Say so.
+      if (s.tolls > tollsBefore) { buzz([20, 40, 20]); showToast("The village horn sounds — the watch musters and marches on you."); }
       centerCam(s.hero.x, s.hero.y);
     }
 
@@ -3392,6 +3492,7 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
     generateNecroVillage, buildArena, freshNecro, stepMarch,
     stepRaise, stepMinions, stepKnights, stepBolts, stepDesecrate, stepHouses, stepAltar, stepWisps, stepMotes,
     killKnight, hurtKnight, killMinion, stepMiasma, desecrateHouse, reconsecrateHouse, nearScar,
+    stepToll, marchReadout,
     nearestKnight, nearestMinion,
     aliveKnights, aliveMinions, clearedPct, houseReadout, scoreRun, difficultyMult,
     LEVELS, levelById, villageUnlocked, storyChapter, PROLOGUE, EPILOGUE,
@@ -3408,6 +3509,8 @@ if (typeof globalThis !== "undefined" && testGlobal.__NECRO_TEST__) {
       HERO_STILL_MAXSPEED, PENTA_CHARGE_MS, PENTA_RAISE_AT, PENTA_RADIUS, PENTA_SPIN,
       PENTA_OVERCHARGE_MS, OVERCHARGE_EXTRA_COST, CHAMPION_HP_MUL, CHAMPION_DMG_MUL, CHAMPION_SIZE_MUL,
       MOTE_DROP_CHANCE, MOTE_TTL_MS, MOTE_RADIUS, FRENZY_MS, FRENZY_HASTE, FRENZY_DMG_MUL,
+      TOLL_FIRST_MS, TOLL_INTERVAL_MS, TOLL_ACCEL, TOLL_ROUSE_BASE, TOLL_ROUSE_GROWTH, TOLL_FLASH_MS,
+      FERVOR_PER_KILL, FERVOR_WINDOW_MS, FERVOR_DECAY_MS, FERVOR_DMG, FERVOR_SPEED,
       PLAGUE_CLOUD_MS, PLAGUE_CLOUD_R, PLAGUE_CLOUD_DPS,
       SOUL_PER_RAZE, SOUL_REGEN_MS, SOUL_REGEN_TO,
       RELIC_SCORE_DIV, RELIC_PER_KILL,

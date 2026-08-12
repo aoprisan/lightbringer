@@ -990,5 +990,41 @@ ok(ww.inNodeAura(ix, 10, 10, "spring", K.SPRING_AURA) && !ww.inNodeAura(ix, 10, 
     "every generated art file is precached in sw.js ASSETS");
 }
 
+// R. Blood-heat — the kill-streak (the family redesign, in the predator's coin).
+
+// R1. A kill heats the blood and opens its window; lapse cools it back to nothing.
+{
+  const s = ww.buildArena(ww.levelById(id));
+  stowAll(s);
+  ok(s.fervor === 0, "a fresh hunt starts with cold blood");
+  ww.slay(s, s.foes[0]);
+  ok(s.fervor > 0 && s.fervorUntil > s.elapsed, `a kill heats the blood (${s.fervor.toFixed(2)})`);
+  beast(s); // hold the form so the moon layer doesn't end the hunt mid-run
+  run(s, K.FERVOR_WINDOW_MS + K.FERVOR_DECAY_MS + 200, still);
+  ok(s.fervor === 0, "cooled blood drains back to nothing");
+}
+
+// R2. Hot blood rends harder — the bite reads the streak at its single damage site.
+{
+  const s = ww.buildArena(ww.levelById(id));
+  stowAll(s);
+  sprint(s);
+  const anvil = mkF(s.hero.x + 30, s.hero.y, "knight", 100000);
+  anvil.maxHp = 100000;
+  s.foes.push(anvil);
+  s.fervor = 0;
+  const hp0 = anvil.hp;
+  ww.bite(s, anvil);
+  const coldBite = hp0 - anvil.hp;
+  s.fervor = 1; s.fervorUntil = Infinity;
+  anvil.x = s.hero.x + 30; anvil.y = s.hero.y; // undo the bite's shove
+  const hp1 = anvil.hp;
+  ww.bite(s, anvil);
+  const hotBite = hp1 - anvil.hp;
+  ok(coldBite > 0 && Math.abs(hotBite / coldBite - (1 + K.FERVOR_DMG)) < 0.01,
+    `hot blood multiplies the bite ×${(1 + K.FERVOR_DMG).toFixed(1)} (${coldBite.toFixed(1)} -> ${hotBite.toFixed(1)})`);
+  ok(ww.furyReadout(s).includes("Blood-heat"), "the readout shows the blood's burn");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
