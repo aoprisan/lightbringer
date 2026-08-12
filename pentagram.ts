@@ -5384,7 +5384,16 @@ function start(): void {
 
   // ---------- Start screen + sharing the game ----------
   // The deployed page, sans any query/hash — what we hand out to others.
-  function gameUrl(): string { return location.origin + location.pathname; }
+  // Inside the native app (Capacitor) the page is served from the app shell
+  // itself — https://localhost / capacitor://localhost — an origin that means
+  // nothing to whoever receives the link. So a shared link (and a duel token,
+  // and the QR) always points at the public site instead; on the web it stays
+  // the page you are standing on.
+  const PUBLIC_SITE = "https://aoprisan.github.io/lightbringer/";
+  function gameUrl(): string {
+    const native = typeof (globalThis as any).Capacitor !== "undefined";
+    return native ? PUBLIC_SITE + "pentagram.html" : location.origin + location.pathname;
+  }
 
   // The title screen: logo, a random fresco for art, and ways to share the game.
   // "Enter the Vigil" drops into the city picker.

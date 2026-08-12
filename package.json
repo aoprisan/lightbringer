@@ -11,9 +11,29 @@
     "typecheck": "tsc --noEmit",
     "test": "tsc && node tools/pentagram-test.mjs && node tools/necro-test.mjs && node tools/eldritch-test.mjs && node tools/werewolf-test.mjs && node tools/bomber-test.mjs",
     "icons": "node tools/gen-icons.mjs && node tools/gen-ww-icons.mjs && node tools/gen-bomber-icons.mjs",
-    "start": "tsc && python3 -m http.server 8000"
+    "start": "tsc && python3 -m http.server 8000",
+
+    "www": "tsc && node tools/build-www.mjs",
+    "www:full": "tsc && node tools/build-www.mjs --full",
+    "cap:sync": "npm run www && cap sync",
+    "cap:doctor": "cap doctor",
+    "cap:assets": "node tools/gen-cap-assets.mjs && npx --yes @capacitor/assets@3 generate --iconBackgroundColor \"#0b0d1a\" --iconBackgroundColorDark \"#0b0d1a\" --splashBackgroundColor \"#0b0d1a\" --splashBackgroundColorDark \"#0b0d1a\"",
+    "android": "scripts/build-android.sh",
+    "android:open": "scripts/build-android.sh --open",
+    "android:run": "scripts/build-android.sh --run",
+    "android:release": "scripts/build-android.sh --bundle",
+    "ios": "scripts/build-ios.sh",
+    "ios:open": "scripts/build-ios.sh --open",
+    "ios:run": "scripts/build-ios.sh --run",
+    "ios:archive": "scripts/build-ios.sh --archive"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.0",
     "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0"
   }
 }

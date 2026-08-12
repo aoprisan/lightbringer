@@ -51,8 +51,11 @@ The codebase is plain HTML/CSS + hand-written TypeScript modules rendering layer
 **cross-link**: every game's header has a **⌂ Class Select** link back to the hub plus quick links to its
 siblings.
 
-Today the shipped runtime has zero third-party dependencies (the only dependency is `typescript` itself, a
-devDependency). Treat "zero dependencies" and "fully offline" as **guidelines, not hard rules** — worth
+Today the **shipped web runtime** still has zero third-party dependencies — nothing the browser downloads is
+anyone else's code. `package.json` is no longer bare, though: `typescript` (devDep) plus **Capacitor**
+(`@capacitor/core`/`android`/`ios`, with `@capacitor/cli` as a devDep) for the native app builds, which are
+build-time only and never touch the deployed site. Treat "zero dependencies" and "fully offline" as
+**guidelines, not hard rules** — worth
 preserving where cheap, but no longer constraints that veto a feature. In particular, **multiplayer is an
 intended future direction** (trading, async/PvP duels, shared profiles), and landing it will mean accepting
 a backend and/or runtime dependencies. Weigh new dependencies on their merits.
@@ -89,6 +92,19 @@ node tools/gen-eld-art.mjs       # regenerate the eldritch place establishing sc
 node tools/gen-bomber-icons.mjs  # regenerate the bomber icons/bomber-*.png from code
 node tools/gen-bomber-art.mjs    # regenerate the bomber theatre establishing scenes (art/theatre-*.png)
 node tools/gen-pg-art.mjs        # regenerate the Vigil's six generated city scenes (art/city-*.png)
+
+# Mobile (Capacitor) — LOCAL ONLY, never in CI. Full guide: MOBILE.md
+npm run www                      # build + assemble www/ (the native payload, ~12 MB)
+npm run www:full                 # ...bundling every asset sw.js lists (~305 MB)
+npm run android                  # debug APK   (needs ANDROID_HOME + JDK 21)
+npm run ios                      # simulator build (needs macOS + Xcode)
+npm run android:open             # sync, then open Android Studio
+npm run ios:open                 # sync, then open Xcode
+npm run android:release          # release AAB for Play (signed via LB_KEYSTORE env)
+npm run ios:archive              # signed .xcarchive in build/ios/
+npm run cap:assets               # redraw assets/ + generate every native icon density
+scripts/build-android.sh --help  # every flag (--release/--bundle/--run/--full/--clean/--sync-only)
+scripts/build-ios.sh --help      # every flag (--device/--archive/--export/--run/--full/...)
 ```
 
 `npm test` runs `tsc && node tools/pentagram-test.mjs && node
@@ -248,7 +264,7 @@ be ported to all five:
 ### Service worker cache versioning
 
 `sw.js` is the offline app-shell cache for the **class-select hub and all five games**, with an explicit
-`ASSETS` list and a `CACHE` version string (currently `lightbringer-v121`). It is **network-first for the
+`ASSETS` list and a `CACHE` version string (currently `lightbringer-v123`). It is **network-first for the
 shells** (`isShell`: `/`, `index.html`, `pentagram.html`, `pentagram.js`, `necro.html`, `necro.js`,
 `eldritch.html`, `eldritch.js`, `werewolf.html`, `werewolf.js`, `bomber.html`, `bomber.js`) so the freshest code always wins online, and **cache-first** for the heavy, slow-changing
 art/icons (what makes the game playable offline). `addAll()` rejects the whole install if any listed asset
@@ -260,6 +276,12 @@ The Necromancer's March art **has now shipped** (the four house states, well/alt
 barricade/causeway, necromancer, both knight faces, the skeleton + three per-rite kinds, the priest, four
 village establishing jpgs, and the Necro PWA icons/logo are all in `ASSETS`); render still falls back to
 vector primitives when any are absent.
+
+`ASSETS` is now **also the native apps' manifest**: `tools/build-www.mjs` reads this same list to assemble
+`www/` for Capacitor (see Mobile apps below), and fails if any entry is missing — so keeping the list honest
+serves both wrappers. The shells **skip registering the service worker inside the app**
+(`if (!window.Capacitor && "serviceWorker" in navigator)`): there the shell *is* the bundle, and iOS's
+WKWebView has no service worker at all.
 
 ### Reference-only prototypes — do not ship
 
@@ -1051,9 +1073,62 @@ Sprite resolution mirrors the siblings (`spriteFor`/`loadSprites`/`loadCitySprit
 Shipping rules: `bomber.html`/`bomber.js`/`bomber.webmanifest` and the `icons/bomber-*.png` are in `sw.js`
 `ASSETS` (shell network-first, icons cache-first); bump `CACHE` when their bytes change.
 
+---
+
+## Mobile apps — Android & iOS (Capacitor)
+
+The same five games also wrap as **native apps** via **Capacitor 8** (`@capacitor/core` +
+`@capacitor/android`/`@capacitor/ios` as deps, `@capacitor/cli` as a devDep — the first runtime dependencies
+this repo has taken). No second codebase and no new game logic: the apps load the identical HTML/JS/art.
+**Full guide: `MOBILE.md`.**
+
+**Builds are LOCAL ONLY — deliberately no CI.** `.github/workflows/deploy.yml` still only publishes the web
+site; a mobile job would need an Android SDK, a Mac, and signing identities. Don't add one unless asked. The
+deploy workflow's prune step strips `scripts/ assets/ www/ android/ ios/ build/` and `capacitor.config.json`
+so none of the mobile wiring reaches Pages.
+
+### The payload — `tools/build-www.mjs`
+
+The site *is* the repo root, so there is no `dist/` for Capacitor to point at. `build-www.mjs` makes one:
+it copies the shipped files into `www/` (named by `capacitor.config.json`'s `webDir`), and **reads the file
+list straight out of `sw.js`'s `ASSETS`** — one source of truth for both wrappers. It **exits non-zero if a
+listed file is missing**, mirroring the service worker's `addAll()`, so it also guards that list.
+
+**Size tiering is the one native/web divergence.** The full `ASSETS` payload is ~305 MB of painted art —
+past Google Play's 200 MB AAB cap. Since every sprite has a procedural vector fallback, the default build
+keeps only assets **≤ 2 MB** (127 files, ~12 MB) and lets the rest draw as vectors; `--full` bundles
+everything (device installs only), `--max-asset-mb=N` picks any cut in between. Both build scripts pass
+`--full` through.
+
+### The build scripts
+
+`scripts/build-android.sh` and `scripts/build-ios.sh` are the entry points (each with `--help`), wired to
+npm as `android`/`android:open`/`android:run`/`android:release` and `ios`/`ios:open`/`ios:run`/`ios:archive`.
+Both run the same spine: `tsc` → `build-www.mjs` → `cap add <platform>` (only if the dir is absent) →
+`cap sync` → Gradle / xcodebuild. Signing credentials come from the environment only (`LB_KEYSTORE*`,
+`LB_TEAM_ID`, `LB_EXPORT_OPTIONS`) — never from the repo. `android/`, `ios/`, `www/` and `build/` are
+git-ignored and fully regenerable; commit the native dirs only once they're hand-customized.
+
+Capacitor 8 scaffolds iOS with **Swift Package Manager** (`App.xcodeproj`, no `.xcworkspace`, no CocoaPods);
+`build-ios.sh` handles either layout.
+
+### What the games do differently under Capacitor
+
+Exactly two things, both guarded on `window.Capacitor` (which the native bridge defines):
+- **No service worker** — the shells skip registration (see above).
+- **`gameUrl()` points at the public site.** In the app the origin is `https://localhost` /
+  `capacitor://localhost`, meaningless to a rival, so all five games fall back to `PUBLIC_SITE +
+  "<game>.html"` for share links, duel tokens and the QR. It is a verbatim-mirrored block like the rest of
+  the duel code — **port any change to all five**, and update `PUBLIC_SITE` if the site ever moves.
+
+Native icons/splash: `tools/gen-icons.mjs` now **exports** `renderIcon`/`encodePNG` (its own writes run only
+when executed directly), and `tools/gen-cap-assets.mjs` redraws the same flame into `assets/icon.png` (1024²)
+and `assets/splash{,-dark}.png` (2732²). `npm run cap:assets` draws them and then shells out to
+`npx @capacitor/assets` — fetched on demand, deliberately *not* a dependency (it pulls ~400 packages).
+
 ## Deploy
 
 `.github/workflows/deploy.yml` runs `npm ci && npm run build` (compiling all five `.ts` → `.js`), prunes
-`node_modules`, then publishes the repo root to GitHub Pages on every push to `main` (or manual
-`workflow_dispatch`). One-time setup: Settings → Pages → Source: "GitHub Actions". The site **is** the
-repository root — there is no `dist/`.
+`node_modules` (and the mobile wiring — see above), then publishes the repo root to GitHub Pages on every
+push to `main` (or manual `workflow_dispatch`). One-time setup: Settings → Pages → Source: "GitHub Actions".
+The site **is** the repository root — there is no `dist/`.
