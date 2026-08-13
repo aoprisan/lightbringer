@@ -1,13 +1,18 @@
 // Service worker for The Light-Bringer.
 // App-shell caching so the game is fully playable offline once visited.
 // Bump CACHE when shipping new assets to retire the old cache.
-const CACHE = "lightbringer-v124";
+const CACHE = "lightbringer-v125";
 
 const ASSETS = [
   // The class-select hub — the unified front door (root). Network-first like the
   // rest of the shell (see isShell): the freshest code always wins online.
   "./",
   "./index.html",
+  // The Sin-Eater's Round — the Litany-line PROTOTYPE the hub links as a rite
+  // under trial (SIN_EATER_CONCEPT.md). Code that changes often, so it is
+  // network-first like the shells (see isShell).
+  "./proto/sineater-proto.html",
+  "./proto/litany-sim.mjs",
   // Pentagram — the action-combat spinoff (its own page + module, reusing the
   // same art and cities). Network-first like the rest of the shell (see isShell).
   "./pentagram.html",
@@ -276,7 +281,8 @@ function isShell(url) {
     url.pathname.endsWith("/necro.html") || url.pathname.endsWith("/necro.js") ||
     url.pathname.endsWith("/eldritch.html") || url.pathname.endsWith("/eldritch.js") ||
     url.pathname.endsWith("/werewolf.html") || url.pathname.endsWith("/werewolf.js") ||
-    url.pathname.endsWith("/bomber.html") || url.pathname.endsWith("/bomber.js");
+    url.pathname.endsWith("/bomber.html") || url.pathname.endsWith("/bomber.js") ||
+    url.pathname.endsWith("/proto/sineater-proto.html") || url.pathname.endsWith("/proto/litany-sim.mjs");
 }
 
 self.addEventListener("fetch", (event) => {
