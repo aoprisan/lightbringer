@@ -242,6 +242,18 @@ won't. Folk-horror, liturgical, intimate. Concretely:
 - **Name:** *The Sin-Eater's Round* is the working title; alternates kept: *The Unquiet Round*, *The
   Long Litany*, *Salt for the Dead*.
 
+## 13. The prototype (§3, playable)
+
+The core verb is now prototyped: `proto/sineater-proto.html` + `proto/litany-sim.mjs` (pure sim, plain JS
+ESM — deliberately outside tsconfig), headless-tested by `tools/sineater-proto-test.mjs` (run by hand; not
+part of `npm test`). It proves the line laying + decay shape-language (solid → dashed → dotted), per-frame
+closure detection + polygon judgment, both anti-stutter-loop knobs (`minLoopArea`, salt per px), the
+anti-fountain seep, prey balk (the ward) and glutton chew (the severed strand), and seeded determinism —
+with live tuning sliders and a hands-free `?demo` drive. The hub links it as "a rite under trial"
+(a dashed full-width card under the class grid), and both files ship network-first via `sw.js`.
+One finding already: a severed strand cannot close a circuit across the cut — the glutton is a sharper
+counter than §7 guessed, and cross-strand closure (§12) is worth deciding early.
+
 ---
 
 *The extraction, restated in one line: the family's occult liturgy — light, salt, bells, scars, the paid

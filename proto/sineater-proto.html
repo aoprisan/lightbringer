@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>The Litany — a Sin-Eater's Round prototype</title>
+<!-- PROTOTYPE, reference only — not wired into the hub, sw.js, or tsconfig.
+     Proves §3 of SIN_EATER_CONCEPT.md: the walked line, its decay shape-language,
+     circuit closure + judgment, the salt economy, prey balk, glutton chew.
+     Sim lives in litany-sim.mjs (pure, headless-tested); this file only renders.
+     ?demo auto-walks a circuit so the mechanic can be seen hands-free. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0d12; color: #cfc9bd; overflow: hidden;
+    font: 14px/1.4 Georgia, "Times New Roman", serif; -webkit-user-select: none; user-select: none; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  #vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.55) 100%); }
+  #hud { position: absolute; top: 10px; left: 12px; pointer-events: none; }
+  #hud h1 { margin: 0 0 2px; font-size: 15px; font-weight: normal; letter-spacing: 2px;
+    font-variant: small-caps; color: #e8d9b0; }
+  #hud .dim { color: #7b766c; font-size: 12px; }
+  #saltwrap { width: 150px; height: 7px; background: #23222a; border: 1px solid #3a3844;
+    margin: 6px 0 3px; }
+  #saltbar { height: 100%; width: 100%; background: linear-gradient(90deg, #b98a3e, #ffd98f); }
+  #toast { position: absolute; top: 22%; left: 0; right: 0; text-align: center; pointer-events: none;
+    font-variant: small-caps; letter-spacing: 2px; font-size: 17px; color: #e8d9b0;
+    text-shadow: 0 0 14px rgba(255,217,143,.35); opacity: 0; transition: opacity .5s; }
+  #panel { position: absolute; left: 12px; bottom: 12px; background: rgba(13,13,18,.85);
+    border: 1px solid #2c2a34; padding: 8px 12px; font-size: 12px; color: #9b958a; }
+  #panel summary { cursor: pointer; font-variant: small-caps; letter-spacing: 1px; color: #cfc9bd; }
+  #panel label { display: block; margin-top: 6px; }
+  #panel input[type=range] { width: 150px; vertical-align: middle; }
+  #panel button { margin-top: 8px; background: #23222a; color: #cfc9bd; border: 1px solid #3a3844;
+    padding: 3px 10px; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="vignette"></div>
+<div id="hud">
+  <h1>the litany</h1>
+  <div id="saltwrap"><div id="saltbar"></div></div>
+  <div class="dim">salt <span id="saltnum"></span> &nbsp;·&nbsp; shriven <span id="shriven"></span></div>
+  <div class="dim" id="lastc"></div>
+  <div class="dim" style="margin-top:6px">walk: WASD / arrows / drag &nbsp;·&nbsp; cross your own line to close the circle &nbsp;·&nbsp; R begins again</div>
+</div>
+<div id="toast"></div>
+<details id="panel"><summary>tuning</summary>
+  <label>line burns <span id="v-ttl"></span>s <input id="t-ttl" type="range" min="3000" max="15000" step="500"></label>
+  <label>least circle <span id="v-area"></span> px² <input id="t-area" type="range" min="0" max="4000" step="100"></label>
+  <label>salt per px <span id="v-salt"></span> <input id="t-salt" type="range" min="0" max="0.1" step="0.005"></label>
+  <button id="reset">begin again</button>
+</details>
+
+<script type="module">
+import { freshState, step, aliveFoes } from "./litany-sim.mjs";
+
+const svg = document.getElementById("stage");
+const demo = new URLSearchParams(location.search).has("demo");
+const W = () => window.innerWidth, H = () => window.innerHeight;
+
+let s;
+function reset() {
+  s = freshState({ w: W(), h: H(), seed: demo ? 7 : ((Math.random() * 1e9) | 0), prey: demo ? 0 : 14, gluttons: demo ? 0 : 2,
+    tune: demo ? { preySpeed: 16 } : undefined });
+  fx.length = 0;
+  if (demo) {
+    // A slow cluster inside the circuit the driver will draw; the one glutton starts
+    // far enough out that it reaches the line only after the closure has fired.
+    const cx = s.w / 2, cy = s.h / 2;
+    const spots = [[-45, -30], [30, -50], [55, 25], [-20, 45], [0, 0]];
+    for (const [dx, dy] of spots) s.foes.push({ x: cx + dx, y: cy + dy, kind: "craven", dir: 0, chewAt: 0, dead: false, deadAt: 0 });
+    s.foes.push({ x: 60, y: s.h - 60, kind: "glutton", dir: 0, chewAt: 0, dead: false, deadAt: 0 });
+    s.total = s.foes.length;
+    s.hero.x = cx - 130; s.hero.y = cy - 130;
+  }
+  globalThis.__proto = s; // observability seam (used by the screenshot harness)
+  syncPanel();
+}
+
+// -- input ------------------------------------------------------------------
+const keys = {};
+addEventListener("keydown", (e) => { keys[e.key.toLowerCase()] = true; if (e.key.toLowerCase() === "r") reset(); });
+addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+let stick = null;
+svg.addEventListener("pointerdown", (e) => { stick = { ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY }; svg.setPointerCapture(e.pointerId); });
+svg.addEventListener("pointermove", (e) => { if (stick) { stick.x = e.clientX; stick.y = e.clientY; } });
+svg.addEventListener("pointerup", () => { stick = null; });
+svg.addEventListener("pointercancel", () => { stick = null; });
+
+// Demo driver: walk a square circuit around the cluster, then wander off so the
+// closure, the refunded salt, and the tail's decay stages are all visible.
+const demoPath = [];
+function demoMove() {
+  if (!demoPath.length) {
+    const cx = s.w / 2, cy = s.h / 2, r = 110;
+    demoPath.push({ x: cx - r, y: cy - r }, { x: cx + r, y: cy - r }, { x: cx + r, y: cy + r },
+      { x: cx - r + 24, y: cy + r }, { x: cx - r + 24, y: cy - r - 40 }, { x: cx - 260, y: cy - r - 40 });
+    demoPath.i = 0;
+  }
+  const wp = demoPath[Math.min(demoPath.i, demoPath.length - 1)];
+  const dx = wp.x - s.hero.x, dy = wp.y - s.hero.y, d = Math.hypot(dx, dy);
+  if (d < 10 && demoPath.i < demoPath.length - 1) demoPath.i++;
+  return d < 4 ? { x: 0, y: 0 } : { x: dx / d, y: dy / d };
+}
+
+function readMove() {
+  if (demo) return demoMove();
+  let x = 0, y = 0;
+  if (keys.a || keys.arrowleft) x -= 1;
+  if (keys.d || keys.arrowright) x += 1;
+  if (keys.w || keys.arrowup) y -= 1;
+  if (keys.s || keys.arrowdown) y += 1;
+  if (stick) { x = (stick.x - stick.ox) / 40; y = (stick.y - stick.oy) / 40; }
+  const m = Math.hypot(x, y);
+  return m > 1 ? { x: x / m, y: y / m } : { x, y };
+}
+
+// -- fx & toasts (shell-side only, fed by sim events) -----------------------
+const fx = []; // {kind:"flash",poly,fizzled,t0} | {kind:"mote",x,y,vx,vy,t0} | {kind:"chew",x,y,t0}
+const toastEl = document.getElementById("toast");
+let toastUntil = 0;
+function toast(msg) { toastEl.textContent = msg; toastEl.style.opacity = 1; toastUntil = performance.now() + 1900; }
+
+function takeEvents(now) {
+  for (const e of s.events) {
+    if (e.kind === "closure") {
+      fx.push({ kind: "flash", poly: e.poly, fizzled: e.fizzled, t0: now });
+      if (e.fizzled) toast("the circle was too small");
+      else {
+        toast(e.judged ? `${e.judged} soul${e.judged > 1 ? "s" : ""} shriven — ${Math.round(e.saltGained)} salt` : "the circle closed on nothing");
+        for (const f of s.foes) {
+          if (f.dead && s.elapsed - f.deadAt < 60) {
+            for (let i = 0; i < 6; i++) fx.push({ kind: "mote", x: f.x, y: f.y, vx: (Math.random() - 0.5) * 14, vy: -22 - Math.random() * 26, t0: now });
+          }
+        }
+        if (!aliveFoes(s)) toast("the parish is shriven");
+      }
+    } else if (e.kind === "chew") fx.push({ kind: "chew", x: e.x, y: e.y, t0: now });
+  }
+}
+
+// -- render (reads state, rebuilds the SVG — the family split) --------------
+const SIN_HUES = ["#6f8b8f", "#8f6f86", "#8b8b6a", "#6f7d8f", "#8f7a6a"];
+function render(now) {
+  let out = `<rect width="${s.w}" height="${s.h}" fill="#0d0d12"/>`;
+  // The Litany, bucketed by age into the §12 shape-language: solid -> dashed -> dotted.
+  const ttl = s.tune.lineTtl;
+  const buckets = ["", "", "", ""];
+  for (const st of s.strands) {
+    for (let i = 0; i + 1 < st.length; i++) {
+      const age = (s.elapsed - st[i + 1].t) / ttl;
+      const b = age < 0.35 ? 0 : age < 0.6 ? 1 : age < 0.8 ? 2 : 3;
+      buckets[b] += `M${st[i].x.toFixed(1)} ${st[i].y.toFixed(1)}L${st[i + 1].x.toFixed(1)} ${st[i + 1].y.toFixed(1)}`;
+    }
+  }
+  if (buckets[0]) out += `<path d="${buckets[0]}" stroke="#f5b942" stroke-width="7" opacity=".18" fill="none" stroke-linecap="round"/>`
+    + `<path d="${buckets[0]}" stroke="#ffe1a0" stroke-width="2.6" opacity=".95" fill="none" stroke-linecap="round"/>`;
+  if (buckets[1]) out += `<path d="${buckets[1]}" stroke="#e59a4c" stroke-width="2.2" opacity=".8" fill="none"/>`;
+  if (buckets[2]) out += `<path d="${buckets[2]}" stroke="#b06a3a" stroke-width="2" opacity=".55" fill="none" stroke-dasharray="7 5"/>`;
+  if (buckets[3]) out += `<path d="${buckets[3]}" stroke="#74747c" stroke-width="1.6" opacity=".3" fill="none" stroke-dasharray="2 6"/>`;
+
+  // The host.
+  s.foes.forEach((f, i) => {
+    if (f.dead) {
+      const k = Math.min(1, (s.elapsed - f.deadAt) / 900);
+      if (k < 1) out += `<circle cx="${f.x}" cy="${f.y}" r="${8 + k * 6}" fill="#4a4a52" opacity="${0.4 * (1 - k)}"/>`;
+      return;
+    }
+    if (f.kind === "glutton") {
+      out += `<circle cx="${f.x}" cy="${f.y}" r="11" fill="#5d7345" opacity=".9"/>`
+        + `<circle cx="${f.x}" cy="${f.y}" r="5" fill="#39472b"/>`;
+    } else {
+      out += `<circle cx="${f.x}" cy="${f.y}" r="9" fill="${SIN_HUES[i % SIN_HUES.length]}" opacity=".28"/>`
+        + `<circle cx="${f.x}" cy="${f.y}" r="6.5" fill="#bdb6a8" opacity=".85"/>`;
+    }
+  });
+
+  // The Sin-Eater: a small hooded dark over the censer's glow.
+  out += `<circle cx="${s.hero.x}" cy="${s.hero.y}" r="13" fill="#f5b942" opacity=".14"/>`
+    + `<circle cx="${s.hero.x}" cy="${s.hero.y}" r="6" fill="#2c2a30" stroke="#e8e2d4" stroke-width="1.2"/>`;
+
+  // Fx: judgment is a rushing dimness, then ash falling upward (§10).
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const e = fx[i], k = (now - e.t0) / (e.kind === "mote" ? 1200 : 700);
+    if (k >= 1) { fx.splice(i, 1); continue; }
+    if (e.kind === "flash") {
+      const pts = e.poly.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+      out += e.fizzled
+        ? `<polygon points="${pts}" fill="#55545c" opacity="${0.25 * (1 - k)}"/>`
+        : `<polygon points="${pts}" fill="#ffd98f" opacity="${0.32 * (1 - k)}" stroke="#ffe1a0" stroke-opacity="${0.8 * (1 - k)}"/>`;
+    } else if (e.kind === "mote") {
+      out += `<circle cx="${e.x + e.vx * k}" cy="${e.y + e.vy * k}" r="1.6" fill="#d8d2c4" opacity="${0.8 * (1 - k)}"/>`;
+    } else {
+      out += `<circle cx="${e.x}" cy="${e.y}" r="${4 + k * 10}" fill="none" stroke="#5d7345" opacity="${0.6 * (1 - k)}"/>`;
+    }
+  }
+  if (stick) {
+    out += `<circle cx="${stick.ox}" cy="${stick.oy}" r="34" fill="none" stroke="#55545c" opacity=".4"/>`
+      + `<circle cx="${stick.x}" cy="${stick.y}" r="12" fill="#55545c" opacity=".4"/>`;
+  }
+  svg.setAttribute("viewBox", `0 0 ${s.w} ${s.h}`);
+  svg.innerHTML = out;
+
+  document.getElementById("saltbar").style.width = `${(100 * s.salt) / s.tune.saltMax}%`;
+  document.getElementById("saltnum").textContent = Math.round(s.salt);
+  document.getElementById("shriven").textContent = `${s.judged} / ${s.total}`;
+  document.getElementById("lastc").textContent = s.lastClosure
+    ? (s.lastClosure.fizzled ? `last circle fizzled (${Math.round(s.lastClosure.area)} px²)`
+      : `last circle: ${Math.round(s.lastClosure.area)} px², ${s.lastClosure.judged} judged`) : "";
+  if (toastUntil && now > toastUntil) { toastEl.style.opacity = 0; toastUntil = 0; }
+}
+
+// -- tuning panel -----------------------------------------------------------
+const sliders = [["t-ttl", "v-ttl", "lineTtl", (v) => (v / 1000).toFixed(1)],
+  ["t-area", "v-area", "minLoopArea", (v) => v], ["t-salt", "v-salt", "saltPerPx", (v) => v]];
+function syncPanel() {
+  for (const [id, vid, key, fmt] of sliders) {
+    const el = document.getElementById(id);
+    el.value = s.tune[key];
+    document.getElementById(vid).textContent = fmt(s.tune[key]);
+    el.oninput = () => { s.tune[key] = +el.value; document.getElementById(vid).textContent = fmt(+el.value); };
+  }
+}
+document.getElementById("reset").onclick = reset;
+addEventListener("resize", () => { s.w = W(); s.h = H(); });
+
+// -- the loop ---------------------------------------------------------------
+reset();
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min(50, now - prev);
+  prev = now;
+  step(s, dt, readMove());
+  takeEvents(now);
+  render(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -101,6 +101,28 @@
   .class .name { font-size: 14.5px; letter-spacing: 0.06em; color: var(--accent, var(--gold-bright)); }
   .class .desc { font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
 
+  /* The rite under trial — a full-width, deliberately unfinished-looking card
+     for the playable prototype (not a class yet). */
+  .experiment {
+    display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit;
+    margin-top: 14px; width: 100%; padding: 13px 18px;
+    border: 1px dashed var(--edge); border-radius: 14px; background: rgba(10,12,24,0.35);
+    transition: transform .16s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+  .experiment:hover, .experiment:focus-visible {
+    transform: translateY(-2px); outline: none; border-color: var(--gold);
+    box-shadow: 0 8px 26px rgba(0,0,0,0.45), 0 0 22px -8px var(--gold);
+  }
+  .experiment .body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .experiment .sigil { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%;
+    border: 1.5px dashed var(--gold); opacity: 0.75;
+    box-shadow: 0 0 14px -2px rgba(232,179,75,0.5) inset, 0 0 12px -4px rgba(232,179,75,0.6); }
+  .experiment .name { font-size: 13.5px; letter-spacing: 0.06em; color: var(--gold-bright); }
+  .experiment .tag { font-size: 9.5px; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-dim); margin-left: 8px; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 1px 7px; vertical-align: 1px; }
+  .experiment .desc { font-size: 12px; line-height: 1.45; color: var(--ink-dim); }
+
   footer { margin-top: 30px; font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim);
     text-align: center; text-transform: uppercase; opacity: 0.7; }
   footer a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid transparent; }
@@ -160,6 +182,16 @@
       </span>
     </a>
   </div>
+
+  <!-- The rite under trial: the Litany-line prototype (SIN_EATER_CONCEPT.md §3).
+       Not a class yet — a playable proof of the walked-sigil verb. -->
+  <a class="experiment" href="./proto/sineater-proto.html">
+    <span class="sigil"></span>
+    <span class="body">
+      <span class="name">The Sin-Eater's Round<span class="tag">prototype</span></span>
+      <span class="desc">A rite under trial: your footsteps lay a guttering line of salt — cross your own line to close the circle, and everything unshriven inside is judged.</span>
+    </span>
+  </a>
 
   <footer>Choose a class to begin · your descent plays as that class</footer>
 </main>
